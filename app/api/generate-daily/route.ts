@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
       level_code: level,
       set_date: today,
       theme: theme ?? null,
-      generation_model: 'gemini-2.5-flash',
+      generation_model: 'gemini-3.6-flash',
     })
     .select()
     .single();
