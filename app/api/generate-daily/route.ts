@@ -52,51 +52,56 @@ export async function GET(req: NextRequest) {
 
   if (setError) return NextResponse.json({ error: setError.message }, { status: 500 });
 
-  // --- Si ce lot a déjà ses phrases complètes, on ne régénère rien.
-  const { count: existingCount } = await supabaseAdmin
+  // --- Si ce lot a déjà ses phrases, on ne régénère PAS le texte (pour ne
+  // pas gaspiller de l'appel Gemini) mais on identifie celles sans audio
+  // pour retenter uniquement leur synthèse vocale.
+  const { data: existingPhrases } = await supabaseAdmin
     .from('phrases')
-    .select('id', { count: 'exact', head: true })
-    .eq('phrase_set_id', phraseSet.id);
+    .select('id, target_text, position, audio_url')
+    .eq('phrase_set_id', phraseSet.id)
+    .order('position');
 
-  if ((existingCount ?? 0) >= count) {
+  let insertedRows = existingPhrases ?? [];
+
+  if (insertedRows.length === 0) {
+    // --- Étape 1 : générer et insérer les textes immédiatement (rapide,
+    // ~2-5s). Comme ça, si l'étape audio timeout, les phrases restent quand
+    // même consultables (juste sans son pour l'instant, régénérable ensuite
+    // en rappelant cette même route).
+    let generated;
+    try {
+      generated = await generatePhrases(language, level, count, theme);
+    } catch (e: any) {
+      return NextResponse.json({ error: `Génération des phrases échouée: ${e.message}` }, { status: 500 });
+    }
+
+    const { data: newRows, error: insertError } = await supabaseAdmin
+      .from('phrases')
+      .insert(
+        generated.map((phrase, i) => ({
+          phrase_set_id: phraseSet.id,
+          target_text: phrase.target_text,
+          translation_fr: phrase.translation_fr,
+          notes: phrase.notes ?? null,
+          position: i + 1,
+        }))
+      )
+      .select();
+
+    if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
+    insertedRows = newRows;
+  }
+
+  const rowsNeedingAudio = insertedRows.filter((r) => !r.audio_url);
+
+  if (rowsNeedingAudio.length === 0) {
     return NextResponse.json({
-      message: 'Lot déjà complet pour aujourd\'hui',
+      message: 'Lot déjà complet (texte + audio) pour aujourd\'hui',
       phrase_set_id: phraseSet.id,
-      phrases: existingCount,
+      phrases: insertedRows.length,
     });
   }
 
-  // --- Lot partiel (essai précédent interrompu) : on nettoie avant de
-  // régénérer proprement du début plutôt que d'essayer de "compléter".
-  if ((existingCount ?? 0) > 0) {
-    await supabaseAdmin.from('phrases').delete().eq('phrase_set_id', phraseSet.id);
-  }
-
-  // --- Étape 1 : générer et insérer les textes immédiatement (rapide,
-  // ~2-5s). Comme ça, si l'étape audio timeout, les phrases restent quand
-  // même consultables (juste sans son pour l'instant, régénérable ensuite
-  // en rappelant cette même route).
-  let generated;
-  try {
-    generated = await generatePhrases(language, level, count, theme);
-  } catch (e: any) {
-    return NextResponse.json({ error: `Génération des phrases échouée: ${e.message}` }, { status: 500 });
-  }
-
-  const { data: insertedRows, error: insertError } = await supabaseAdmin
-    .from('phrases')
-    .insert(
-      generated.map((phrase, i) => ({
-        phrase_set_id: phraseSet.id,
-        target_text: phrase.target_text,
-        translation_fr: phrase.translation_fr,
-        notes: phrase.notes ?? null,
-        position: i + 1,
-      }))
-    )
-    .select();
-
-  if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
 
   // --- Étape 2 : générer l'audio en parallèle par lots de TTS_CONCURRENCY,
   // et mettre à jour chaque ligne au fur et à mesure. Une phrase dont le TTS
@@ -105,9 +110,10 @@ export async function GET(req: NextRequest) {
   // nettoyage automatique du lot partiel ci-dessus).
   let audioOk = 0;
   let audioFailed = 0;
+  const audioErrors: string[] = [];
 
-  for (let i = 0; i < insertedRows.length; i += TTS_CONCURRENCY) {
-    const batch = insertedRows.slice(i, i + TTS_CONCURRENCY);
+  for (let i = 0; i < rowsNeedingAudio.length; i += TTS_CONCURRENCY) {
+    const batch = rowsNeedingAudio.slice(i, i + TTS_CONCURRENCY);
     const results = await Promise.allSettled(
       batch.map(async (row) => {
         const storagePath = `${language}/${level}/${phraseSet.id}/${row.position}.mp3`;
@@ -119,8 +125,16 @@ export async function GET(req: NextRequest) {
         if (error) throw error;
       })
     );
-    audioOk += results.filter((r) => r.status === 'fulfilled').length;
-    audioFailed += results.filter((r) => r.status === 'rejected').length;
+    for (const r of results) {
+      if (r.status === 'fulfilled') {
+        audioOk++;
+      } else {
+        audioFailed++;
+        const message = r.reason?.message ?? String(r.reason);
+        console.error('TTS échoué pour une phrase:', message);
+        if (audioErrors.length < 3) audioErrors.push(message); // on garde juste les 3 premières pour ne pas noyer la réponse
+      }
+    }
   }
 
   return NextResponse.json({
@@ -130,5 +144,6 @@ export async function GET(req: NextRequest) {
     phrases_generated: insertedRows.length,
     audio_ok: audioOk,
     audio_failed: audioFailed,
+    audio_error_samples: audioErrors, // 1res erreurs TTS, pour diagnostiquer sans aller dans les logs Vercel
   });
 }
