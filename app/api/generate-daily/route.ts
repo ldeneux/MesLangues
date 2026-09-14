@@ -3,12 +3,15 @@ import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { generatePhrases } from '../../../lib/generatePhrases';
 import { synthesizeAndStore } from '../../../lib/tts';
 
-export const maxDuration = 60; // secondes (génération + synthèse de 30 phrases)
+// 60 = maximum autorisé sur le plan Vercel Hobby sans Fluid Compute.
+// Si ça retimeout encore malgré la parallélisation ci-dessous, active
+// "Fluid Compute" dans Project Settings > Functions sur Vercel (gratuit
+// sur Hobby, monte le plafond à 300s) — aucun changement de code requis.
+export const maxDuration = 60;
+
+const TTS_CONCURRENCY = 6; // nb de synthèses audio lancées en parallèle
 
 export async function GET(req: NextRequest) {
-  // Sécurise l'appel : soit le header envoyé par Vercel Cron, soit un appel
-  // manuel authentifié avec CRON_SECRET en query param (utile pour un
-  // bouton "générer maintenant" côté admin).
   const authHeader = req.headers.get('authorization');
   const secretParam = req.nextUrl.searchParams.get('secret');
   const expected = process.env.CRON_SECRET;
@@ -27,7 +30,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Paramètre "language" requis' }, { status: 400 });
   }
 
-  // Évite de régénérer si le lot du jour existe déjà pour cette langue/niveau.
   const today = new Date().toISOString().slice(0, 10);
   const { data: existingSet } = await supabaseAdmin
     .from('phrase_sets')
@@ -55,6 +57,9 @@ export async function GET(req: NextRequest) {
 
   if (setError) return NextResponse.json({ error: setError.message }, { status: 500 });
 
+  // --- Étape 1 : générer et insérer les 30 textes immédiatement (rapide,
+  // ~2-5s). Comme ça, si l'étape audio timeout, les phrases restent quand
+  // même consultables (juste sans son pour l'instant).
   let generated;
   try {
     generated = await generatePhrases(language, level, count, theme);
@@ -62,44 +67,51 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: `Génération des phrases échouée: ${e.message}` }, { status: 500 });
   }
 
-  const results = [];
-  for (let i = 0; i < generated.length; i++) {
-    const phrase = generated[i];
-    let audioUrl: string | null = null;
-    let voice: string | null = null;
-
-    try {
-      const storagePath = `${language}/${level}/${phraseSet.id}/${i + 1}.mp3`;
-      const synth = await synthesizeAndStore(phrase.target_text, language, storagePath);
-      audioUrl = synth.audioUrl;
-      voice = synth.voice;
-    } catch (e: any) {
-      // On garde la phrase même si la synthèse échoue pour une phrase donnée ;
-      // le texte reste utilisable, l'audio pourra être régénéré plus tard.
-      console.error(`TTS échoué pour la phrase ${i + 1}:`, e.message);
-    }
-
-    const { data: row, error: insertError } = await supabaseAdmin
-      .from('phrases')
-      .insert({
+  const { data: insertedRows, error: insertError } = await supabaseAdmin
+    .from('phrases')
+    .insert(
+      generated.map((phrase, i) => ({
         phrase_set_id: phraseSet.id,
         target_text: phrase.target_text,
         translation_fr: phrase.translation_fr,
         notes: phrase.notes ?? null,
-        audio_url: audioUrl,
-        audio_voice: voice,
         position: i + 1,
-      })
-      .select()
-      .single();
+      }))
+    )
+    .select();
 
-    if (!insertError) results.push(row);
+  if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
+
+  // --- Étape 2 : générer l'audio en parallèle par lots de TTS_CONCURRENCY,
+  // et mettre à jour chaque ligne au fur et à mesure. Une phrase dont le TTS
+  // échoue (ou timeout) reste utilisable en texte ; son audio_url restera
+  // NULL et pourra être régénéré plus tard.
+  let audioOk = 0;
+  let audioFailed = 0;
+
+  for (let i = 0; i < insertedRows.length; i += TTS_CONCURRENCY) {
+    const batch = insertedRows.slice(i, i + TTS_CONCURRENCY);
+    const results = await Promise.allSettled(
+      batch.map(async (row) => {
+        const storagePath = `${language}/${level}/${phraseSet.id}/${row.position}.mp3`;
+        const { audioUrl, voice } = await synthesizeAndStore(row.target_text, language, storagePath);
+        const { error } = await supabaseAdmin
+          .from('phrases')
+          .update({ audio_url: audioUrl, audio_voice: voice })
+          .eq('id', row.id);
+        if (error) throw error;
+      })
+    );
+    audioOk += results.filter((r) => r.status === 'fulfilled').length;
+    audioFailed += results.filter((r) => r.status === 'rejected').length;
   }
 
   return NextResponse.json({
     phrase_set_id: phraseSet.id,
     language,
     level,
-    generated: results.length,
+    phrases_generated: insertedRows.length,
+    audio_ok: audioOk,
+    audio_failed: audioFailed,
   });
 }

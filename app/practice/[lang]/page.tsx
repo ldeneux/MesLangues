@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import PracticeDeck from './PracticeDeck';
 
 const LABELS: Record<string, { label: string; flag: string }> = {
   it: { label: 'Italien', flag: '🇮🇹' },
@@ -29,7 +30,7 @@ export default async function PracticePage({ params }: { params: { lang: string 
           .select('id, target_text, translation_fr, notes, audio_url, position')
           .eq('phrase_set_id', phraseSet.id)
           .order('position')
-      ).data
+      ).data ?? []
     : [];
 
   return (
@@ -46,18 +47,7 @@ export default async function PracticePage({ params }: { params: { lang: string 
 
       {phraseSet?.theme && <p className="eyebrow-free">Thème du jour : {phraseSet.theme}</p>}
 
-      <div className="phrase-list">
-        {phrases?.map((p) => (
-          <div className="phrase-card" key={p.id}>
-            <div className="phrase-target">{p.target_text}</div>
-            <div className="phrase-fr">{p.translation_fr}</div>
-            {p.notes && <div className="phrase-notes">{p.notes}</div>}
-            {p.audio_url && (
-              <audio className="phrase-audio" controls preload="none" src={p.audio_url} />
-            )}
-          </div>
-        ))}
-      </div>
+      {phrases.length > 0 && <PracticeDeck phrases={phrases} />}
     </main>
   );
 }
