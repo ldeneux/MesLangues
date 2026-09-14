@@ -155,3 +155,170 @@ button.secondary {
 }
 
 button.secondary:disabled { opacity: 0.4; cursor: default; }
+
+/* --- Sélecteur de langue (drapeaux) --- */
+.flag-row {
+  display: flex;
+  gap: 0.6rem;
+  margin: 1.25rem 0 1rem;
+}
+
+.flag-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.7rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+}
+
+.flag-btn .flag { font-size: 1.7rem; line-height: 1; }
+.flag-btn .flag-label { font-size: 0.78rem; color: var(--ink-soft); }
+
+.flag-btn:hover { transform: translateY(-1px); border-color: var(--ink-soft); }
+
+.flag-btn.active {
+  border-color: var(--ink);
+  background: var(--ink);
+}
+.flag-btn.active .flag-label { color: var(--paper); }
+
+/* --- Sélecteur de niveau --- */
+.level-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.level-btn {
+  flex: 1;
+  padding: 0.5rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.level-btn:hover { border-color: var(--ink-soft); }
+
+.level-btn.active {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* --- Onglets --- */
+.tab-row {
+  display: flex;
+  gap: 1.5rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 1.5rem;
+}
+
+.tab-btn {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 0.6rem 0.1rem;
+  font-size: 0.98rem;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.tab-btn.active {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+  font-weight: 600;
+}
+
+/* --- Révision : chips de dates --- */
+.date-chips {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.4rem;
+  margin-bottom: 1.25rem;
+}
+
+.date-chip {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.date-chip.active {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* --- Révision : grille de toutes les phrases du jour choisi --- */
+.revision-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.7rem;
+}
+
+.revision-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.8rem 0.9rem;
+  background: white;
+}
+
+.revision-card-text { flex: 1; min-width: 0; }
+
+.revision-target { font-size: 0.98rem; font-weight: 500; }
+
+.revision-fr { font-size: 0.85rem; color: var(--ink-soft); margin-top: 0.1rem; }
+
+.revision-notes {
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--ink-soft);
+  border-left: 2px solid var(--line);
+  padding-left: 0.5rem;
+}
+
+.play-btn {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.play-btn:disabled { opacity: 0.35; cursor: default; }
+
+.play-btn.playing {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
