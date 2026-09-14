@@ -1,10 +1,10 @@
 # Frasi — apprendre l'italien, l'espagnol et l'anglais au quotidien
 
 30 phrases de vraie vie générées par IA (Gemini, gratuit) chaque jour,
-prononcées en audio (edge-tts, gratuit et sans clé), niveaux A1/A2 pour
-commencer, puis tests de niveau en QCM. Stack 100% gratuite pour un usage
-personnel, sans carte bancaire nulle part (Vercel Hobby + Supabase Free +
-Gemini free tier + edge-tts).
+prononcées en audio (Google Cloud TTS, gratuit dans la limite), niveaux
+A1/A2 pour commencer, puis tests de niveau en QCM. Stack quasi 100%
+gratuite pour un usage personnel (Vercel Hobby + Supabase Free + Gemini
+free tier + Google TTS free tier avec quota de sécurité).
 
 ## 1. Créer le projet Supabase
 
@@ -29,19 +29,29 @@ donc largement dans la marge. Seul point à savoir : en free tier, Google
 peut utiliser le contenu envoyé pour améliorer ses produits (pas le cas en
 palier payant) — sans enjeu pour des phrases de vocabulaire courant.
 
-## 3. Synthèse vocale : rien à faire
+## 3. Clé Google Cloud TTS (gratuite) + garde-fou anti-facturation
 
-La voix est générée via [edge-tts](https://github.com/andresaya/edge-tts),
-qui donne accès gratuitement (sans clé, sans compte, sans carte bancaire)
-aux voix neuronales utilisées par Microsoft Edge. Aucune configuration
-requise — c'est déjà branché dans `lib/tts.ts`.
+1. Crée/utilise un projet sur [console.cloud.google.com](https://console.cloud.google.com).
+2. Un compte de facturation doit être associé au projet pour activer l'API
+   (obligatoire côté Google, même pour rester dans le palier gratuit).
+3. Active l'API **Cloud Text-to-Speech API**.
+4. Va dans **APIs & Services > Identifiants > Créer une clé API**.
+5. Restreins cette clé à l'API Text-to-Speech uniquement (sécurité).
+6. Copie la clé → `GOOGLE_TTS_API_KEY`.
 
-⚠️ À savoir : ce n'est pas une API officielle Microsoft (c'est un accès
-reverse-engineered au même service que "Lire à voix haute" dans Edge).
-Ça fonctionne très bien et c'est largement utilisé, mais sans garantie de
-disponibilité à long terme. Si ça casse un jour, il suffira de remplacer
-`lib/tts.ts` par une autre implémentation (Google Cloud TTS avec facturation,
-par exemple) sans toucher au reste de l'appli.
+**Garde-fou (important)** : Google ne bloque pas automatiquement les
+dépenses par défaut — une alerte de budget ne fait qu'envoyer un email, elle
+ne coupe rien. Pose plutôt un **quota dur sur l'API elle-même** :
+
+1. Console Google Cloud → **IAM & Admin > Quotas**.
+2. Cherche "Cloud Text-to-Speech API".
+3. Édite le quota de caractères par jour, fixe-le à **150 000/jour**
+   (large marge au-dessus de ton usage réel ~5 000/jour, mais bien en
+   dessous du seuil gratuit mensuel de 4M).
+
+Une fois ce plafond atteint, l'API refuse simplement les requêtes
+suivantes — impossible d'être facturé au-delà, même en cas de bug qui
+partirait en boucle.
 
 ## 4. Configuration locale
 
@@ -78,7 +88,7 @@ Puis va sur `http://localhost:3000` et clique sur Italien.
 
 - Schéma Supabase complet (phrases, progression, tests, RLS)
 - Génération de phrases idiomatiques (pas du vocabulaire isolé) via Claude
-- Synthèse vocale edge-tts (gratuite, sans clé) + stockage Supabase Storage (jamais regénérée deux fois)
+- Synthèse vocale Google Cloud TTS (HTTPS simple, fiable en serverless) + stockage Supabase Storage (jamais regénérée deux fois)
 - Page d'accueil + page de pratique par langue avec lecteur audio
 - Génération de QCM de niveau
 
@@ -89,3 +99,6 @@ Puis va sur `http://localhost:3000` et clique sur Italien.
 - Passage automatique A1 → A2 selon les résultats aux tests
 - Page pour repasser/consulter les phrases des jours précédents
 - Bouton admin "générer maintenant" au lieu d'appeler l'URL à la main
+- Purge automatique des vieux lots (texte + audio Storage) : à ~200-270 Mo/mois
+  générés, le quota gratuit Supabase (1 Go de stockage fichiers) sera atteint
+  au bout de quelques mois sans nettoyage — à surveiller
