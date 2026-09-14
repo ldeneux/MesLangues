@@ -31,35 +31,51 @@ export async function GET(req: NextRequest) {
   }
 
   const today = new Date().toISOString().slice(0, 10);
-  const { data: existingSet } = await supabaseAdmin
-    .from('phrase_sets')
-    .select('id')
-    .eq('language_code', language)
-    .eq('level_code', level)
-    .eq('set_date', today)
-    .maybeSingle();
 
-  if (existingSet) {
-    return NextResponse.json({ message: 'Lot déjà généré aujourd\'hui', phrase_set_id: existingSet.id });
-  }
-
+  // --- Upsert du lot du jour : s'il existe déjà (même partiellement à
+  // cause d'un essai précédent qui a timeout), on récupère sa ligne au lieu
+  // de planter sur la contrainte unique.
   const { data: phraseSet, error: setError } = await supabaseAdmin
     .from('phrase_sets')
-    .insert({
-      language_code: language,
-      level_code: level,
-      set_date: today,
-      theme: theme ?? null,
-      generation_model: 'gemini-3.6-flash',
-    })
+    .upsert(
+      {
+        language_code: language,
+        level_code: level,
+        set_date: today,
+        theme: theme ?? null,
+        generation_model: 'gemini-3.6-flash',
+      },
+      { onConflict: 'language_code,level_code,set_date', ignoreDuplicates: false }
+    )
     .select()
     .single();
 
   if (setError) return NextResponse.json({ error: setError.message }, { status: 500 });
 
-  // --- Étape 1 : générer et insérer les 30 textes immédiatement (rapide,
+  // --- Si ce lot a déjà ses phrases complètes, on ne régénère rien.
+  const { count: existingCount } = await supabaseAdmin
+    .from('phrases')
+    .select('id', { count: 'exact', head: true })
+    .eq('phrase_set_id', phraseSet.id);
+
+  if ((existingCount ?? 0) >= count) {
+    return NextResponse.json({
+      message: 'Lot déjà complet pour aujourd\'hui',
+      phrase_set_id: phraseSet.id,
+      phrases: existingCount,
+    });
+  }
+
+  // --- Lot partiel (essai précédent interrompu) : on nettoie avant de
+  // régénérer proprement du début plutôt que d'essayer de "compléter".
+  if ((existingCount ?? 0) > 0) {
+    await supabaseAdmin.from('phrases').delete().eq('phrase_set_id', phraseSet.id);
+  }
+
+  // --- Étape 1 : générer et insérer les textes immédiatement (rapide,
   // ~2-5s). Comme ça, si l'étape audio timeout, les phrases restent quand
-  // même consultables (juste sans son pour l'instant).
+  // même consultables (juste sans son pour l'instant, régénérable ensuite
+  // en rappelant cette même route).
   let generated;
   try {
     generated = await generatePhrases(language, level, count, theme);
@@ -85,7 +101,8 @@ export async function GET(req: NextRequest) {
   // --- Étape 2 : générer l'audio en parallèle par lots de TTS_CONCURRENCY,
   // et mettre à jour chaque ligne au fur et à mesure. Une phrase dont le TTS
   // échoue (ou timeout) reste utilisable en texte ; son audio_url restera
-  // NULL et pourra être régénéré plus tard.
+  // NULL et sera régénéré au prochain appel de cette route (grâce au
+  // nettoyage automatique du lot partiel ci-dessus).
   let audioOk = 0;
   let audioFailed = 0;
 
