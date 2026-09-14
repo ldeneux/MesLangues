@@ -5,8 +5,9 @@ import { LANGS, LEVELS, type LangCode, type LevelCode } from '../../lib/constant
 import { getTodaySet, type Phrase, type PhraseSetInfo } from '../../lib/data';
 import PhraseDeck from './PhraseDeck';
 import RevisionPanel from './RevisionPanel';
+import ConversationPanel from './ConversationPanel';
 
-type Tab = 'today' | 'revision';
+type Tab = 'today' | 'revision' | 'conversation';
 
 export default function LanguageHub() {
   const [lang, setLang] = useState<LangCode>(LANGS[0].code);
@@ -73,6 +74,12 @@ export default function LanguageHub() {
         >
           Révision
         </button>
+        <button
+          className={`tab-btn${tab === 'conversation' ? ' active' : ''}`}
+          onClick={() => setTab('conversation')}
+        >
+          Conversation
+        </button>
       </div>
 
       <div className="tab-content">
@@ -94,6 +101,16 @@ export default function LanguageHub() {
         )}
 
         {tab === 'revision' && <RevisionPanel languageCode={lang} levelCode={level} />}
+
+        {tab === 'conversation' && (
+          <ConversationPanel
+            key={`${lang}-${level}`}
+            languageCode={lang}
+            languageLabel={LANGS.find((l) => l.code === lang)?.label ?? lang}
+            levelCode={level}
+            bcp47={LANGS.find((l) => l.code === lang)?.bcp47 ?? 'en-GB'}
+          />
+        )}
       </div>
     </div>
   );

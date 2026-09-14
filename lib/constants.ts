@@ -1,7 +1,7 @@
 export const LANGS = [
-  { code: 'it', label: 'Italien', flag: '🇮🇹' },
-  { code: 'es', label: 'Espagnol', flag: '🇪🇸' },
-  { code: 'en', label: 'Anglais', flag: '🇬🇧' },
+  { code: 'it', label: 'Italien', flag: '🇮🇹', bcp47: 'it-IT' },
+  { code: 'es', label: 'Espagnol', flag: '🇪🇸', bcp47: 'es-ES' },
+  { code: 'en', label: 'Anglais', flag: '🇬🇧', bcp47: 'en-GB' },
 ] as const;
 
 export const LEVELS = [

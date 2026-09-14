@@ -322,3 +322,115 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
   color: var(--paper);
   border-color: var(--ink);
 }
+
+/* --- Conversation --- */
+.conv-theme-input,
+.conv-text-input {
+  width: 100%;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 0.95rem;
+  background: white;
+  color: var(--ink);
+}
+
+.conv-theme-input { margin: 0.25rem 0 1rem; }
+
+.conv-warning {
+  font-size: 0.85rem;
+  color: var(--es);
+  background: #fbeeea;
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 0.8rem;
+}
+
+.conv-status {
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  margin-bottom: 0.9rem;
+  min-height: 1.2em;
+}
+
+.conv-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 1.2rem;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.conv-bubble {
+  max-width: 85%;
+  padding: 0.6rem 0.9rem;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.conv-bubble-ai {
+  align-self: flex-start;
+  background: white;
+  border: 1px solid var(--line);
+}
+
+.conv-bubble-user {
+  align-self: flex-end;
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.conv-feedback {
+  font-size: 0.85rem;
+  font-style: italic;
+  color: var(--ink-soft);
+  border-left: 2px solid var(--line);
+  padding-left: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.conv-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+}
+
+.mic-btn {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: white;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.mic-btn.active {
+  background: var(--es);
+  border-color: var(--es);
+  color: white;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(163, 64, 47, 0.4); }
+  50% { box-shadow: 0 0 0 10px rgba(163, 64, 47, 0); }
+}
+
+.conv-text-row {
+  display: flex;
+  gap: 0.6rem;
+  width: 100%;
+}
+
+.conv-text-row .conv-text-input { flex: 1; }
+
+.conv-reset {
+  width: 100%;
+}

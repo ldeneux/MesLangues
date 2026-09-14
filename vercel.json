@@ -1,16 +1,3 @@
 {
-  "crons": [
-    {
-      "path": "/api/generate-daily?language=it&level=A1",
-      "schedule": "0 5 * * *"
-    },
-    {
-      "path": "/api/generate-daily?language=es&level=A1",
-      "schedule": "5 5 * * *"
-    },
-    {
-      "path": "/api/generate-daily?language=en&level=A1",
-      "schedule": "10 5 * * *"
-    }
-  ]
+  "crons": []
 }
