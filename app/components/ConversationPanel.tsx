@@ -1,10 +1,22 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { getConversationTurn, type ConversationTurn } from '../../lib/conversation';
+import {
+  getConversationTurn,
+  type ConversationTurn,
+  type ConversationCorrection,
+} from '../../lib/conversation';
 
 type Mode = 'audio' | 'audio_text';
 type Status = 'idle' | 'ai_speaking' | 'listening' | 'thinking' | 'error';
+
+type UiTurn =
+  | { kind: 'ai'; id: string; text: string; text_fr: string; revealed: boolean; revealedFr: boolean }
+  | { kind: 'user'; id: string; text: string }
+  | { kind: 'correction'; id: string; correction: ConversationCorrection };
+
+let uid = 0;
+const nextId = () => String(uid++);
 
 export default function ConversationPanel({
   languageCode,
@@ -21,9 +33,14 @@ export default function ConversationPanel({
   const [theme, setTheme] = useState('');
   const [started, setStarted] = useState(false);
   const [status, setStatus] = useState<Status>('idle');
-  const [turns, setTurns] = useState<ConversationTurn[]>([]);
-  const [lastFeedback, setLastFeedback] = useState('');
+
+  // Historique "brut" envoyé à l'IA (texte seulement).
+  const [history, setHistory] = useState<ConversationTurn[]>([]);
+  // Historique enrichi pour l'affichage (traduction, réglages de révélation, corrections).
+  const [uiTurns, setUiTurns] = useState<UiTurn[]>([]);
+
   const [draft, setDraft] = useState('');
+  const [liveCaption, setLiveCaption] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
   const recognitionRef = useRef<any>(null);
@@ -35,7 +52,6 @@ export default function ConversationPanel({
     setRecognitionSupported(!!SR);
   }, []);
 
-  // Coupe la synthèse vocale en quittant l'onglet/le composant.
   useEffect(() => {
     return () => {
       if (speechSupported) window.speechSynthesis.cancel();
@@ -65,21 +81,36 @@ export default function ConversationPanel({
     setErrorMsg('');
     try {
       const reply = await getConversationTurn(languageCode, levelCode, nextHistory, theme || undefined);
-      const updated: ConversationTurn[] = [...nextHistory, { speaker: 'ai', text: reply.message }];
-      setTurns(updated);
-      setLastFeedback(reply.feedback_fr);
+
+      setUiTurns((prev) => {
+        const additions: UiTurn[] = [];
+        if (reply.correction.has_error) {
+          additions.push({ kind: 'correction', id: nextId(), correction: reply.correction });
+        }
+        additions.push({
+          kind: 'ai',
+          id: nextId(),
+          text: reply.message,
+          text_fr: reply.message_fr,
+          revealed: mode === 'audio_text',
+          revealedFr: false,
+        });
+        return [...prev, ...additions];
+      });
+
+      setHistory([...nextHistory, { speaker: 'ai', text: reply.message }]);
       await speak(reply.message);
       setStatus('idle');
     } catch (e: any) {
-      setErrorMsg(e.message ?? "Erreur pendant la conversation.");
+      setErrorMsg(e.message ?? 'Erreur pendant la conversation.');
       setStatus('error');
     }
   }
 
   function handleStart() {
     setStarted(true);
-    setTurns([]);
-    setLastFeedback('');
+    setHistory([]);
+    setUiTurns([]);
     requestNextTurn([]);
   }
 
@@ -87,9 +118,10 @@ export default function ConversationPanel({
     if (speechSupported) window.speechSynthesis.cancel();
     recognitionRef.current?.stop?.();
     setStarted(false);
-    setTurns([]);
+    setHistory([]);
+    setUiTurns([]);
     setDraft('');
-    setLastFeedback('');
+    setLiveCaption('');
     setStatus('idle');
   }
 
@@ -97,9 +129,17 @@ export default function ConversationPanel({
     const clean = text.trim();
     if (!clean) return;
     setDraft('');
-    const updated: ConversationTurn[] = [...turns, { speaker: 'user', text: clean }];
-    setTurns(updated);
-    requestNextTurn(updated);
+    setLiveCaption('');
+    setUiTurns((prev) => [...prev, { kind: 'user', id: nextId(), text: clean }]);
+    const nextHistory: ConversationTurn[] = [...history, { speaker: 'user', text: clean }];
+    setHistory(nextHistory);
+    requestNextTurn(nextHistory);
+  }
+
+  function toggleReveal(id: string, field: 'revealed' | 'revealedFr') {
+    setUiTurns((prev) =>
+      prev.map((t) => (t.kind === 'ai' && t.id === id ? { ...t, [field]: !t[field] } : t))
+    );
   }
 
   function startListening() {
@@ -107,20 +147,21 @@ export default function ConversationPanel({
     if (!SR) return;
     const recognition = new SR();
     recognition.lang = bcp47;
-    recognition.interimResults = mode === 'audio_text';
+    recognition.interimResults = true; // on veut toujours voir le texte pendant qu'on parle
     recognition.maxAlternatives = 1;
 
     recognition.onresult = (event: any) => {
       const transcript = Array.from(event.results as any)
         .map((r: any) => r[0].transcript)
         .join(' ');
-      if (mode === 'audio_text') {
-        setDraft(transcript);
-      } else {
-        // Mode audio uniquement : dès que la reconnaissance a un résultat
-        // final, on l'envoie directement, pas d'étape d'édition.
-        const isFinal = event.results[event.results.length - 1].isFinal;
-        if (isFinal) submitAnswer(transcript);
+      setLiveCaption(transcript);
+      const isFinal = event.results[event.results.length - 1].isFinal;
+      if (isFinal) {
+        if (mode === 'audio') {
+          submitAnswer(transcript);
+        } else {
+          setDraft(transcript);
+        }
       }
     };
     recognition.onerror = () => setStatus((s) => (s === 'listening' ? 'idle' : s));
@@ -130,6 +171,7 @@ export default function ConversationPanel({
 
     recognitionRef.current = recognition;
     setStatus('listening');
+    setLiveCaption('');
     recognition.start();
   }
 
@@ -138,15 +180,18 @@ export default function ConversationPanel({
     setStatus('idle');
   }
 
-  const canListen = recognitionSupported && (status === 'idle');
+  const canListen = recognitionSupported && status === 'idle';
 
   if (!started) {
     return (
       <div className="conv-setup">
         <p className="eyebrow-free">
-          L'IA discute avec toi en {languageLabel}, s'adapte à tes réponses et te relance
-          naturellement. En mode "Audio uniquement" tout se passe à la voix ; en mode
-          "Audio + texte" tu vois aussi la transcription et peux répondre au clavier.
+          L'IA discute avec toi en {languageLabel}, s'adapte à tes réponses et corrige tes
+          erreurs au fil de la conversation, même quand elle a compris ce que tu voulais dire —
+          pour que tu progresses. En mode "Audio", ses questions restent cachées en texte par
+          défaut (bouton pour les afficher ou les traduire si besoin) ; en mode "Audio + texte"
+          elles s'affichent tout de suite. Tes propres réponses, elles, sont toujours affichées
+          en texte.
         </p>
 
         <div className="level-row">
@@ -154,7 +199,7 @@ export default function ConversationPanel({
             className={`level-btn${mode === 'audio' ? ' active' : ''}`}
             onClick={() => setMode('audio')}
           >
-            Audio uniquement
+            Audio
           </button>
           <button
             className={`level-btn${mode === 'audio_text' ? ' active' : ''}`}
@@ -202,27 +247,51 @@ export default function ConversationPanel({
         {status === 'error' && `⚠️ ${errorMsg}`}
       </div>
 
-      {mode === 'audio_text' && (
-        <div className="conv-transcript">
-          {turns.map((t, i) => (
-            <div key={i} className={`conv-bubble conv-bubble-${t.speaker}`}>
-              {t.text}
-            </div>
-          ))}
-          {lastFeedback && <div className="conv-feedback">💡 {lastFeedback}</div>}
-        </div>
-      )}
+      <div className="conv-transcript">
+        {uiTurns.map((t) => {
+          if (t.kind === 'user') {
+            return (
+              <div key={t.id} className="conv-bubble conv-bubble-user">
+                {t.text}
+              </div>
+            );
+          }
 
-      {mode === 'audio' && (
-        <>
-          {turns.length > 0 && (
-            <div className="phrase-card phrase-card-big">
-              <div className="phrase-target">{turns[turns.length - 1].text}</div>
+          if (t.kind === 'correction') {
+            return (
+              <div key={t.id} className="conv-correction">
+                <div className="conv-correction-label">✏️ Correction</div>
+                <div className="conv-correction-text">{t.correction.corrected_text}</div>
+                <div className="conv-correction-explanation">{t.correction.explanation_fr}</div>
+              </div>
+            );
+          }
+
+          // t.kind === 'ai'
+          return (
+            <div key={t.id} className="conv-bubble conv-bubble-ai">
+              {t.revealed ? (
+                <div>{t.text}</div>
+              ) : (
+                <div className="conv-hidden-text">🔊 (écoute l'audio)</div>
+              )}
+              {t.revealedFr && <div className="conv-bubble-translation">🇫🇷 {t.text_fr}</div>}
+              <div className="conv-bubble-actions">
+                <button className="conv-mini-btn" onClick={() => toggleReveal(t.id, 'revealed')}>
+                  {t.revealed ? 'Masquer le texte' : 'Afficher le texte'}
+                </button>
+                <button className="conv-mini-btn" onClick={() => toggleReveal(t.id, 'revealedFr')}>
+                  {t.revealedFr ? 'Masquer la traduction' : 'Traduire'}
+                </button>
+              </div>
             </div>
-          )}
-          {lastFeedback && <div className="conv-feedback">💡 {lastFeedback}</div>}
-        </>
-      )}
+          );
+        })}
+
+        {status === 'listening' && liveCaption && (
+          <div className="conv-bubble conv-bubble-user conv-bubble-live">{liveCaption}…</div>
+        )}
+      </div>
 
       <div className="conv-controls">
         {recognitionSupported ? (
@@ -237,7 +306,7 @@ export default function ConversationPanel({
           <span className="eyebrow-free">Réponds au clavier ci-dessous.</span>
         )}
 
-        {mode === 'audio_text' && (
+        {(mode === 'audio_text' || !recognitionSupported) && (
           <div className="conv-text-row">
             <input
               className="conv-text-input"

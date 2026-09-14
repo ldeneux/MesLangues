@@ -7,9 +7,16 @@ export type ConversationTurn = {
   text: string;
 };
 
+export type ConversationCorrection = {
+  has_error: boolean;
+  corrected_text: string;
+  explanation_fr: string;
+};
+
 export type ConversationReply = {
   message: string;
-  feedback_fr: string;
+  message_fr: string;
+  correction: ConversationCorrection;
 };
 
 const LEVEL_INSTRUCTIONS: Record<string, string> = {
@@ -27,7 +34,7 @@ function buildSystemPrompt(languageCode: string, levelCode: string, theme?: stri
   return `Tu es un partenaire de conversation en ${langName} pour un(e) apprenant(e)
 francophone de niveau CECRL ${levelCode} qui s'entraîne à l'oral.${themeHint}
 
-Règles :
+Règles pour la conversation elle-même :
 - Tu parles UNIQUEMENT en ${langName} dans le champ "message" (jamais en français).
 - Tu poses des questions courtes et naturelles, comme une vraie discussion
   informelle, pas un exercice scolaire.
@@ -35,21 +42,47 @@ Règles :
   précision ; si elle est riche, rebondis dessus et va plus loin ; si elle est
   hors sujet, suis-le avec curiosité plutôt que de forcer ton sujet de départ.
 - Niveau ${levelCode} : ${levelHint}
-- Si l'apprenant fait une erreur de grammaire ou de vocabulaire notable dans sa
-  dernière réponse, mets une courte reformulation corrigée et bienveillante en
-  français dans "feedback_fr" (une phrase maximum). Sinon laisse "feedback_fr"
-  vide (chaîne vide, pas de commentaire de politesse superflu).
 - Une seule question ou relance à la fois dans "message", jamais plusieurs
   d'un coup, pour garder un vrai rythme de conversation.
+- "message_fr" est la traduction française fidèle de "message", pour un
+  bouton "traduire" côté apprenant.
+
+Règles pour la correction (champ "correction"), TRÈS IMPORTANT :
+- Analyse la DERNIÈRE réponse de l'apprenant (pas les précédentes).
+- Dès qu'il y a une faute de grammaire, de conjugaison, d'accord ou de
+  vocabulaire — MÊME SI tu as parfaitement compris le sens — tu dois la
+  signaler. Ne laisse pas passer une erreur sous prétexte que le message
+  reste compréhensible : l'objectif est que l'apprenant progresse.
+- "has_error" : true s'il y a au moins une erreur notable, false sinon (pas
+  de correction pour une simple hésitation ou une réponse déjà correcte).
+- "corrected_text" (si has_error) : la phrase de l'apprenant réécrite
+  correctement en ${langName}, rien d'autre.
+- "explanation_fr" (si has_error) : en français, une explication courte et
+  pédagogique du point corrigé (ex : "conjugaison du verbe être au présent",
+  "accord de l'adjectif au féminin", "ordre des mots dans la question"...).
+  Une ou deux phrases maximum, orientée apprentissage, pas juste "faute
+  d'orthographe".
+- Si has_error est false, laisse "corrected_text" et "explanation_fr" vides.
+- Pour le tout premier message de la conversation (pas encore de réponse de
+  l'apprenant), "correction.has_error" doit être false.
 
 Tu réponds STRICTEMENT en JSON valide, sans texte avant/après, sans balises
-markdown, avec exactement ces clés :
-{ "message": "ta réplique en ${langName}", "feedback_fr": "correction brève en français, ou chaîne vide" }`;
+markdown, avec exactement cette forme :
+{
+  "message": "ta réplique en ${langName}",
+  "message_fr": "traduction française de ta réplique",
+  "correction": {
+    "has_error": true ou false,
+    "corrected_text": "réponse corrigée de l'apprenant en ${langName}, ou chaîne vide",
+    "explanation_fr": "explication pédagogique en français, ou chaîne vide"
+  }
+}`;
 }
 
 /**
  * Calcule le prochain tour de la conversation (ouverture si l'historique est
- * vide, sinon relance adaptée à la dernière réponse de l'apprenant).
+ * vide, sinon relance adaptée à la dernière réponse de l'apprenant, avec
+ * correction pédagogique systématique).
  */
 export async function getConversationTurn(
   languageCode: string,
@@ -63,7 +96,7 @@ export async function getConversationTurn(
   if (history.length === 0) {
     user = `Démarre la conversation avec une première question simple et naturelle
 (pas de "bonjour, comment vas-tu" trop scolaire, sois créatif dans le choix du sujet
-d'ouverture). "feedback_fr" doit être une chaîne vide pour ce premier message.`;
+d'ouverture). "correction.has_error" doit être false pour ce premier message.`;
   } else {
     const transcript = history
       .map((t) => `${t.speaker === 'ai' ? 'Toi' : "Apprenant"} : ${t.text}`)
@@ -71,8 +104,8 @@ d'ouverture). "feedback_fr" doit être une chaîne vide pour ce premier message.
     user = `Voici la conversation jusqu'ici :
 ${transcript}
 
-Réagis à la dernière réponse de l'apprenant, puis relance avec ta prochaine
-question ou remarque, en respectant les règles données.`;
+Corrige la dernière réponse de l'apprenant si besoin (voir règles), puis
+réagis et relance avec ta prochaine question ou remarque.`;
   }
 
   const text = await callGemini(system, user);
@@ -82,5 +115,13 @@ question ou remarque, en respectant les règles données.`;
     throw new Error('Format de réponse de conversation inattendu reçu de Gemini');
   }
 
-  return { message: parsed.message, feedback_fr: parsed.feedback_fr ?? '' };
+  return {
+    message: parsed.message,
+    message_fr: parsed.message_fr ?? '',
+    correction: {
+      has_error: parsed.correction?.has_error ?? false,
+      corrected_text: parsed.correction?.corrected_text ?? '',
+      explanation_fr: parsed.correction?.explanation_fr ?? '',
+    },
+  };
 }
