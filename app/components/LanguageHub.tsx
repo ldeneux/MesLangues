@@ -1,117 +1,74 @@
 'use client';
 
 import { useEffect, useState, useTransition } from 'react';
-import { LANGS, LEVELS, type LangCode, type LevelCode } from '../../lib/constants';
-import { getTodaySet, type Phrase, type PhraseSetInfo } from '../../lib/data';
+import { LEVELS, type LangCode, type LevelCode } from '../../lib/constants';
+import { getNextDailyPhrases, type Phrase } from '../../lib/data';
+import { useProfile } from './ProfileContext';
+import ProfileGate from './ProfileGate';
+import Sidebar, { type Tab } from './Sidebar';
 import PhraseDeck from './PhraseDeck';
 import RevisionPanel from './RevisionPanel';
-import ConversationPanel from './ConversationPanel';
-
-type Tab = 'today' | 'revision' | 'conversation';
+import PacksPanel from './PacksPanel';
+import VocabularyPanel from './VocabularyPanel';
 
 export default function LanguageHub() {
-  const [lang, setLang] = useState<LangCode>(LANGS[0].code);
-  const [level, setLevel] = useState<LevelCode>(LEVELS[0].code);
+  const { profile, loading } = useProfile();
+  const [lang, setLang] = useState<LangCode>('it');
+  const [level, setLevel] = useState<LevelCode>('A1');
   const [tab, setTab] = useState<Tab>('today');
 
-  const [todaySet, setTodaySet] = useState<PhraseSetInfo | null>(null);
   const [todayPhrases, setTodayPhrases] = useState<Phrase[]>([]);
+  const [hasReadyPacks, setHasReadyPacks] = useState<boolean | null>(null);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
-    if (tab !== 'today') return;
-    setTodaySet(null);
+    if (tab !== 'today' || !profile) return;
     setTodayPhrases([]);
+    setHasReadyPacks(null);
     startTransition(() => {
-      getTodaySet(lang, level).then(({ phraseSet, phrases }) => {
-        setTodaySet(phraseSet);
+      getNextDailyPhrases(profile.id, lang, level).then(({ phrases, hasReadyPacks }) => {
         setTodayPhrases(phrases);
+        setHasReadyPacks(hasReadyPacks);
       });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lang, level, tab]);
+  }, [lang, level, tab, profile?.id]);
+
+  if (loading) return <p className="eyebrow-free">Chargement…</p>;
+  if (!profile) return <ProfileGate />;
 
   return (
-    <div>
-      <h1>Frasi</h1>
+    <div className="hub-layout">
+      <Sidebar lang={lang} level={level} tab={tab} onLangChange={setLang} onLevelChange={setLevel} onTabChange={setTab} />
 
-      <div className="flag-row">
-        {LANGS.map((l) => (
-          <button
-            key={l.code}
-            className={`flag-btn${lang === l.code ? ' active' : ''}`}
-            onClick={() => setLang(l.code)}
-            aria-label={l.label}
-          >
-            <span className="flag">{l.flag}</span>
-            <span className="flag-label">{l.label}</span>
-          </button>
-        ))}
-      </div>
-
-      <div className="level-row">
-        {LEVELS.map((lv) => (
-          <button
-            key={lv.code}
-            className={`level-btn${level === lv.code ? ' active' : ''}`}
-            onClick={() => setLevel(lv.code)}
-          >
-            {lv.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="tab-row">
-        <button
-          className={`tab-btn${tab === 'today' ? ' active' : ''}`}
-          onClick={() => setTab('today')}
-        >
-          Phrases du jour
-        </button>
-        <button
-          className={`tab-btn${tab === 'revision' ? ' active' : ''}`}
-          onClick={() => setTab('revision')}
-        >
-          Révision
-        </button>
-        <button
-          className={`tab-btn${tab === 'conversation' ? ' active' : ''}`}
-          onClick={() => setTab('conversation')}
-        >
-          Conversation
-        </button>
-      </div>
-
-      <div className="tab-content">
+      <main className="hub-content">
         {tab === 'today' && (
           <>
-            {isPending && todayPhrases.length === 0 && (
+            {isPending && todayPhrases.length === 0 && hasReadyPacks === null && (
               <p className="eyebrow-free">Chargement…</p>
             )}
-            {!isPending && !todaySet && (
+            {!isPending && hasReadyPacks === false && (
               <p className="eyebrow-free">
-                Aucun lot généré pour aujourd'hui en {LEVELS.find((l) => l.code === level)?.label}.
-                Le cron quotidien s'en charge automatiquement, ou déclenche-le manuellement via{' '}
-                <code>/api/generate-daily?language={lang}&level={level}&secret=...</code>.
+                Aucun pack téléchargé pour {LEVELS.find((l) => l.code === level)?.label} pour l'instant. Va dans
+                l'onglet "Packs" pour en télécharger un.
               </p>
             )}
-            {todaySet?.theme && <p className="eyebrow-free">Thème du jour : {todaySet.theme}</p>}
-            {todayPhrases.length > 0 && <PhraseDeck phrases={todayPhrases} />}
+            {!isPending && hasReadyPacks === true && todayPhrases.length === 0 && (
+              <p className="eyebrow-free">
+                Tu as vu toutes les phrases disponibles à ce niveau pour l'instant — télécharge un nouveau pack dans
+                l'onglet "Packs" pour continuer.
+              </p>
+            )}
+            {todayPhrases.length > 0 && <PhraseDeck phrases={todayPhrases} profileId={profile.id} />}
           </>
         )}
 
         {tab === 'revision' && <RevisionPanel languageCode={lang} levelCode={level} />}
 
-        {tab === 'conversation' && (
-          <ConversationPanel
-            key={`${lang}-${level}`}
-            languageCode={lang}
-            languageLabel={LANGS.find((l) => l.code === lang)?.label ?? lang}
-            levelCode={level}
-            bcp47={LANGS.find((l) => l.code === lang)?.bcp47 ?? 'en-GB'}
-          />
-        )}
-      </div>
+        {tab === 'packs' && <PacksPanel languageCode={lang} levelCode={level} />}
+
+        {tab === 'vocabulary' && <VocabularyPanel profileId={profile.id} languageCode={lang} levelCode={level} />}
+      </main>
     </div>
   );
 }

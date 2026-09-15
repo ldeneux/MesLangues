@@ -1,13 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState, useTransition } from 'react';
-import type { Phrase, PhraseSetInfo } from '../../lib/data';
-import { getAvailableDates, getPhrasesBySetId } from '../../lib/data';
-
-function formatDate(iso: string) {
-  const d = new Date(iso + 'T00:00:00');
-  return d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
-}
+import type { Phrase, ReadyPack } from '../../lib/data';
+import { getBrowsablePacks, getPhrasesByPack } from '../../lib/data';
+import { THEMES } from '../../lib/constants';
 
 export default function RevisionPanel({
   languageCode,
@@ -16,31 +12,31 @@ export default function RevisionPanel({
   languageCode: string;
   levelCode: string;
 }) {
-  const [dates, setDates] = useState<PhraseSetInfo[] | null>(null);
-  const [selectedSet, setSelectedSet] = useState<PhraseSetInfo | null>(null);
+  const [packs, setPacks] = useState<ReadyPack[] | null>(null);
+  const [selectedPack, setSelectedPack] = useState<ReadyPack | null>(null);
   const [phrases, setPhrases] = useState<Phrase[]>([]);
+  const [themeFilter, setThemeFilter] = useState<string>('all');
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  // Recharge la liste des dates à chaque changement de langue/niveau,
-  // et sélectionne automatiquement la plus récente.
   useEffect(() => {
-    setDates(null);
-    setSelectedSet(null);
+    setPacks(null);
+    setSelectedPack(null);
     setPhrases([]);
-    getAvailableDates(languageCode, levelCode).then((res) => {
-      setDates(res);
-      if (res[0]) selectSet(res[0]);
+    getBrowsablePacks(languageCode, levelCode).then((res) => {
+      setPacks(res);
+      if (res[0]) selectPack(res[0]);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [languageCode, levelCode]);
 
-  function selectSet(set: PhraseSetInfo) {
-    setSelectedSet(set);
+  function selectPack(pack: ReadyPack) {
+    setSelectedPack(pack);
     setPhrases([]);
+    setThemeFilter('all');
     startTransition(() => {
-      getPhrasesBySetId(set.id).then(setPhrases);
+      getPhrasesByPack(pack.id).then(setPhrases);
     });
   }
 
@@ -54,29 +50,56 @@ export default function RevisionPanel({
     }
   }
 
-  if (dates === null) {
+  if (packs === null) {
     return <p className="eyebrow-free">Chargement des révisions…</p>;
   }
 
-  if (dates.length === 0) {
-    return <p className="eyebrow-free">Aucun lot généré pour ce niveau pour l'instant.</p>;
+  if (packs.length === 0) {
+    return (
+      <p className="eyebrow-free">
+        Aucun pack prêt pour ce niveau pour l'instant — télécharge-en un depuis l'onglet "Packs".
+      </p>
+    );
   }
+
+  const filteredPhrases =
+    themeFilter === 'all' ? phrases : phrases.filter((p) => p.theme_code === themeFilter);
+  const usedThemeCodes = new Set(phrases.map((p) => p.theme_code).filter(Boolean));
+  const availableThemes = THEMES.filter((t) => usedThemeCodes.has(t.code));
 
   return (
     <div>
       <div className="date-chips">
-        {dates.map((d) => (
+        {packs.map((p) => (
           <button
-            key={d.id}
-            className={`date-chip${selectedSet?.id === d.id ? ' active' : ''}`}
-            onClick={() => selectSet(d)}
+            key={p.id}
+            className={`date-chip${selectedPack?.id === p.id ? ' active' : ''}`}
+            onClick={() => selectPack(p)}
           >
-            {formatDate(d.set_date)}
+            Pack {p.pack_number}
           </button>
         ))}
       </div>
 
-      {selectedSet?.theme && <p className="eyebrow-free">Thème : {selectedSet.theme}</p>}
+      {phrases.length > 0 && (
+        <div className="date-chips">
+          <button
+            className={`date-chip${themeFilter === 'all' ? ' active' : ''}`}
+            onClick={() => setThemeFilter('all')}
+          >
+            Tous les thèmes
+          </button>
+          {availableThemes.map((t) => (
+            <button
+              key={t.code}
+              className={`date-chip${themeFilter === t.code ? ' active' : ''}`}
+              onClick={() => setThemeFilter(t.code)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <audio ref={audioRef} onEnded={() => setPlayingId(null)} style={{ display: 'none' }} />
 
@@ -84,7 +107,7 @@ export default function RevisionPanel({
         <p className="eyebrow-free">Chargement des phrases…</p>
       ) : (
         <div className="revision-grid">
-          {phrases.map((p) => (
+          {filteredPhrases.map((p) => (
             <div key={p.id} className="revision-card">
               <button
                 className={`play-btn${playingId === p.id ? ' playing' : ''}`}

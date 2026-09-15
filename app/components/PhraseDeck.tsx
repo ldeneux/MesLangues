@@ -1,17 +1,28 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Phrase } from '../../lib/data';
+import { markPhraseSeen } from '../../lib/data';
 
 export default function PhraseDeck({
   phrases,
+  profileId,
   startIndex = 0,
 }: {
   phrases: Phrase[];
+  profileId: string;
   startIndex?: number;
 }) {
   const [index, setIndex] = useState(Math.min(startIndex, phrases.length - 1));
   const phrase = phrases[index];
+
+  // On marque la phrase comme vue par ce profil dès qu'elle s'affiche —
+  // c'est ce qui alimente le vocabulaire appris et fait avancer la file de
+  // "Phrases du jour".
+  useEffect(() => {
+    if (phrase) markPhraseSeen(profileId, phrase.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phrase?.id]);
 
   if (!phrase) return null;
 

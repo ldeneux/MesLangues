@@ -8,73 +8,121 @@ export type Phrase = {
   translation_fr: string;
   notes: string | null;
   audio_url: string | null;
-  position: number;
+  theme_code: string | null;
 };
 
-export type PhraseSetInfo = {
+export type ReadyPack = {
   id: string;
-  set_date: string;
-  theme: string | null;
+  pack_number: number;
 };
 
-/**
- * Lot du jour (aujourd'hui) pour une langue + niveau donnés, avec ses phrases.
- * Utilisé par l'onglet "Phrases du jour".
- */
-export async function getTodaySet(
-  languageCode: string,
-  levelCode: string
-): Promise<{ phraseSet: PhraseSetInfo | null; phrases: Phrase[] }> {
-  const today = new Date().toISOString().slice(0, 10);
-
-  const { data: phraseSet } = await supabaseAdmin
-    .from('phrase_sets')
-    .select('id, set_date, theme')
-    .eq('language_code', languageCode)
-    .eq('level_code', levelCode)
-    .eq('set_date', today)
-    .maybeSingle();
-
-  if (!phraseSet) return { phraseSet: null, phrases: [] };
-
-  const { data: phrases } = await supabaseAdmin
-    .from('phrases')
-    .select('id, target_text, translation_fr, notes, audio_url, position')
-    .eq('phrase_set_id', phraseSet.id)
-    .order('position');
-
-  return { phraseSet, phrases: phrases ?? [] };
-}
-
-/**
- * Liste de TOUTES les dates disponibles (lots déjà générés) pour une langue
- * + niveau, les plus récentes en premier. Utilisé par l'onglet "Révision" —
- * volontairement sans limite : l'historique complet doit être accessible.
- */
-export async function getAvailableDates(
-  languageCode: string,
-  levelCode: string
-): Promise<PhraseSetInfo[]> {
+async function getReadyPacks(languageCode: string, levelCode: string): Promise<ReadyPack[]> {
   const { data } = await supabaseAdmin
-    .from('phrase_sets')
-    .select('id, set_date, theme')
+    .from('packs')
+    .select('id, pack_number')
     .eq('language_code', languageCode)
     .eq('level_code', levelCode)
-    .order('set_date', { ascending: false });
+    .eq('status', 'ready')
+    .order('pack_number');
 
   return data ?? [];
 }
 
 /**
- * Toutes les phrases d'un lot (identifié par son id), pour affichage en
- * grille complète dans l'onglet "Révision".
+ * Prochaines phrases non encore vues par ce profil, dans l'ordre des packs
+ * prêts. C'est ce qui alimente "Phrases du jour" — plus une génération
+ * quotidienne automatique, mais une file d'attente personnelle par profil.
  */
-export async function getPhrasesBySetId(phraseSetId: string): Promise<Phrase[]> {
+export async function getNextDailyPhrases(
+  profileId: string,
+  languageCode: string,
+  levelCode: string,
+  dailyGoal = 30
+): Promise<{ phrases: Phrase[]; hasReadyPacks: boolean }> {
+  const packs = await getReadyPacks(languageCode, levelCode);
+  if (packs.length === 0) return { phrases: [], hasReadyPacks: false };
+
+  const { data: seenRows } = await supabaseAdmin
+    .from('user_phrase_progress')
+    .select('phrase_id')
+    .eq('user_id', profileId);
+  const seenIds = new Set((seenRows ?? []).map((r) => r.phrase_id));
+
+  const { data: pool } = await supabaseAdmin
+    .from('phrases')
+    .select('id, target_text, translation_fr, notes, audio_url, theme_code, pack_id, pack_position')
+    .in(
+      'pack_id',
+      packs.map((p) => p.id)
+    )
+    .order('pack_position');
+
+  const unseen = (pool ?? []).filter((p) => !seenIds.has(p.id)).slice(0, dailyGoal);
+  return { phrases: unseen, hasReadyPacks: true };
+}
+
+export async function markPhraseSeen(profileId: string, phraseId: string): Promise<void> {
+  await supabaseAdmin
+    .from('user_phrase_progress')
+    .upsert(
+      { user_id: profileId, phrase_id: phraseId, seen_at: new Date().toISOString(), seen_count: 1 },
+      { onConflict: 'user_id,phrase_id' }
+    );
+}
+
+/**
+ * Packs prêts pour la navigation "Révision" (parcourir tout le contenu déjà
+ * téléchargé, pas seulement ce qui a été vu).
+ */
+export async function getBrowsablePacks(languageCode: string, levelCode: string): Promise<ReadyPack[]> {
+  return getReadyPacks(languageCode, levelCode);
+}
+
+export async function getPhrasesByPack(packId: string): Promise<Phrase[]> {
   const { data } = await supabaseAdmin
     .from('phrases')
-    .select('id, target_text, translation_fr, notes, audio_url, position')
-    .eq('phrase_set_id', phraseSetId)
-    .order('position');
+    .select('id, target_text, translation_fr, notes, audio_url, theme_code')
+    .eq('pack_id', packId)
+    .order('pack_position');
 
   return data ?? [];
+}
+
+export type VocabularyEntry = Phrase & { seen_at: string };
+
+/**
+ * Vocabulaire vu par ce profil pour une langue/niveau donnés — utilisé par
+ * l'onglet "Vocabulaire".
+ */
+export async function getVocabulary(
+  profileId: string,
+  languageCode: string,
+  levelCode: string
+): Promise<VocabularyEntry[]> {
+  const packs = await getReadyPacks(languageCode, levelCode);
+  if (packs.length === 0) return [];
+
+  const { data: phraseRows } = await supabaseAdmin
+    .from('phrases')
+    .select('id, target_text, translation_fr, notes, audio_url, theme_code')
+    .in(
+      'pack_id',
+      packs.map((p) => p.id)
+    );
+
+  const phraseMap = new Map((phraseRows ?? []).map((p) => [p.id, p]));
+
+  const { data: progressRows } = await supabaseAdmin
+    .from('user_phrase_progress')
+    .select('phrase_id, seen_at')
+    .eq('user_id', profileId)
+    .in('phrase_id', Array.from(phraseMap.keys()));
+
+  return (progressRows ?? [])
+    .map((r) => {
+      const phrase = phraseMap.get(r.phrase_id);
+      return phrase ? { ...phrase, seen_at: r.seen_at } : null;
+    })
+    .filter((x): x is VocabularyEntry => x !== null)
+    .sort((a, b) => (a.seen_at < b.seen_at ? 1 : -1));
 }
