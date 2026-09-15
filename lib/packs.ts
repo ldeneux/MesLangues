@@ -88,10 +88,6 @@ export async function runPackStep(packId: string): Promise<PackStepResult> {
 
   if (packError || !pack) throw new Error(packError?.message ?? 'Pack introuvable');
 
-  if (pack.status === 'ready') {
-    return { done: true, generatedThisStep: 0, generatedTotal: pack.generated_count, targetTotal: pack.target_count };
-  }
-
   const quotas = packThemeQuotas(pack.target_count);
 
   let targetTheme: { code: string; label: string; count: number; existing: number } | null = null;
@@ -109,14 +105,23 @@ export async function runPackStep(packId: string): Promise<PackStepResult> {
   }
 
   if (!targetTheme) {
+    const { count: actualTotal } = await supabaseAdmin
+      .from('phrases')
+      .select('id', { count: 'exact', head: true })
+      .eq('pack_id', packId);
     await supabaseAdmin
       .from('packs')
-      .update({ status: 'ready', completed_at: new Date().toISOString(), generated_count: pack.target_count })
+      .update({ status: 'ready', completed_at: new Date().toISOString(), generated_count: actualTotal ?? pack.target_count })
       .eq('id', packId);
-    return { done: true, generatedThisStep: 0, generatedTotal: pack.target_count, targetTotal: pack.target_count };
+    return {
+      done: true,
+      generatedThisStep: 0,
+      generatedTotal: actualTotal ?? pack.target_count,
+      targetTotal: pack.target_count,
+    };
   }
 
-  if (pack.status === 'pending') {
+  if (pack.status !== 'generating') {
     await supabaseAdmin.from('packs').update({ status: 'generating' }).eq('id', packId);
   }
 

@@ -1,8 +1,7 @@
 'use client';
 
-import { useState } from 'react';
 import { LANGS, LEVELS, type LangCode, type LevelCode } from '../../lib/constants';
-import { useProfile, EMOJI_CHOICES } from './ProfileContext';
+import FlagIcon from './FlagIcon';
 
 export type Tab = 'today' | 'revision' | 'packs' | 'vocabulary';
 
@@ -21,98 +20,26 @@ export default function Sidebar({
   onLevelChange: (l: LevelCode) => void;
   onTabChange: (t: Tab) => void;
 }) {
-  const { profile, profiles, selectProfile, addProfile } = useProfile();
-  const [switching, setSwitching] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [name, setName] = useState('');
-  const [emoji, setEmoji] = useState(EMOJI_CHOICES[0]);
-
-  async function handleCreate() {
-    if (!name.trim()) return;
-    await addProfile(name.trim(), emoji);
-    setCreating(false);
-    setSwitching(false);
-    setName('');
-  }
+  const currentLang = LANGS.find((l) => l.code === lang);
+  const currentLevel = LEVELS.find((l) => l.code === level);
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-title">Frasi</div>
-
-      <div className="sidebar-section">
-        <div className="sidebar-label">Apprenant</div>
-        <button className="sidebar-profile-btn" onClick={() => setSwitching((s) => !s)}>
-          <span className="profile-emoji-sm">{profile?.emoji}</span>
-          <span>{profile?.display_name}</span>
-          <span className="sidebar-chevron">▾</span>
-        </button>
-
-        {switching && (
-          <div className="sidebar-profile-menu">
-            {profiles.map((p) => (
-              <button
-                key={p.id}
-                className={`sidebar-profile-option${p.id === profile?.id ? ' active' : ''}`}
-                onClick={() => {
-                  selectProfile(p.id);
-                  setSwitching(false);
-                }}
-              >
-                <span className="profile-emoji-sm">{p.emoji}</span>
-                {p.display_name}
-              </button>
-            ))}
-
-            {!creating ? (
-              <button className="sidebar-profile-option" onClick={() => setCreating(true)}>
-                + Nouveau profil
-              </button>
-            ) : (
-              <div className="sidebar-new-profile">
-                <div className="emoji-row">
-                  {EMOJI_CHOICES.slice(0, 6).map((e) => (
-                    <button
-                      key={e}
-                      className={`emoji-btn${emoji === e ? ' active' : ''}`}
-                      onClick={() => setEmoji(e)}
-                    >
-                      {e}
-                    </button>
-                  ))}
-                </div>
-                <input
-                  className="conv-theme-input"
-                  type="text"
-                  placeholder="Prénom"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleCreate();
-                  }}
-                />
-                <button className="primary" onClick={handleCreate}>
-                  Créer
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
       <div className="sidebar-section">
         <div className="sidebar-label">Langue</div>
-        <div className="sidebar-flag-list">
+        <div className="flag-icon-row">
           {LANGS.map((l) => (
             <button
               key={l.code}
-              className={`lang-chip${lang === l.code ? ' active' : ''}`}
+              className={`flag-icon-btn${lang === l.code ? ' active' : ''}`}
               onClick={() => onLangChange(l.code)}
+              aria-label={l.label}
             >
-              <span className="lang-chip-flag">{l.flag}</span>
-              <span className="lang-chip-label">{l.label}</span>
+              <FlagIcon code={l.code} />
             </button>
           ))}
         </div>
+        <div className="level-swatch-caption">{currentLang?.label}</div>
       </div>
 
       <div className="sidebar-section">
@@ -130,8 +57,8 @@ export default function Sidebar({
             </button>
           ))}
         </div>
-        <div className="level-swatch-caption" style={{ color: LEVELS.find((l) => l.code === level)?.color }}>
-          {LEVELS.find((l) => l.code === level)?.label} — {LEVELS.find((l) => l.code === level)?.subtitle}
+        <div className="level-swatch-caption" style={{ color: currentLevel?.color }}>
+          {currentLevel?.label} — {currentLevel?.subtitle}
         </div>
       </div>
 

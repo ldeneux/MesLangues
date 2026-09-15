@@ -172,6 +172,68 @@ a { color: inherit; }
   font-weight: 600;
 }
 
+/* --- Drapeaux (dessinés en CSS, pas d'emoji) --- */
+.flag-icon {
+  display: inline-block;
+  width: 30px;
+  height: 21px;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+.flag-icon-it {
+  background: linear-gradient(to right, #009246 0 33.33%, #ffffff 33.33% 66.66%, #ce2b37 66.66% 100%);
+}
+
+.flag-icon-es {
+  background: linear-gradient(to bottom, #aa151b 0 25%, #f1bf00 25% 75%, #aa151b 75% 100%);
+}
+
+.flag-icon-en {
+  background-color: #00247d;
+  background-image: linear-gradient(to bottom, transparent 42%, white 42%, white 58%, transparent 58%),
+    linear-gradient(to right, transparent 42%, white 42%, white 58%, transparent 58%),
+    linear-gradient(to bottom, transparent 46%, #cf142b 46%, #cf142b 54%, transparent 54%),
+    linear-gradient(to right, transparent 46%, #cf142b 46%, #cf142b 54%, transparent 54%);
+}
+
+.flag-icon-row {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.flag-icon-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+  opacity: 0.45;
+  transform: scale(0.92);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.flag-icon-btn.active {
+  opacity: 1;
+  transform: scale(1);
+  background: var(--line);
+}
+
+/* --- Barre du haut (profil apprenant) --- */
+.topbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 1rem 1.5rem 0;
+}
+
+.topbar-profile-wrap { position: relative; width: 220px; }
+
+.topbar-profile-menu { left: auto; right: 0; width: 220px; }
+
 .sidebar-nav {
   display: flex;
   flex-direction: column;
@@ -830,6 +892,38 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 .conv-correction-explanation {
   font-size: 0.85rem;
   color: var(--ink-soft);
+}
+
+.exercise-success {
+  border-color: var(--it);
+  background: #e6efe9;
+}
+.exercise-success .conv-correction-label,
+.exercise-success .conv-correction-text {
+  color: var(--it);
+}
+
+.subtab-row {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 1.5rem;
+}
+
+.subtab-btn {
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.subtab-btn.active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
 }
 
 .conv-text-row .conv-text-input { flex: 1; }

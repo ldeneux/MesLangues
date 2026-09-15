@@ -8,7 +8,7 @@ import { LEVEL_CUMULATIVE_TARGET, PACK_SIZE, type LevelCode } from '../../lib/co
 export default function PacksPanel({ languageCode, levelCode }: { languageCode: string; levelCode: string }) {
   const [packs, setPacks] = useState<PackInfo[] | null>(null);
   const [confirming, setConfirming] = useState(false);
-  const [generating, setGenerating] = useState(false);
+  const [generatingPackId, setGeneratingPackId] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ generated: number; target: number; themeLabel?: string } | null>(null);
   const [error, setError] = useState('');
 
@@ -27,32 +27,46 @@ export default function PacksPanel({ languageCode, levelCode }: { languageCode: 
   const cumulativeTarget = LEVEL_CUMULATIVE_TARGET[levelCode as LevelCode] ?? PACK_SIZE;
   const totalGenerated = (packs ?? []).reduce((sum, p) => sum + p.generated_count, 0);
 
-  async function handleConfirmDownload() {
-    setConfirming(false);
+  async function runLoop(packId: string, initialGenerated: number, target: number) {
+    setGeneratingPackId(packId);
+    setProgress({ generated: initialGenerated, target });
     setError('');
-    setGenerating(true);
     try {
-      const pack = await createPack(languageCode, levelCode);
-      setProgress({ generated: 0, target: pack.target_count });
-
       let done = false;
       while (!done) {
-        const step = await runPackStep(pack.id);
+        const step = await runPackStep(packId);
         setProgress({ generated: step.generatedTotal, target: step.targetTotal, themeLabel: step.themeLabel });
         done = step.done;
       }
     } catch (e: any) {
       setError(e.message ?? 'Erreur pendant la génération du pack.');
     } finally {
-      setGenerating(false);
+      setGeneratingPackId(null);
       setProgress(null);
       refresh();
     }
   }
 
+  async function handleConfirmDownload() {
+    setConfirming(false);
+    setError('');
+    try {
+      const pack = await createPack(languageCode, levelCode);
+      await runLoop(pack.id, 0, pack.target_count);
+    } catch (e: any) {
+      setError(e.message ?? 'Erreur pendant la création du pack.');
+    }
+  }
+
+  function handleResume(pack: PackInfo) {
+    runLoop(pack.id, pack.generated_count, pack.target_count);
+  }
+
   if (packs === null) {
     return <p className="eyebrow-free">Chargement des packs…</p>;
   }
+
+  const hasIncomplete = packs.some((p) => p.generated_count < p.target_count);
 
   return (
     <div>
@@ -61,35 +75,42 @@ export default function PacksPanel({ languageCode, levelCode }: { languageCode: 
       </p>
 
       <div className="pack-list">
-        {packs.map((p) => (
-          <div key={p.id} className="pack-row">
-            <div>
-              <div className="pack-row-title">Pack {p.pack_number}</div>
-              <div className="pack-row-sub">
-                {p.status === 'ready'
-                  ? `Prêt — ${p.generated_count} phrases`
-                  : p.status === 'generating'
-                  ? `En cours — ${p.generated_count} / ${p.target_count}`
-                  : 'En attente'}
+        {packs.map((p) => {
+          const incomplete = p.generated_count < p.target_count;
+          const isGeneratingThis = generatingPackId === p.id;
+          return (
+            <div key={p.id} className="pack-row">
+              <div>
+                <div className="pack-row-title">Pack {p.pack_number}</div>
+                <div className="pack-row-sub">
+                  {isGeneratingThis && progress
+                    ? `En cours${progress.themeLabel ? ` — ${progress.themeLabel}` : ''} — ${progress.generated} / ${progress.target}`
+                    : incomplete
+                    ? `Incomplet — ${p.generated_count} / ${p.target_count} phrases`
+                    : `Prêt — ${p.generated_count} phrases`}
+                </div>
               </div>
+
+              {isGeneratingThis ? (
+                <span className="pack-status pack-status-generating">En cours</span>
+              ) : incomplete ? (
+                <button className="secondary" onClick={() => handleResume(p)} disabled={generatingPackId !== null}>
+                  Reprendre
+                </button>
+              ) : (
+                <span className="pack-status pack-status-ready">Prêt</span>
+              )}
             </div>
-            <span className={`pack-status pack-status-${p.status}`}>
-              {p.status === 'ready' ? 'Prêt' : p.status === 'generating' ? 'En cours' : 'En attente'}
-            </span>
-          </div>
-        ))}
+          );
+        })}
 
         {packs.length === 0 && <p className="eyebrow-free">Aucun pack téléchargé pour ce niveau pour l'instant.</p>}
       </div>
 
       {error && <p className="conv-warning">{error}</p>}
 
-      {generating && progress ? (
+      {generatingPackId && progress && (
         <div className="pack-progress">
-          <div className="pack-progress-label">
-            {progress.themeLabel ? `Génération : ${progress.themeLabel}…` : 'Génération…'} ({progress.generated} /{' '}
-            {progress.target})
-          </div>
           <div className="pack-progress-track">
             <div
               className="pack-progress-fill"
@@ -97,13 +118,21 @@ export default function PacksPanel({ languageCode, levelCode }: { languageCode: 
             />
           </div>
           <p className="eyebrow-free">
-            Ça peut prendre plusieurs minutes — laisse cet onglet ouvert le temps de la génération.
+            Ça peut prendre plusieurs minutes — laisse cet onglet ouvert le temps de la génération. Si la connexion
+            coupe, le bouton "Reprendre" du pack repartira pile d'où c'était resté.
           </p>
         </div>
-      ) : (
-        <button className="primary" onClick={() => setConfirming(true)}>
+      )}
+
+      {!generatingPackId && (
+        <button className="primary" onClick={() => setConfirming(true)} disabled={hasIncomplete}>
           Télécharger le pack suivant ({PACK_SIZE} phrases)
         </button>
+      )}
+      {hasIncomplete && !generatingPackId && (
+        <p className="eyebrow-free" style={{ marginTop: '0.5rem' }}>
+          Termine d'abord le pack incomplet ci-dessus avant d'en démarrer un nouveau.
+        </p>
       )}
 
       {confirming && (

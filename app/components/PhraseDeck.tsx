@@ -14,13 +14,16 @@ export default function PhraseDeck({
   startIndex?: number;
 }) {
   const [index, setIndex] = useState(Math.min(startIndex, phrases.length - 1));
+  const [revealed, setRevealed] = useState(false);
+  const [revealedFr, setRevealedFr] = useState(false);
   const phrase = phrases[index];
 
-  // On marque la phrase comme vue par ce profil dès qu'elle s'affiche —
-  // c'est ce qui alimente le vocabulaire appris et fait avancer la file de
-  // "Phrases du jour".
+  // On marque la phrase comme vue par ce profil dès qu'elle s'affiche, et on
+  // réinitialise les révélations texte/traduction pour la nouvelle phrase.
   useEffect(() => {
     if (phrase) markPhraseSeen(profileId, phrase.id);
+    setRevealed(false);
+    setRevealedFr(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phrase?.id]);
 
@@ -36,14 +39,33 @@ export default function PhraseDeck({
       </div>
 
       <div className="phrase-card phrase-card-big" key={phrase.id}>
-        <div className="phrase-target">{phrase.target_text}</div>
-        <div className="phrase-fr">{phrase.translation_fr}</div>
-        {phrase.notes && <div className="phrase-notes">{phrase.notes}</div>}
         {phrase.audio_url ? (
-          <audio className="phrase-audio" controls autoPlay src={phrase.audio_url} />
+          <audio className="phrase-audio" controls src={phrase.audio_url} />
         ) : (
           <div className="phrase-notes">Audio en cours de génération, réessaie dans une minute.</div>
         )}
+
+        {revealed ? (
+          <div className="phrase-target">{phrase.target_text}</div>
+        ) : (
+          <div className="conv-hidden-text">🔊 (écoute l'audio)</div>
+        )}
+
+        {revealedFr && (
+          <>
+            <div className="phrase-fr">{phrase.translation_fr}</div>
+            {phrase.notes && <div className="phrase-notes">{phrase.notes}</div>}
+          </>
+        )}
+
+        <div className="conv-bubble-actions">
+          <button className="conv-mini-btn" onClick={() => setRevealed((r) => !r)}>
+            {revealed ? 'Masquer le texte' : 'Afficher le texte'}
+          </button>
+          <button className="conv-mini-btn" onClick={() => setRevealedFr((r) => !r)}>
+            {revealedFr ? 'Masquer la traduction' : 'Afficher la traduction'}
+          </button>
+        </div>
       </div>
 
       <div className="deck-nav">
