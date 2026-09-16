@@ -30,6 +30,7 @@ export async function callGemini(system: string, user: string): Promise<string> 
       generationConfig: {
         temperature: 0.9,
         responseMimeType: 'application/json',
+        maxOutputTokens: 8192,
       },
     }),
   });
@@ -40,7 +41,15 @@ export async function callGemini(system: string, user: string): Promise<string> 
   }
 
   const json = await res.json();
-  const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const candidate = json?.candidates?.[0];
+
+  if (candidate?.finishReason === 'MAX_TOKENS') {
+    throw new Error(
+      'Réponse Gemini tronquée (limite de tokens atteinte) — réduis le nombre d\'éléments demandés par appel.'
+    );
+  }
+
+  const text = candidate?.content?.parts?.[0]?.text;
   if (!text) throw new Error('Réponse Gemini sans contenu texte');
   return text;
 }

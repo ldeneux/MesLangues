@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getGrammarTopic, generateGrammarTopic, type GrammarTopic } from '../../lib/grammar';
+import { getGrammarTopic, type GrammarTopic } from '../../lib/grammar';
 import { GRAMMAR_TOPICS } from '../../lib/constants';
 
 export default function GrammarPanel({ languageCode }: { languageCode: string }) {
@@ -21,12 +21,7 @@ export default function GrammarPanel({ languageCode }: { languageCode: string })
     setTopic(null);
     try {
       const existing = await getGrammarTopic(languageCode, topicCode);
-      if (existing) {
-        setTopic(existing);
-      } else {
-        const generated = await generateGrammarTopic(languageCode, topicCode);
-        setTopic(generated);
-      }
+      setTopic(existing);
     } catch (e: any) {
       setError(e.message ?? 'Erreur de chargement de la fiche de grammaire.');
     } finally {
@@ -48,8 +43,15 @@ export default function GrammarPanel({ languageCode }: { languageCode: string })
         ))}
       </div>
 
-      {loading && <p className="eyebrow-free">Préparation de la fiche…</p>}
+      {loading && <p className="eyebrow-free">Chargement…</p>}
       {error && <p className="conv-warning">{error}</p>}
+
+      {!loading && !topic && !error && (
+        <p className="eyebrow-free">
+          Cette fiche n'a pas encore été téléchargée — va dans l'onglet "Packs" et clique sur "Grammaire et
+          conjugaison".
+        </p>
+      )}
 
       {topic && (
         <div className="phrase-card phrase-card-big">

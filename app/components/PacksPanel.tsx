@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { getPacks, createPack, runPackStep, type PackInfo } from '../../lib/packs';
 import { estimatePackCost } from '../../lib/pricing';
 import { LEVEL_CUMULATIVE_TARGET, PACK_SIZE, type LevelCode } from '../../lib/constants';
+import GrammarConjugationDownload from './GrammarConjugationDownload';
 
 export default function PacksPanel({ languageCode, levelCode }: { languageCode: string; levelCode: string }) {
   const [packs, setPacks] = useState<PackInfo[] | null>(null);
@@ -157,6 +158,8 @@ export default function PacksPanel({ languageCode, levelCode }: { languageCode: 
           </div>
         </div>
       )}
+
+      <GrammarConjugationDownload languageCode={languageCode} />
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { supabaseAdmin } from './supabaseAdmin';
 import { callGemini, LANGUAGE_NAMES } from './gemini';
 import { THEMES, CONJUGATION_TARGET } from './constants';
 
-const CHUNK_SIZE = 20;
+const CHUNK_SIZE = 10;
 const TENSES = ['present', 'futur', 'passe_compose', 'imparfait'] as const;
 
 export type ConjugationVerb = {
@@ -98,12 +98,17 @@ ${generatedTotal + 1} à ${generatedTotal + chunkCount} par fréquence décroiss
 conjugaison complète.${avoidInstruction}`;
 
   const text = await callGemini(system, user);
-  const parsed = JSON.parse(text) as Array<{
+  let parsed: Array<{
     infinitive?: string;
     translation_fr?: string;
     theme_code?: string;
     tenses?: Record<string, string[]>;
   }>;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error('Réponse Gemini invalide (JSON non parsable) pour la génération des verbes.');
+  }
 
   if (!Array.isArray(parsed) || parsed.length === 0) {
     throw new Error('Format de verbes inattendu reçu de Gemini');
