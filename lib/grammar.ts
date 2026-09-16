@@ -39,12 +39,18 @@ de grammaire de base claires pour un apprenant francophone débutant à
 intermédiaire. Explique le point de grammaire simplement, en français, avec
 des exemples concrets et utiles au quotidien.
 
+Dans chaque exemple ("target" ET sa traduction "fr"), encadre avec des doubles
+astérisques **ainsi** le ou les mots qui illustrent concrètement le point de
+grammaire enseigné (ex: l'article, la terminaison, le pronom...), pour qu'ils
+puissent être mis en surbrillance à l'affichage. Encadre uniquement l'élément
+pertinent, pas la phrase entière.
+
 Tu réponds STRICTEMENT en JSON valide, sans texte avant/après, sans balises
 markdown, avec exactement ces clés :
 {
   "title": "titre de la fiche en français",
   "explanation_fr": "explication claire en français, 4 à 8 phrases, sans jargon excessif",
-  "examples": [ { "target": "phrase d'exemple en ${langName}", "fr": "traduction française" }, ... ]
+  "examples": [ { "target": "phrase d'exemple en ${langName} avec **élément clé** encadré", "fr": "traduction française avec **élément clé** encadré" }, ... ]
 }
 Donne entre 4 et 6 exemples, variés et représentatifs du point de grammaire.`;
 

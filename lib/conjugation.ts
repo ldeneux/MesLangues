@@ -2,6 +2,7 @@
 
 import { supabaseAdmin } from './supabaseAdmin';
 import { callGemini, LANGUAGE_NAMES } from './gemini';
+import { synthesizeAndStore } from './tts';
 import { THEMES, CONJUGATION_TARGET } from './constants';
 
 const CHUNK_SIZE = 10;
@@ -14,12 +15,13 @@ export type ConjugationVerb = {
   frequency_rank: number;
   theme_code: string | null;
   tenses: Record<(typeof TENSES)[number], string[]>;
+  tense_audio: Partial<Record<(typeof TENSES)[number], string>>;
 };
 
 export async function getConjugationVerbs(languageCode: string): Promise<ConjugationVerb[]> {
   const { data, error } = await supabaseAdmin
     .from('conjugation_verbs')
-    .select('id, infinitive, translation_fr, frequency_rank, theme_code, tenses')
+    .select('id, infinitive, translation_fr, frequency_rank, theme_code, tenses, tense_audio')
     .eq('language_code', languageCode)
     .order('frequency_rank');
 
@@ -139,8 +141,43 @@ conjugaison complète.${avoidInstruction}`;
     return { done: generatedTotal >= target, generatedThisStep: 0, generatedTotal, targetTotal: target };
   }
 
-  const { error } = await supabaseAdmin.from('conjugation_verbs').upsert(rows, { onConflict: 'language_code,infinitive' });
+  const { data: insertedRows, error } = await supabaseAdmin
+    .from('conjugation_verbs')
+    .upsert(rows, { onConflict: 'language_code,infinitive' })
+    .select('id, infinitive, tenses');
   if (error) throw new Error(error.message);
+
+  // Audio : un seul fichier par temps (les 6 formes enchaînées), pas un par
+  // forme individuelle — ex. "dico, dici, dice, diciamo, dite, dicono."
+  const TTS_CONCURRENCY = 4;
+  const audioJobs: { verbId: string; tense: string }[] = [];
+  for (const row of insertedRows ?? []) {
+    for (const tense of TENSES) {
+      const forms = (row.tenses as Record<string, string[]>)?.[tense];
+      if (forms && forms.length > 0) audioJobs.push({ verbId: row.id, tense });
+    }
+  }
+
+  for (let i = 0; i < audioJobs.length; i += TTS_CONCURRENCY) {
+    const batch = audioJobs.slice(i, i + TTS_CONCURRENCY);
+    await Promise.allSettled(
+      batch.map(async (job) => {
+        const row = insertedRows!.find((r) => r.id === job.verbId)!;
+        const forms = (row.tenses as Record<string, string[]>)[job.tense];
+        const spoken = forms.join(', ') + '.';
+        const storagePath = `${languageCode}/conjugation/${job.verbId}/${job.tense}.mp3`;
+        const { audioUrl } = await synthesizeAndStore(spoken, languageCode, storagePath);
+
+        const { data: current } = await supabaseAdmin
+          .from('conjugation_verbs')
+          .select('tense_audio')
+          .eq('id', job.verbId)
+          .single();
+        const updatedAudio = { ...(current?.tense_audio ?? {}), [job.tense]: audioUrl };
+        await supabaseAdmin.from('conjugation_verbs').update({ tense_audio: updatedAudio }).eq('id', job.verbId);
+      })
+    );
+  }
 
   const { count: newTotal } = await supabaseAdmin
     .from('conjugation_verbs')

@@ -1008,6 +1008,21 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 }
 
 /* --- Conjugaison --- */
+.highlight-mark {
+  background: #fbe4a1;
+  color: var(--ink);
+  padding: 0.05em 0.2em;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.mastery-badge {
+  margin-left: 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--it);
+}
+
 .conv-mini-btn.selected-mini {
   background: var(--ink);
   color: var(--paper);
@@ -1065,6 +1080,27 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
   font-weight: 700;
   font-size: 0.85rem;
   margin-bottom: 0.4rem;
+}
+
+.conjugation-theme-header {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ink-soft);
+  padding: 0.6rem 0.7rem 0.2rem;
+}
+
+.conjugation-tense-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.conjugation-tense-audio {
+  height: 32px;
+  max-width: 220px;
 }
 
 .conjugation-forms {

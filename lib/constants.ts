@@ -66,6 +66,8 @@ export const LEVEL_CUMULATIVE_TARGET: Record<LevelCode, number> = {
 
 export const CONJUGATION_TARGET = 120;
 
+export const VOCAB_TARGET = 300;
+
 export const GRAMMAR_TOPICS = [
   { code: 'articles', label: 'Articles (défini / indéfini)' },
   { code: 'genre_nombre', label: 'Genre et nombre des noms' },

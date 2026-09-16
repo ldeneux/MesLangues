@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { getGrammarTopic, type GrammarTopic } from '../../lib/grammar';
 import { GRAMMAR_TOPICS } from '../../lib/constants';
+import HighlightText from './HighlightText';
 
 export default function GrammarPanel({ languageCode }: { languageCode: string }) {
   const [selected, setSelected] = useState<string>(GRAMMAR_TOPICS[0].code);
@@ -63,8 +64,12 @@ export default function GrammarPanel({ languageCode }: { languageCode: string })
           <div className="grammar-examples">
             {topic.examples.map((ex, i) => (
               <div key={i} className="grammar-example-row">
-                <div className="revision-target">{ex.target}</div>
-                <div className="revision-fr">{ex.fr}</div>
+                <div className="revision-target">
+                  <HighlightText text={ex.target} />
+                </div>
+                <div className="revision-fr">
+                  <HighlightText text={ex.fr} />
+                </div>
               </div>
             ))}
           </div>

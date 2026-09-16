@@ -5,6 +5,7 @@ import { getPacks, createPack, runPackStep, type PackInfo } from '../../lib/pack
 import { estimatePackCost } from '../../lib/pricing';
 import { LEVEL_CUMULATIVE_TARGET, PACK_SIZE, type LevelCode } from '../../lib/constants';
 import GrammarConjugationDownload from './GrammarConjugationDownload';
+import VocabularyDownload from './VocabularyDownload';
 
 export default function PacksPanel({ languageCode, levelCode }: { languageCode: string; levelCode: string }) {
   const [packs, setPacks] = useState<PackInfo[] | null>(null);
@@ -159,6 +160,7 @@ export default function PacksPanel({ languageCode, levelCode }: { languageCode: 
         </div>
       )}
 
+      <VocabularyDownload languageCode={languageCode} levelCode={levelCode} />
       <GrammarConjugationDownload languageCode={languageCode} />
     </div>
   );

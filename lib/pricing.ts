@@ -41,6 +41,8 @@ const GRAMMAR_OUTPUT_TOKENS_PER_CALL = 450;
 const CONJUGATION_CHUNK_SIZE = 10;
 const CONJUGATION_INPUT_TOKENS_PER_CALL = 700; // grossit avec la liste anti-doublon
 const CONJUGATION_OUTPUT_TOKENS_PER_CALL = 1200; // 10 verbes x 4 temps x 6 formes
+const CONJUGATION_TENSE_AUDIO_CHARS = 55; // "dico, dici, dice, diciamo, dite, dicono." environ
+const TENSES_PER_VERB = 4;
 
 export function estimateGrammarConjugationCost(conjugationTarget: number): CostEstimate {
   const conjugationChunks = Math.ceil(conjugationTarget / CONJUGATION_CHUNK_SIZE);
@@ -50,6 +52,30 @@ export function estimateGrammarConjugationCost(conjugationTarget: number): CostE
   const outputTokens =
     GRAMMAR_TOPIC_COUNT * GRAMMAR_OUTPUT_TOKENS_PER_CALL + conjugationChunks * CONJUGATION_OUTPUT_TOKENS_PER_CALL;
 
-  const usd = (inputTokens / 1e6) * GEMINI_INPUT_PRICE_PER_M + (outputTokens / 1e6) * GEMINI_OUTPUT_PRICE_PER_M;
+  const geminiCost = (inputTokens / 1e6) * GEMINI_INPUT_PRICE_PER_M + (outputTokens / 1e6) * GEMINI_OUTPUT_PRICE_PER_M;
+
+  const ttsChars = conjugationTarget * TENSES_PER_VERB * CONJUGATION_TENSE_AUDIO_CHARS;
+  const ttsCost = (ttsChars / 1e6) * TTS_PRICE_PER_M_CHARS;
+
+  const usd = geminiCost + ttsCost;
+  return { usd, eur: usd * USD_TO_EUR };
+}
+
+// --- Vocabulaire (mots courts + 1 audio chacun) ---
+const VOCAB_CHUNK_SIZE = 15;
+const VOCAB_INPUT_TOKENS_PER_CHUNK = 500; // grossit avec la liste anti-doublon
+const VOCAB_OUTPUT_TOKENS_PER_WORD = 30;
+const VOCAB_CHARS_PER_WORD = 25;
+
+export function estimateVocabularyCost(wordCount: number): CostEstimate {
+  const chunks = Math.ceil(wordCount / VOCAB_CHUNK_SIZE);
+  const inputTokens = chunks * VOCAB_INPUT_TOKENS_PER_CHUNK;
+  const outputTokens = wordCount * VOCAB_OUTPUT_TOKENS_PER_WORD;
+  const geminiCost = (inputTokens / 1e6) * GEMINI_INPUT_PRICE_PER_M + (outputTokens / 1e6) * GEMINI_OUTPUT_PRICE_PER_M;
+
+  const ttsChars = wordCount * VOCAB_CHARS_PER_WORD;
+  const ttsCost = (ttsChars / 1e6) * TTS_PRICE_PER_M_CHARS;
+
+  const usd = geminiCost + ttsCost;
   return { usd, eur: usd * USD_TO_EUR };
 }
