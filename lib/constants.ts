@@ -63,3 +63,18 @@ export const LEVEL_CUMULATIVE_TARGET: Record<LevelCode, number> = {
   B1: 2750,
   B2: 4750,
 };
+
+export const CONJUGATION_TARGET = 120;
+
+export const GRAMMAR_TOPICS = [
+  { code: 'articles', label: 'Articles (défini / indéfini)' },
+  { code: 'genre_nombre', label: 'Genre et nombre des noms' },
+  { code: 'pronoms', label: 'Pronoms personnels' },
+  { code: 'present', label: 'Conjugaison de base au présent' },
+  { code: 'negation', label: 'La négation' },
+  { code: 'adjectifs', label: 'Adjectifs : accord et position' },
+  { code: 'questions', label: 'Poser une question' },
+  { code: 'prepositions', label: 'Prépositions courantes' },
+  { code: 'comparatifs', label: 'Comparatifs et superlatifs' },
+  { code: 'passe', label: 'Parler au passé (aperçu)' },
+] as const;

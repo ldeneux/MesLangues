@@ -926,6 +926,169 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
   color: var(--paper);
 }
 
+/* --- Écoute : menus en cascade --- */
+.cascade-row {
+  display: flex;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.cascade-select {
+  flex: 1;
+  min-width: 180px;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+
+/* --- Quiz de compréhension --- */
+.quiz-block {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.quiz-question { margin-bottom: 1rem; }
+
+.quiz-question-text {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.quiz-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.quiz-option {
+  text-align: left;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.quiz-option.selected {
+  border-color: var(--ink);
+  background: var(--paper);
+  font-weight: 600;
+}
+
+.quiz-history {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.quiz-history-row {
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  margin-top: 0.2rem;
+}
+
+/* --- Grammaire --- */
+.grammar-examples {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.grammar-example-row {
+  border-left: 2px solid var(--line);
+  padding-left: 0.7rem;
+}
+
+/* --- Conjugaison --- */
+.conv-mini-btn.selected-mini {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+
+.conjugation-layout {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-start;
+}
+
+.conjugation-list {
+  flex: 0 0 220px;
+  max-height: 520px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.conjugation-list-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  padding: 0.5rem 0.7rem;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.conjugation-list-item:hover { background: var(--line); }
+.conjugation-list-item.active { background: var(--ink); color: var(--paper); }
+.conjugation-list-item.active .conjugation-list-fr { color: var(--paper); opacity: 0.75; }
+
+.conjugation-list-fr {
+  font-weight: 400;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+
+.conjugation-detail { flex: 1; min-width: 0; }
+
+.conjugation-tense-block {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.conjugation-tense-title {
+  font-weight: 700;
+  font-size: 0.85rem;
+  margin-bottom: 0.4rem;
+}
+
+.conjugation-forms {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.3rem 1rem;
+}
+
+.conjugation-form-row {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.conjugation-pronoun {
+  color: var(--ink-soft);
+  min-width: 60px;
+}
+
+@media (max-width: 780px) {
+  .conjugation-layout { flex-direction: column; }
+  .conjugation-list { flex: none; width: 100%; max-height: 220px; }
+}
+
 .conv-text-row .conv-text-input { flex: 1; }
 
 .conv-reset {

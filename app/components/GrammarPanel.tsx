@@ -1,0 +1,73 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { getGrammarTopic, generateGrammarTopic, type GrammarTopic } from '../../lib/grammar';
+import { GRAMMAR_TOPICS } from '../../lib/constants';
+
+export default function GrammarPanel({ languageCode }: { languageCode: string }) {
+  const [selected, setSelected] = useState<string>(GRAMMAR_TOPICS[0].code);
+  const [topic, setTopic] = useState<GrammarTopic | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    load(selected);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [languageCode, selected]);
+
+  async function load(topicCode: string) {
+    setLoading(true);
+    setError('');
+    setTopic(null);
+    try {
+      const existing = await getGrammarTopic(languageCode, topicCode);
+      if (existing) {
+        setTopic(existing);
+      } else {
+        const generated = await generateGrammarTopic(languageCode, topicCode);
+        setTopic(generated);
+      }
+    } catch (e: any) {
+      setError(e.message ?? 'Erreur de chargement de la fiche de grammaire.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div>
+      <div className="date-chips">
+        {GRAMMAR_TOPICS.map((t) => (
+          <button
+            key={t.code}
+            className={`date-chip${selected === t.code ? ' active' : ''}`}
+            onClick={() => setSelected(t.code)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {loading && <p className="eyebrow-free">Préparation de la fiche…</p>}
+      {error && <p className="conv-warning">{error}</p>}
+
+      {topic && (
+        <div className="phrase-card phrase-card-big">
+          <div className="phrase-fr" style={{ fontWeight: 600, color: 'var(--ink)', fontSize: '1.05rem' }}>
+            {topic.title}
+          </div>
+          <p style={{ lineHeight: 1.6 }}>{topic.explanation_fr}</p>
+
+          <div className="grammar-examples">
+            {topic.examples.map((ex, i) => (
+              <div key={i} className="grammar-example-row">
+                <div className="revision-target">{ex.target}</div>
+                <div className="revision-fr">{ex.fr}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

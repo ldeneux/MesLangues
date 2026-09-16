@@ -62,12 +62,24 @@ export async function getNextDailyPhrases(
 }
 
 export async function markPhraseSeen(profileId: string, phraseId: string): Promise<void> {
-  await supabaseAdmin
+  const { data: existing } = await supabaseAdmin
     .from('user_phrase_progress')
-    .upsert(
-      { user_id: profileId, phrase_id: phraseId, seen_at: new Date().toISOString(), seen_count: 1 },
-      { onConflict: 'user_id,phrase_id' }
-    );
+    .select('seen_count')
+    .eq('user_id', profileId)
+    .eq('phrase_id', phraseId)
+    .maybeSingle();
+
+  const { error } = await supabaseAdmin.from('user_phrase_progress').upsert(
+    {
+      user_id: profileId,
+      phrase_id: phraseId,
+      last_seen_at: new Date().toISOString(),
+      seen_count: (existing?.seen_count ?? 0) + 1,
+    },
+    { onConflict: 'user_id,phrase_id' }
+  );
+
+  if (error) throw new Error(`markPhraseSeen a échoué : ${error.message}`);
 }
 
 /**
@@ -114,14 +126,14 @@ export async function getVocabulary(
 
   const { data: progressRows } = await supabaseAdmin
     .from('user_phrase_progress')
-    .select('phrase_id, seen_at')
+    .select('phrase_id, last_seen_at')
     .eq('user_id', profileId)
     .in('phrase_id', Array.from(phraseMap.keys()));
 
   return (progressRows ?? [])
     .map((r) => {
       const phrase = phraseMap.get(r.phrase_id);
-      return phrase ? { ...phrase, seen_at: r.seen_at } : null;
+      return phrase ? { ...phrase, seen_at: r.last_seen_at } : null;
     })
     .filter((x): x is VocabularyEntry => x !== null)
     .sort((a, b) => (a.seen_at < b.seen_at ? 1 : -1));

@@ -58,7 +58,7 @@ export default function LearnPanel({
       </div>
 
       {subTab === 'listening' ? (
-        <ListeningPanel languageCode={lang} levelCode={level} />
+        <ListeningPanel profileId={profileId} languageCode={lang} levelCode={level} />
       ) : (
         <>
           {isPending && phrases.length === 0 && hasReadyPacks === null && (

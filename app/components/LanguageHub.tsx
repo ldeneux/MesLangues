@@ -10,6 +10,8 @@ import LearnPanel from './LearnPanel';
 import RevisionPanel from './RevisionPanel';
 import PacksPanel from './PacksPanel';
 import VocabularyPanel from './VocabularyPanel';
+import GrammarPanel from './GrammarPanel';
+import ConjugationPanel from './ConjugationPanel';
 
 export default function LanguageHub() {
   const { profile, loading } = useProfile();
@@ -38,6 +40,8 @@ export default function LanguageHub() {
           {tab === 'revision' && <RevisionPanel languageCode={lang} levelCode={level} />}
           {tab === 'packs' && <PacksPanel languageCode={lang} levelCode={level} />}
           {tab === 'vocabulary' && <VocabularyPanel profileId={profile.id} languageCode={lang} levelCode={level} />}
+          {tab === 'grammar' && <GrammarPanel languageCode={lang} />}
+          {tab === 'conjugation' && <ConjugationPanel languageCode={lang} />}
         </main>
       </div>
     </>
