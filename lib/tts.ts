@@ -7,7 +7,9 @@ const TTS_ENDPOINT = 'https://texttospeech.googleapis.com/v1/text:synthesize';
 const DEFAULT_VOICE: Record<string, { languageCode: string; name: string }> = {
   it: { languageCode: 'it-IT', name: 'it-IT-Standard-A' },
   es: { languageCode: 'es-ES', name: 'es-ES-Standard-A' },
-  en: { languageCode: 'en-GB', name: 'en-GB-Standard-A' },
+  en: { languageCode: 'en-US', name: 'en-US-Standard-C' },
+  ja: { languageCode: 'ja-JP', name: 'ja-JP-Standard-A' },
+  de: { languageCode: 'de-DE', name: 'de-DE-Standard-A' },
 };
 
 /**

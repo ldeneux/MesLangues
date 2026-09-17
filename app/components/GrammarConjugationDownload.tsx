@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getAvailableGrammarTopicCodes, generateGrammarTopic } from '../../lib/grammar';
-import { getConjugationVerbs, runConjugationStep } from '../../lib/conjugation';
+import { getAvailableGrammarTopicCodes, getTopicsNeedingRegeneration, generateGrammarTopic } from '../../lib/grammar';
+import { getConjugationVerbs, runConjugationStep, backfillConjugationAudio } from '../../lib/conjugation';
 import { estimateGrammarConjugationCost } from '../../lib/pricing';
 import { GRAMMAR_TOPICS, CONJUGATION_TARGET } from '../../lib/constants';
 
@@ -38,16 +38,21 @@ export default function GrammarConjugationDownload({ languageCode }: { languageC
     setError('');
     setRunning(true);
     try {
-      const existingCodes = new Set(await getAvailableGrammarTopicCodes(languageCode));
-      const missing = GRAMMAR_TOPICS.filter((t) => !existingCodes.has(t.code));
+      const missing = await getTopicsNeedingRegeneration(languageCode);
 
       setStage('grammar');
-      for (const topic of missing) {
-        await generateGrammarTopic(languageCode, topic.code);
+      for (const topicCode of missing) {
+        await generateGrammarTopic(languageCode, topicCode);
         setGrammarDone((d) => d + 1);
       }
 
       setStage('conjugation');
+      let audioDone = false;
+      while (!audioDone) {
+        const step = await backfillConjugationAudio(languageCode);
+        audioDone = step.done;
+      }
+
       let done = false;
       while (!done) {
         const step = await runConjugationStep(languageCode);

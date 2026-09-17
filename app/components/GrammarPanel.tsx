@@ -32,16 +32,14 @@ export default function GrammarPanel({ languageCode }: { languageCode: string })
 
   return (
     <div>
-      <div className="date-chips">
-        {GRAMMAR_TOPICS.map((t) => (
-          <button
-            key={t.code}
-            className={`date-chip${selected === t.code ? ' active' : ''}`}
-            onClick={() => setSelected(t.code)}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="cascade-row">
+        <select className="cascade-select" value={selected} onChange={(e) => setSelected(e.target.value)}>
+          {GRAMMAR_TOPICS.map((t) => (
+            <option key={t.code} value={t.code}>
+              {t.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       {loading && <p className="eyebrow-free">Chargement…</p>}

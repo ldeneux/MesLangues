@@ -25,6 +25,14 @@ export default function ConjugationPanel({ languageCode }: { languageCode: strin
   const [selected, setSelected] = useState<ConjugationVerb | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>('frequency');
   const [error, setError] = useState('');
+  const [playingTense, setPlayingTense] = useState<string | null>(null);
+
+  function playTense(url: string, tense: string) {
+    setPlayingTense(tense);
+    const el = new Audio(url);
+    el.onended = () => setPlayingTense(null);
+    el.play().catch(() => setPlayingTense(null));
+  }
 
   useEffect(() => {
     setVerbs(null);
@@ -118,11 +126,15 @@ export default function ConjugationPanel({ languageCode }: { languageCode: strin
                     <div className="conjugation-tense-title-row">
                       <div className="conjugation-tense-title">{label}</div>
                       {selected.tense_audio?.[key as keyof typeof selected.tense_audio] && (
-                        <audio
-                          className="conjugation-tense-audio"
-                          controls
-                          src={selected.tense_audio[key as keyof typeof selected.tense_audio]}
-                        />
+                        <button
+                          className={`play-btn${playingTense === key ? ' playing' : ''}`}
+                          onClick={() =>
+                            playTense(selected.tense_audio[key as keyof typeof selected.tense_audio]!, key)
+                          }
+                          aria-label={`Écouter la conjugaison au ${label}`}
+                        >
+                          {playingTense === key ? '❚❚' : '▶'}
+                        </button>
                       )}
                     </div>
                     <div className="conjugation-forms">

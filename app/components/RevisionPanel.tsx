@@ -82,22 +82,15 @@ export default function RevisionPanel({
       </div>
 
       {phrases.length > 0 && (
-        <div className="date-chips">
-          <button
-            className={`date-chip${themeFilter === 'all' ? ' active' : ''}`}
-            onClick={() => setThemeFilter('all')}
-          >
-            Tous les thèmes
-          </button>
-          {availableThemes.map((t) => (
-            <button
-              key={t.code}
-              className={`date-chip${themeFilter === t.code ? ' active' : ''}`}
-              onClick={() => setThemeFilter(t.code)}
-            >
-              {t.label}
-            </button>
-          ))}
+        <div className="cascade-row">
+          <select className="cascade-select" value={themeFilter} onChange={(e) => setThemeFilter(e.target.value)}>
+            <option value="all">Tous les thèmes</option>
+            {availableThemes.map((t) => (
+              <option key={t.code} value={t.code}>
+                {t.label}
+              </option>
+            ))}
+          </select>
         </div>
       )}
 

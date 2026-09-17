@@ -1,4 +1,4 @@
-import { callGemini, LANGUAGE_NAMES } from './gemini';
+import { callGemini, LANGUAGE_NAMES, LANGUAGE_DEMONYM } from './gemini';
 
 export type GeneratedPhrase = {
   target_text: string;
@@ -40,7 +40,7 @@ progression CECRL (A1, A2, B1, B2). Tu génères des phrases RÉELLEMENT utilis�
 dans la vie courante (pas des phrases de manuel artificielles, pas de simples
 mots de vocabulaire isolés). Chaque phrase doit être idiomatique, naturelle,
 et utilisable telle quelle par quelqu'un qui vit ou voyage dans un pays
-${langName === 'anglais' ? 'anglophone' : langName === 'italien' ? 'italophone' : 'hispanophone'}.
+${LANGUAGE_DEMONYM[languageCode] ?? langName + 'phone'}.
 
 Tu réponds STRICTEMENT en JSON valide, un tableau d'objets, sans aucun texte
 avant ou après, sans balises markdown. Chaque objet a exactement ces clés :

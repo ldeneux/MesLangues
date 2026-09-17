@@ -1,7 +1,9 @@
 export const LANGS = [
   { code: 'it', label: 'Italien', flag: '🇮🇹', bcp47: 'it-IT' },
   { code: 'es', label: 'Espagnol', flag: '🇪🇸', bcp47: 'es-ES' },
-  { code: 'en', label: 'Anglais', flag: '🇬🇧', bcp47: 'en-GB' },
+  { code: 'en', label: 'Anglais', flag: '🇺🇸', bcp47: 'en-US' },
+  { code: 'ja', label: 'Japonais', flag: '🇯🇵', bcp47: 'ja-JP' },
+  { code: 'de', label: 'Allemand', flag: '🇩🇪', bcp47: 'de-DE' },
 ] as const;
 
 export const LEVELS = [
@@ -66,7 +68,7 @@ export const LEVEL_CUMULATIVE_TARGET: Record<LevelCode, number> = {
 
 export const CONJUGATION_TARGET = 120;
 
-export const VOCAB_TARGET = 300;
+export const VOCAB_PACK_SIZE = 350;
 
 export const GRAMMAR_TOPICS = [
   { code: 'articles', label: 'Articles (défini / indéfini)' },

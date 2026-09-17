@@ -3,8 +3,244 @@
 import { supabaseAdmin } from './supabaseAdmin';
 import { callGemini, LANGUAGE_NAMES } from './gemini';
 import { synthesizeAndStore } from './tts';
-import { THEMES, packThemeQuotas, VOCAB_TARGET } from './constants';
+import { THEMES, packThemeQuotas, VOCAB_PACK_SIZE } from './constants';
 
+const CHUNK_SIZE = 15;
+const MASTERY_MIN_ATTEMPTS = 5;
+const MASTERY_MIN_RATE = 0.9;
+
+function normalize(s: string) {
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function computeMastered(success: number, fail: number): boolean {
+  const total = success + fail;
+  return total >= MASTERY_MIN_ATTEMPTS && success / total >= MASTERY_MIN_RATE;
+}
+
+// ---------------------------------------------------------
+// Packs de vocabulaire (même principe que les packs de phrases : 350 mots,
+// répartis par thème, génération par petits lots résumable).
+// ---------------------------------------------------------
+export type VocabularyPackInfo = {
+  id: string;
+  pack_number: number;
+  status: 'pending' | 'generating' | 'ready';
+  generated_count: number;
+  target_count: number;
+};
+
+export async function getVocabularyPacks(languageCode: string, levelCode: string): Promise<VocabularyPackInfo[]> {
+  const { data, error } = await supabaseAdmin
+    .from('vocabulary_packs')
+    .select('id, pack_number, status, generated_count, target_count')
+    .eq('language_code', languageCode)
+    .eq('level_code', levelCode)
+    .order('pack_number');
+
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+export async function createVocabularyPack(languageCode: string, levelCode: string): Promise<VocabularyPackInfo> {
+  const { data: existing } = await supabaseAdmin
+    .from('vocabulary_packs')
+    .select('pack_number')
+    .eq('language_code', languageCode)
+    .eq('level_code', levelCode)
+    .order('pack_number', { ascending: false })
+    .limit(1);
+
+  const nextNumber = (existing?.[0]?.pack_number ?? 0) + 1;
+
+  const { data, error } = await supabaseAdmin
+    .from('vocabulary_packs')
+    .insert({ language_code: languageCode, level_code: levelCode, pack_number: nextNumber, target_count: VOCAB_PACK_SIZE })
+    .select('id, pack_number, status, generated_count, target_count')
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export type VocabularyStepResult = {
+  done: boolean;
+  themeLabel?: string;
+  generatedThisStep: number;
+  generatedTotal: number;
+  targetTotal: number;
+};
+
+export async function runVocabularyPackStep(packId: string): Promise<VocabularyStepResult> {
+  const { data: pack, error: packError } = await supabaseAdmin
+    .from('vocabulary_packs')
+    .select('*')
+    .eq('id', packId)
+    .single();
+
+  if (packError || !pack) throw new Error(packError?.message ?? 'Pack de vocabulaire introuvable');
+
+  const quotas = packThemeQuotas(pack.target_count);
+
+  let targetTheme: { code: string; label: string; count: number; existing: number } | null = null;
+  for (const q of quotas) {
+    const { count } = await supabaseAdmin
+      .from('vocabulary_words')
+      .select('id', { count: 'exact', head: true })
+      .eq('pack_id', packId)
+      .eq('theme_code', q.code);
+
+    if ((count ?? 0) < q.count) {
+      targetTheme = { ...q, existing: count ?? 0 };
+      break;
+    }
+  }
+
+  if (!targetTheme) {
+    const { count: actualTotal } = await supabaseAdmin
+      .from('vocabulary_words')
+      .select('id', { count: 'exact', head: true })
+      .eq('pack_id', packId);
+    await supabaseAdmin
+      .from('vocabulary_packs')
+      .update({ status: 'ready', completed_at: new Date().toISOString(), generated_count: actualTotal ?? pack.target_count })
+      .eq('id', packId);
+    return {
+      done: true,
+      generatedThisStep: 0,
+      generatedTotal: actualTotal ?? pack.target_count,
+      targetTotal: pack.target_count,
+    };
+  }
+
+  if (pack.status !== 'generating') {
+    await supabaseAdmin.from('vocabulary_packs').update({ status: 'generating' }).eq('id', packId);
+  }
+
+  const chunkCount = Math.min(CHUNK_SIZE, targetTheme.count - targetTheme.existing);
+  const langName = LANGUAGE_NAMES[pack.language_code] ?? pack.language_code;
+
+  // Anti-doublon GLOBAL : tous les mots déjà générés pour cette langue/ce
+  // niveau, tous thèmes confondus (un mot comme "stanco"/fatigué peut être
+  // proposé sous plusieurs thèmes par erreur — l'éviter partout, pas juste
+  // dans le thème courant).
+  const { data: siblingPackIds } = await supabaseAdmin
+    .from('vocabulary_packs')
+    .select('id')
+    .eq('language_code', pack.language_code)
+    .eq('level_code', pack.level_code);
+
+  const { data: prior } = await supabaseAdmin
+    .from('vocabulary_words')
+    .select('target_text')
+    .in(
+      'pack_id',
+      (siblingPackIds ?? []).map((p) => p.id)
+    )
+    .order('created_at', { ascending: false })
+    .limit(400);
+
+  const avoidList = (prior ?? []).map((p) => p.target_text);
+  const avoidInstruction =
+    avoidList.length > 0 ? `\n\nDéjà utilisés (tous thèmes confondus), ne pas répéter :\n- ${avoidList.join('\n- ')}` : '';
+
+  const system = `Tu es un professeur de ${langName} langue étrangère. Tu constitues une
+banque de vocabulaire de base niveau CECRL ${pack.level_code}, thème "${targetTheme.label}".
+Donne des mots ou courtes expressions isolés (PAS des phrases complètes),
+utiles au quotidien. Pour chaque nom, inclus TOUJOURS l'article qui va avec,
+aussi bien dans "target_text" que dans "translation_fr" (ex: "una sedia" /
+"une chaise", jamais "sedia" / "chaise" tout seul).
+
+Tu réponds STRICTEMENT en JSON valide, un tableau d'objets, sans texte
+avant/après, sans balises markdown. Chaque objet :
+{
+  "target_text": "mot ou expression en ${langName} (avec article si nom)",
+  "translation_fr": "traduction française (avec article si nom)",
+  "word_type": "nom | adjectif | adverbe | expression"
+}${avoidInstruction}`;
+
+  const user = `Donne ${chunkCount} mots/expressions de niveau ${pack.level_code} sur le thème "${targetTheme.label}".`;
+
+  const text = await callGemini(system, user);
+  let parsed: Array<{ target_text?: string; translation_fr?: string; word_type?: string }>;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error('Réponse Gemini invalide (JSON non parsable) pour le vocabulaire.');
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error('Format de vocabulaire inattendu reçu de Gemini');
+  }
+
+  // Filet de sécurité anti-doublon côté code, en plus de l'instruction à
+  // Gemini (global, pas juste le thème courant).
+  const seenNormalized = new Set(avoidList.map(normalize));
+  const validTypes = new Set(['nom', 'adjectif', 'adverbe', 'expression']);
+  const rows = parsed
+    .filter((w) => w.target_text && w.translation_fr)
+    .filter((w) => {
+      const n = normalize(w.target_text!);
+      if (seenNormalized.has(n)) return false;
+      seenNormalized.add(n);
+      return true;
+    })
+    .map((w) => ({
+      language_code: pack.language_code,
+      level_code: pack.level_code,
+      pack_id: packId,
+      theme_code: targetTheme!.code,
+      word_type: w.word_type && validTypes.has(w.word_type) ? w.word_type : 'nom',
+      target_text: w.target_text!,
+      translation_fr: w.translation_fr!,
+    }));
+
+  if (rows.length === 0) {
+    // Tout était doublon cette fois — pas d'avancée, le client rappellera.
+    return { done: false, generatedThisStep: 0, generatedTotal: pack.generated_count, targetTotal: pack.target_count };
+  }
+
+  const { data: inserted, error: insertError } = await supabaseAdmin
+    .from('vocabulary_words')
+    .insert(rows)
+    .select('id, target_text');
+
+  if (insertError) throw new Error(insertError.message);
+
+  const TTS_CONCURRENCY = 6;
+  for (let i = 0; i < (inserted?.length ?? 0); i += TTS_CONCURRENCY) {
+    const batch = inserted!.slice(i, i + TTS_CONCURRENCY);
+    await Promise.allSettled(
+      batch.map(async (row) => {
+        const storagePath = `${pack.language_code}/${pack.level_code}/vocabulary/${row.id}.mp3`;
+        const { audioUrl } = await synthesizeAndStore(row.target_text, pack.language_code, storagePath);
+        await supabaseAdmin.from('vocabulary_words').update({ audio_url: audioUrl }).eq('id', row.id);
+      })
+    );
+  }
+
+  const { count: totalGenerated } = await supabaseAdmin
+    .from('vocabulary_words')
+    .select('id', { count: 'exact', head: true })
+    .eq('pack_id', packId);
+
+  await supabaseAdmin.from('vocabulary_packs').update({ generated_count: totalGenerated ?? 0 }).eq('id', packId);
+
+  return {
+    done: false,
+    themeLabel: targetTheme.label,
+    generatedThisStep: inserted?.length ?? 0,
+    generatedTotal: totalGenerated ?? 0,
+    targetTotal: pack.target_count,
+  };
+}
+
+// ---------------------------------------------------------
+// Liste + filtres (onglet Vocabulaire)
+// ---------------------------------------------------------
 export type VocabularyWord = {
   id: string;
   theme_code: string;
@@ -20,21 +256,14 @@ export type VocabularyWordWithMastery = VocabularyWord & {
   mastered: boolean;
 };
 
-const MASTERY_MIN_ATTEMPTS = 5;
-const MASTERY_MIN_RATE = 0.9;
-
-function computeMastered(success: number, fail: number): boolean {
-  const total = success + fail;
-  return total >= MASTERY_MIN_ATTEMPTS && success / total >= MASTERY_MIN_RATE;
-}
-
-export async function getVocabularyStatus(languageCode: string, levelCode: string): Promise<number> {
-  const { count } = await supabaseAdmin
-    .from('vocabulary_words')
-    .select('id', { count: 'exact', head: true })
+async function getReadyVocabularyPackIds(languageCode: string, levelCode: string): Promise<string[]> {
+  const { data } = await supabaseAdmin
+    .from('vocabulary_packs')
+    .select('id')
     .eq('language_code', languageCode)
-    .eq('level_code', levelCode);
-  return count ?? 0;
+    .eq('level_code', levelCode)
+    .eq('status', 'ready');
+  return (data ?? []).map((p) => p.id);
 }
 
 export async function getVocabularyWords(
@@ -42,11 +271,13 @@ export async function getVocabularyWords(
   languageCode: string,
   levelCode: string
 ): Promise<VocabularyWordWithMastery[]> {
+  const packIds = await getReadyVocabularyPackIds(languageCode, levelCode);
+  if (packIds.length === 0) return [];
+
   const { data: words, error } = await supabaseAdmin
     .from('vocabulary_words')
     .select('id, theme_code, word_type, target_text, translation_fr, audio_url')
-    .eq('language_code', languageCode)
-    .eq('level_code', levelCode)
+    .in('pack_id', packIds)
     .order('theme_code');
 
   if (error) throw new Error(error.message);
@@ -71,123 +302,6 @@ export async function getVocabularyWords(
   });
 }
 
-/**
- * Génère jusqu'à un lot de mots pour le thème le moins complet, avec leur
- * audio — même logique de reprise par petits lots que les packs de phrases.
- */
-export async function runVocabularyStep(
-  languageCode: string,
-  levelCode: string
-): Promise<{ done: boolean; generatedThisStep: number; generatedTotal: number; targetTotal: number }> {
-  const quotas = packThemeQuotas(VOCAB_TARGET);
-  const CHUNK_SIZE = 15;
-
-  let targetTheme: { code: string; label: string; count: number; existing: number } | null = null;
-  for (const q of quotas) {
-    const { count } = await supabaseAdmin
-      .from('vocabulary_words')
-      .select('id', { count: 'exact', head: true })
-      .eq('language_code', languageCode)
-      .eq('level_code', levelCode)
-      .eq('theme_code', q.code);
-
-    if ((count ?? 0) < q.count) {
-      targetTheme = { ...q, existing: count ?? 0 };
-      break;
-    }
-  }
-
-  if (!targetTheme) {
-    const total = await getVocabularyStatus(languageCode, levelCode);
-    return { done: true, generatedThisStep: 0, generatedTotal: total, targetTotal: VOCAB_TARGET };
-  }
-
-  const chunkCount = Math.min(CHUNK_SIZE, targetTheme.count - targetTheme.existing);
-  const langName = LANGUAGE_NAMES[languageCode] ?? languageCode;
-
-  const { data: prior } = await supabaseAdmin
-    .from('vocabulary_words')
-    .select('target_text')
-    .eq('language_code', languageCode)
-    .eq('level_code', levelCode)
-    .eq('theme_code', targetTheme.code)
-    .order('created_at', { ascending: false })
-    .limit(100);
-
-  const avoidList = (prior ?? []).map((p) => p.target_text);
-  const avoidInstruction =
-    avoidList.length > 0 ? `\n\nDéjà utilisés pour ce thème, ne pas répéter :\n- ${avoidList.join('\n- ')}` : '';
-
-  const system = `Tu es un professeur de ${langName} langue étrangère. Tu constitues une
-banque de vocabulaire de base niveau CECRL ${levelCode}, thème "${targetTheme.label}".
-Donne des mots ou courtes expressions isolés (PAS des phrases complètes),
-utiles au quotidien. Pour chaque nom, inclus TOUJOURS l'article qui va avec,
-aussi bien dans "target_text" que dans "translation_fr" (ex: "una sedia" /
-"une chaise", jamais "sedia" / "chaise" tout seul).
-
-Tu réponds STRICTEMENT en JSON valide, un tableau d'objets, sans texte
-avant/après, sans balises markdown. Chaque objet :
-{
-  "target_text": "mot ou expression en ${langName} (avec article si nom)",
-  "translation_fr": "traduction française (avec article si nom)",
-  "word_type": "nom | adjectif | adverbe | expression"
-}${avoidInstruction}`;
-
-  const user = `Donne ${chunkCount} mots/expressions de niveau ${levelCode} sur le thème "${targetTheme.label}".`;
-
-  const text = await callGemini(system, user);
-  let parsed: Array<{ target_text?: string; translation_fr?: string; word_type?: string }>;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new Error('Réponse Gemini invalide (JSON non parsable) pour le vocabulaire.');
-  }
-  if (!Array.isArray(parsed) || parsed.length === 0) {
-    throw new Error('Format de vocabulaire inattendu reçu de Gemini');
-  }
-
-  const validTypes = new Set(['nom', 'adjectif', 'adverbe', 'expression']);
-  const rows = parsed
-    .filter((w) => w.target_text && w.translation_fr)
-    .map((w) => ({
-      language_code: languageCode,
-      level_code: levelCode,
-      theme_code: targetTheme!.code,
-      word_type: w.word_type && validTypes.has(w.word_type) ? w.word_type : 'nom',
-      target_text: w.target_text!,
-      translation_fr: w.translation_fr!,
-    }));
-
-  const { data: inserted, error: insertError } = await supabaseAdmin
-    .from('vocabulary_words')
-    .insert(rows)
-    .select('id, target_text');
-
-  if (insertError) throw new Error(insertError.message);
-
-  // Audio, un fichier par mot.
-  const TTS_CONCURRENCY = 6;
-  for (let i = 0; i < (inserted?.length ?? 0); i += TTS_CONCURRENCY) {
-    const batch = inserted!.slice(i, i + TTS_CONCURRENCY);
-    await Promise.allSettled(
-      batch.map(async (row) => {
-        const storagePath = `${languageCode}/${levelCode}/vocabulary/${row.id}.mp3`;
-        const { audioUrl } = await synthesizeAndStore(row.target_text, languageCode, storagePath);
-        await supabaseAdmin.from('vocabulary_words').update({ audio_url: audioUrl }).eq('id', row.id);
-      })
-    );
-  }
-
-  const generatedTotal = await getVocabularyStatus(languageCode, levelCode);
-
-  return {
-    done: generatedTotal >= VOCAB_TARGET,
-    generatedThisStep: inserted?.length ?? 0,
-    generatedTotal,
-    targetTotal: VOCAB_TARGET,
-  };
-}
-
 // ---------------------------------------------------------
 // Mode Jeu : pioche mêlée mots + verbes, résultat oral uniquement.
 // ---------------------------------------------------------
@@ -200,11 +314,15 @@ export type GameItem = {
 };
 
 export async function getGameItems(languageCode: string, levelCode: string, count = 20): Promise<GameItem[]> {
-  const { data: words } = await supabaseAdmin
-    .from('vocabulary_words')
-    .select('id, target_text, translation_fr, audio_url')
-    .eq('language_code', languageCode)
-    .eq('level_code', levelCode);
+  const packIds = await getReadyVocabularyPackIds(languageCode, levelCode);
+
+  const { data: words } =
+    packIds.length > 0
+      ? await supabaseAdmin
+          .from('vocabulary_words')
+          .select('id, target_text, translation_fr, audio_url')
+          .in('pack_id', packIds)
+      : { data: [] as { id: string; target_text: string; translation_fr: string; audio_url: string | null }[] };
 
   const { data: verbs } = await supabaseAdmin
     .from('conjugation_verbs')

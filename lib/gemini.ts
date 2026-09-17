@@ -5,12 +5,24 @@ export const LANGUAGE_NAMES: Record<string, string> = {
   it: 'italien',
   es: 'espagnol',
   en: 'anglais',
+  ja: 'japonais',
+  de: 'allemand',
+};
+
+export const LANGUAGE_DEMONYM: Record<string, string> = {
+  it: 'italophone',
+  es: 'hispanophone',
+  en: 'anglophone',
+  ja: 'japonophone',
+  de: 'germanophone',
 };
 
 export const BCP47: Record<string, string> = {
   it: 'it-IT',
   es: 'es-ES',
-  en: 'en-GB',
+  en: 'en-US',
+  ja: 'ja-JP',
+  de: 'de-DE',
 };
 
 /**

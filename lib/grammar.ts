@@ -29,6 +29,27 @@ export async function getAvailableGrammarTopicCodes(languageCode: string): Promi
   return (data ?? []).map((r) => r.topic_code);
 }
 
+/**
+ * Codes des fiches manquantes OU générées avant l'ajout de la surbrillance
+ * (aucun exemple ne contient de marqueur **...**) — pour que le bouton de
+ * téléchargement dans Packs les régénère automatiquement avec la nouvelle
+ * version du prompt.
+ */
+export async function getTopicsNeedingRegeneration(languageCode: string): Promise<string[]> {
+  const { data } = await supabaseAdmin
+    .from('grammar_topics')
+    .select('topic_code, examples')
+    .eq('language_code', languageCode);
+
+  const existingByCode = new Map((data ?? []).map((r) => [r.topic_code, r.examples as GrammarExample[]]));
+
+  return GRAMMAR_TOPICS.map((t) => t.code).filter((code) => {
+    const examples = existingByCode.get(code);
+    if (!examples) return true; // manquante
+    return !examples.some((ex) => ex.target?.includes('**') || ex.fr?.includes('**'));
+  });
+}
+
 export async function generateGrammarTopic(languageCode: string, topicCode: string): Promise<GrammarTopic> {
   const langName = LANGUAGE_NAMES[languageCode] ?? languageCode;
   const topicMeta = GRAMMAR_TOPICS.find((t) => t.code === topicCode);

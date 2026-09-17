@@ -29,6 +29,61 @@ export async function getConjugationVerbs(languageCode: string): Promise<Conjuga
   return data ?? [];
 }
 
+const BACKFILL_BATCH_SIZE = 5;
+
+/**
+ * Complète l'audio manquant pour des verbes déjà générés avant l'ajout de
+ * tense_audio (ou dont un temps avait échoué). Traite un petit lot à la
+ * fois — le client rappelle en boucle jusqu'à `done: true`.
+ */
+export async function backfillConjugationAudio(
+  languageCode: string
+): Promise<{ done: boolean; processed: number }> {
+  const { data: verbs } = await supabaseAdmin
+    .from('conjugation_verbs')
+    .select('id, tenses, tense_audio')
+    .eq('language_code', languageCode);
+
+  const incomplete = (verbs ?? []).filter((v) => {
+    const audio = (v.tense_audio as Record<string, string>) ?? {};
+    return TENSES.some((t) => (v.tenses as Record<string, string[]>)?.[t]?.length > 0 && !audio[t]);
+  });
+
+  if (incomplete.length === 0) return { done: true, processed: 0 };
+
+  const batch = incomplete.slice(0, BACKFILL_BATCH_SIZE);
+  const TTS_CONCURRENCY = 4;
+  const jobs: { verbId: string; tense: string; forms: string[] }[] = [];
+  for (const v of batch) {
+    const audio = (v.tense_audio as Record<string, string>) ?? {};
+    for (const tense of TENSES) {
+      const forms = (v.tenses as Record<string, string[]>)?.[tense];
+      if (forms?.length > 0 && !audio[tense]) jobs.push({ verbId: v.id, tense, forms });
+    }
+  }
+
+  for (let i = 0; i < jobs.length; i += TTS_CONCURRENCY) {
+    const chunk = jobs.slice(i, i + TTS_CONCURRENCY);
+    await Promise.allSettled(
+      chunk.map(async (job) => {
+        const spoken = job.forms.join(', ') + '.';
+        const storagePath = `${languageCode}/conjugation/${job.verbId}/${job.tense}.mp3`;
+        const { audioUrl } = await synthesizeAndStore(spoken, languageCode, storagePath);
+
+        const { data: current } = await supabaseAdmin
+          .from('conjugation_verbs')
+          .select('tense_audio')
+          .eq('id', job.verbId)
+          .single();
+        const updatedAudio = { ...(current?.tense_audio ?? {}), [job.tense]: audioUrl };
+        await supabaseAdmin.from('conjugation_verbs').update({ tense_audio: updatedAudio }).eq('id', job.verbId);
+      })
+    );
+  }
+
+  return { done: incomplete.length <= BACKFILL_BATCH_SIZE, processed: batch.length };
+}
+
 export type ConjugationStepResult = {
   done: boolean;
   generatedThisStep: number;
