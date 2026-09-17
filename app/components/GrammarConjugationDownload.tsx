@@ -105,20 +105,18 @@ export default function GrammarConjugationDownload({ languageCode }: { languageC
           <p className="eyebrow-free">Laisse cet onglet ouvert le temps de la génération.</p>
         </div>
       ) : (
-        !complete && (
-          <button className="primary" onClick={() => setConfirming(true)}>
-            Télécharger Grammaire et conjugaison
-          </button>
-        )
+        <button className="primary" onClick={() => setConfirming(true)}>
+          {complete ? 'Vérifier / mettre à jour Grammaire et conjugaison' : 'Télécharger Grammaire et conjugaison'}
+        </button>
       )}
 
       {confirming && (
         <div className="conv-live" style={{ minHeight: 0 }}>
           <div className="pack-confirm-modal">
             <p>
-              Cette opération va générer <strong>{GRAMMAR_TOPICS.length - grammarDone} fiche(s) de grammaire</strong>{' '}
-              et <strong>{CONJUGATION_TARGET - conjugationDone} verbe(s) conjugués</strong> (texte seulement, pas
-              d'audio).
+              {complete
+                ? "Vérifie s'il y a des fiches ou de l'audio à régénérer/compléter (mises à jour du contenu, audio manquant sur d'anciens verbes...). S'il n'y a rien à faire, ça ne coûtera rien."
+                : `Cette opération va générer ${GRAMMAR_TOPICS.length - grammarDone} fiche(s) de grammaire et ${CONJUGATION_TARGET - conjugationDone} verbe(s) conjugués (texte + audio des verbes).`}
             </p>
             <p>
               Coût estimé : <strong>≈ {cost.eur.toFixed(2)}€</strong> (≈ {cost.usd.toFixed(2)}$, Gemini uniquement).

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { getVocabularyWords, type VocabularyWordWithMastery } from '../../lib/vocabulary';
 import { THEMES, LANGS } from '../../lib/constants';
 import VocabularyGamePanel from './VocabularyGamePanel';
+import VocabularyStatsPanel from './VocabularyStatsPanel';
 
 const WORD_TYPES = [
   { code: 'nom', label: 'Noms' },
@@ -12,7 +13,7 @@ const WORD_TYPES = [
   { code: 'expression', label: 'Expressions' },
 ];
 
-type SubTab = 'list' | 'game';
+type SubTab = 'list' | 'game' | 'stats';
 
 export default function VocabularyPanel({
   profileId,
@@ -77,10 +78,15 @@ export default function VocabularyPanel({
         <button className={`subtab-btn${subTab === 'game' ? ' active' : ''}`} onClick={() => setSubTab('game')}>
           Jeu
         </button>
+        <button className={`subtab-btn${subTab === 'stats' ? ' active' : ''}`} onClick={() => setSubTab('stats')}>
+          Statistiques
+        </button>
       </div>
 
       {subTab === 'game' ? (
         <VocabularyGamePanel profileId={profileId} languageCode={languageCode} levelCode={levelCode} bcp47={bcp47} />
+      ) : subTab === 'stats' ? (
+        <VocabularyStatsPanel profileId={profileId} languageCode={languageCode} levelCode={levelCode} />
       ) : (
         <>
           {error && <p className="conv-warning">{error}</p>}

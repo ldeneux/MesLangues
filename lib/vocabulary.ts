@@ -6,7 +6,7 @@ import { synthesizeAndStore } from './tts';
 import { THEMES, packThemeQuotas, VOCAB_PACK_SIZE } from './constants';
 
 const CHUNK_SIZE = 15;
-const MASTERY_MIN_ATTEMPTS = 5;
+const MASTERY_MIN_ATTEMPTS = 1;
 const MASTERY_MIN_RATE = 0.9;
 
 function normalize(s: string) {
@@ -266,6 +266,56 @@ async function getReadyVocabularyPackIds(languageCode: string, levelCode: string
   return (data ?? []).map((p) => p.id);
 }
 
+export type VocabularyScoreEntry = {
+  id: string;
+  target_text: string;
+  translation_fr: string;
+  success_count: number;
+  fail_count: number;
+  score: number; // 0-100
+};
+
+/**
+ * Score (0-100) de chaque mot déjà pratiqué au moins une fois par ce
+ * profil — les mots jamais pratiqués sont exclus, pour l'onglet
+ * Statistiques.
+ */
+export async function getVocabularyScores(
+  profileId: string,
+  languageCode: string,
+  levelCode: string
+): Promise<VocabularyScoreEntry[]> {
+  const packIds = await getReadyVocabularyPackIds(languageCode, levelCode);
+  if (packIds.length === 0) return [];
+
+  const { data: words } = await supabaseAdmin
+    .from('vocabulary_words')
+    .select('id, target_text, translation_fr')
+    .in('pack_id', packIds);
+
+  const wordMap = new Map((words ?? []).map((w) => [w.id, w]));
+
+  const { data: progress } = await supabaseAdmin
+    .from('vocabulary_progress')
+    .select('word_id, success_count, fail_count')
+    .eq('profile_id', profileId)
+    .in('word_id', Array.from(wordMap.keys()));
+
+  return (progress ?? [])
+    .filter((p) => p.success_count + p.fail_count > 0)
+    .map((p) => {
+      const w = wordMap.get(p.word_id)!;
+      return {
+        id: p.word_id,
+        target_text: w.target_text,
+        translation_fr: w.translation_fr,
+        success_count: p.success_count,
+        fail_count: p.fail_count,
+        score: Math.round((p.success_count / (p.success_count + p.fail_count)) * 100),
+      };
+    });
+}
+
 export async function getVocabularyWords(
   profileId: string,
   languageCode: string,
@@ -313,7 +363,13 @@ export type GameItem = {
   audio_url: string | null;
 };
 
-export async function getGameItems(languageCode: string, levelCode: string, count = 20): Promise<GameItem[]> {
+export async function getGameItems(
+  languageCode: string,
+  levelCode: string,
+  profileId: string,
+  count = 20,
+  onlyPracticed = false
+): Promise<GameItem[]> {
   const packIds = await getReadyVocabularyPackIds(languageCode, levelCode);
 
   const { data: words } =
@@ -329,7 +385,7 @@ export async function getGameItems(languageCode: string, levelCode: string, coun
     .select('id, infinitive, translation_fr, tense_audio')
     .eq('language_code', languageCode);
 
-  const wordItems: GameItem[] = (words ?? []).map((w) => ({
+  let wordItems: GameItem[] = (words ?? []).map((w) => ({
     id: w.id,
     source: 'word',
     target_text: w.target_text,
@@ -337,13 +393,24 @@ export async function getGameItems(languageCode: string, levelCode: string, coun
     audio_url: w.audio_url,
   }));
 
-  const verbItems: GameItem[] = (verbs ?? []).map((v) => ({
+  let verbItems: GameItem[] = (verbs ?? []).map((v) => ({
     id: v.id,
     source: 'verb',
     target_text: v.infinitive,
     translation_fr: v.translation_fr,
     audio_url: (v.tense_audio as Record<string, string>)?.present ?? null,
   }));
+
+  if (onlyPracticed) {
+    const [{ data: wordProgress }, { data: verbProgress }] = await Promise.all([
+      supabaseAdmin.from('vocabulary_progress').select('word_id').eq('profile_id', profileId),
+      supabaseAdmin.from('conjugation_progress').select('verb_id').eq('profile_id', profileId),
+    ]);
+    const practicedWordIds = new Set((wordProgress ?? []).map((p) => p.word_id));
+    const practicedVerbIds = new Set((verbProgress ?? []).map((p) => p.verb_id));
+    wordItems = wordItems.filter((w) => practicedWordIds.has(w.id));
+    verbItems = verbItems.filter((v) => practicedVerbIds.has(v.id));
+  }
 
   const pool = [...wordItems, ...verbItems];
   for (let i = pool.length - 1; i > 0; i--) {
