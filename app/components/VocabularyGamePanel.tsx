@@ -141,7 +141,7 @@ export default function VocabularyGamePanel({
   if (!recognitionSupported) {
     return (
       <p className="conv-warning">
-        Le mode Jeu se joue à l'oral et nécessite la reconnaissance vocale, non disponible sur ce navigateur (essaie
+        Le mode Test se joue à l'oral et nécessite la reconnaissance vocale, non disponible sur ce navigateur (essaie
         Chrome ou Edge).
       </p>
     );
@@ -208,13 +208,18 @@ export default function VocabularyGamePanel({
 
             <div className="conv-controls">
               {status !== 'checked' && (
-                <button
-                  className={`mic-btn${status === 'listening' ? ' active' : ''}`}
-                  onClick={startListening}
-                  disabled={status === 'listening'}
-                >
-                  {status === 'listening' ? '🎙️ Écoute…' : '🎙️ Répondre'}
-                </button>
+                <>
+                  <button
+                    className={`mic-btn${status === 'listening' ? ' active' : ''}`}
+                    onClick={startListening}
+                    disabled={status === 'listening'}
+                  >
+                    {status === 'listening' ? '🎙️ Écoute…' : '🎙️ Répondre'}
+                  </button>
+                  <button className="conv-mini-btn" onClick={() => check('')}>
+                    Je ne sais pas
+                  </button>
+                </>
               )}
             </div>
           </div>

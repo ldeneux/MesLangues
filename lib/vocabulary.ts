@@ -353,7 +353,7 @@ export async function getVocabularyWords(
 }
 
 // ---------------------------------------------------------
-// Mode Jeu : pioche mêlée mots + verbes, résultat oral uniquement.
+// Mode Test : pioche mêlée mots + verbes, résultat oral uniquement.
 // ---------------------------------------------------------
 export type GameItem = {
   id: string;

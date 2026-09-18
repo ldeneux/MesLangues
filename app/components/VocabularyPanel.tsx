@@ -76,7 +76,7 @@ export default function VocabularyPanel({
           Liste
         </button>
         <button className={`subtab-btn${subTab === 'game' ? ' active' : ''}`} onClick={() => setSubTab('game')}>
-          Jeu
+          Test
         </button>
         <button className={`subtab-btn${subTab === 'stats' ? ' active' : ''}`} onClick={() => setSubTab('stats')}>
           Statistiques

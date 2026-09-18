@@ -39,7 +39,7 @@ export default function VocabularyStatsPanel({
   if (entries.length === 0) {
     return (
       <p className="eyebrow-free">
-        Aucun mot pratiqué pour l'instant — les scores apparaîtront ici après des parties du mode Jeu.
+        Aucun mot pratiqué pour l'instant — les scores apparaîtront ici après des parties du mode Test.
       </p>
     );
   }

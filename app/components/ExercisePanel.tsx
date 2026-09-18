@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Phrase } from '../../lib/data';
 import { markPhraseSeen } from '../../lib/data';
 
+const MAX_ATTEMPTS = 3;
+
 function normalizeWord(w: string) {
   return w
     .toLowerCase()
@@ -46,8 +48,12 @@ export default function ExercisePanel({
   const [status, setStatus] = useState<Status>('idle');
   const [transcript, setTranscript] = useState('');
   const [typedAnswer, setTypedAnswer] = useState('');
+  const [gaveUp, setGaveUp] = useState(false);
+  const [attempts, setAttempts] = useState(0);
   const [recognitionSupported, setRecognitionSupported] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const resultCapturedRef = useRef(false);
+  const attemptsRef = useRef(0);
 
   const phrase = eligible[index];
 
@@ -62,6 +68,9 @@ export default function ExercisePanel({
       setStatus('idle');
       setTranscript('');
       setTypedAnswer('');
+      setGaveUp(false);
+      setAttempts(0);
+      attemptsRef.current = 0;
       markPhraseSeen(profileId, phrase.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -83,19 +92,20 @@ export default function ExercisePanel({
   const blankWords = cloze.blankIndices.map((i) => cloze.tokens[i]);
 
   function check(answer: string) {
-    const answerWords = answer.split(/\s+/).map(normalizeWord).filter(Boolean);
-    const targetWords = cloze!.tokens.map(normalizeWord);
-    const foundBlanks = blankWords.filter((w) => answerWords.includes(normalizeWord(w)));
-    const matchedTotal = targetWords.filter((w) => answerWords.includes(w)).length;
-
     setTranscript(answer);
     setStatus('checked');
-    return { success: foundBlanks.length === blankWords.length, ratio: matchedTotal / targetWords.length };
+  }
+
+  function giveUp() {
+    setGaveUp(true);
+    setTranscript('');
+    setStatus('checked');
   }
 
   function startListening() {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) return;
+    resultCapturedRef.current = false;
     const recognition = new SR();
     recognition.lang = bcp47;
     recognition.interimResults = true;
@@ -107,10 +117,24 @@ export default function ExercisePanel({
         .join(' ');
       setTranscript(text);
       const isFinal = event.results[event.results.length - 1].isFinal;
-      if (isFinal) check(text);
+      if (isFinal) {
+        resultCapturedRef.current = true;
+        check(text);
+      }
     };
-    recognition.onerror = () => setStatus((s) => (s === 'listening' ? 'idle' : s));
-    recognition.onend = () => setStatus((s) => (s === 'listening' ? 'idle' : s));
+    recognition.onerror = () => {
+      if (!resultCapturedRef.current) {
+        resultCapturedRef.current = true;
+        handleNoCapture();
+      }
+    };
+    recognition.onend = () => {
+      setStatus((s) => (s === 'listening' ? 'idle' : s));
+      if (!resultCapturedRef.current) {
+        resultCapturedRef.current = true;
+        handleNoCapture();
+      }
+    };
 
     recognitionRef.current = recognition;
     setStatus('listening');
@@ -118,17 +142,26 @@ export default function ExercisePanel({
     recognition.start();
   }
 
+  function handleNoCapture() {
+    attemptsRef.current += 1;
+    setAttempts(attemptsRef.current);
+    if (attemptsRef.current >= MAX_ATTEMPTS) {
+      check(''); // micro n'a rien capté après 3 essais — compté comme raté
+    }
+  }
+
   function stopListening() {
     recognitionRef.current?.stop?.();
   }
 
-  const evaluated = status === 'checked' ? evaluateAnswer() : null;
-
-  function evaluateAnswer() {
-    const answerWords = transcript.split(/\s+/).map(normalizeWord).filter(Boolean);
-    const foundBlanks = blankWords.filter((w) => answerWords.includes(normalizeWord(w)));
-    return { success: foundBlanks.length === blankWords.length, foundCount: foundBlanks.length };
-  }
+  const evaluated =
+    status === 'checked' && !gaveUp
+      ? (() => {
+          const answerWords = transcript.split(/\s+/).map(normalizeWord).filter(Boolean);
+          const foundBlanks = blankWords.filter((w) => answerWords.includes(normalizeWord(w)));
+          return { success: foundBlanks.length === blankWords.length, foundCount: foundBlanks.length };
+        })()
+      : null;
 
   function next() {
     setIndex((i) => Math.min(eligible.length - 1, i + 1));
@@ -152,41 +185,60 @@ export default function ExercisePanel({
           Écoute puis répète la phrase entière à voix haute, en incluant le(s) mot(s) manquant(s) (▁▁▁▁▁).
         </p>
 
-        {status === 'checked' && evaluated && (
-          <div className={evaluated.success ? 'conv-correction exercise-success' : 'conv-correction'}>
-            <div className="conv-correction-label">{evaluated.success ? '✅ Bravo' : '✏️ Pas tout à fait'}</div>
-            <div className="conv-correction-text">{phrase.target_text}</div>
-            <div className="conv-correction-explanation">
-              Toi : "{transcript || typedAnswer}" — mot(s) manquant(s) retrouvé(s) : {evaluated.foundCount} /{' '}
-              {blankWords.length}
+        {status === 'listening' && attempts > 0 && (
+          <p className="eyebrow-free">Essai {attempts + 1} / {MAX_ATTEMPTS}…</p>
+        )}
+
+        {status === 'checked' && (
+          <div
+            className={
+              gaveUp ? 'conv-correction' : evaluated?.success ? 'conv-correction exercise-success' : 'conv-correction'
+            }
+          >
+            <div className="conv-correction-label">
+              {gaveUp ? '💡 Solution' : evaluated?.success ? '✅ Bravo' : '✏️ Pas tout à fait'}
             </div>
+            <div className="conv-correction-text">{phrase.target_text}</div>
+            {!gaveUp && (
+              <div className="conv-correction-explanation">
+                {transcript ? `Toi : "${transcript}"` : "Le micro n'a rien capté après 3 essais."} — mot(s)
+                manquant(s) retrouvé(s) : {evaluated?.foundCount ?? 0} / {blankWords.length}
+              </div>
+            )}
           </div>
         )}
 
         <div className="conv-controls">
-          {recognitionSupported ? (
-            <button
-              className={`mic-btn${status === 'listening' ? ' active' : ''}`}
-              onClick={status === 'listening' ? stopListening : startListening}
-            >
-              {status === 'listening' ? '⏹ Stop' : '🎙️ Répéter'}
-            </button>
-          ) : (
-            <div className="conv-text-row">
-              <input
-                className="conv-text-input"
-                type="text"
-                placeholder="Tape la phrase complète…"
-                value={typedAnswer}
-                onChange={(e) => setTypedAnswer(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') check(typedAnswer);
-                }}
-              />
-              <button className="primary" onClick={() => check(typedAnswer)} disabled={!typedAnswer.trim()}>
-                Vérifier
+          {status !== 'checked' && (
+            <>
+              {recognitionSupported ? (
+                <button
+                  className={`mic-btn${status === 'listening' ? ' active' : ''}`}
+                  onClick={status === 'listening' ? stopListening : startListening}
+                >
+                  {status === 'listening' ? '⏹ Stop' : '🎙️ Répéter'}
+                </button>
+              ) : (
+                <div className="conv-text-row">
+                  <input
+                    className="conv-text-input"
+                    type="text"
+                    placeholder="Tape la phrase complète…"
+                    value={typedAnswer}
+                    onChange={(e) => setTypedAnswer(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') check(typedAnswer);
+                    }}
+                  />
+                  <button className="primary" onClick={() => check(typedAnswer)} disabled={!typedAnswer.trim()}>
+                    Vérifier
+                  </button>
+                </div>
+              )}
+              <button className="conv-mini-btn" onClick={giveUp}>
+                Je ne sais pas
               </button>
-            </div>
+            </>
           )}
         </div>
       </div>
@@ -198,6 +250,9 @@ export default function ExercisePanel({
             setStatus('idle');
             setTranscript('');
             setTypedAnswer('');
+            setGaveUp(false);
+            setAttempts(0);
+            attemptsRef.current = 0;
           }}
         >
           Réessayer
