@@ -298,10 +298,11 @@ export async function getVocabularyScores(
   const { data: progress } = await supabaseAdmin
     .from('vocabulary_progress')
     .select('word_id, success_count, fail_count')
-    .eq('profile_id', profileId)
-    .in('word_id', Array.from(wordMap.keys()));
+    .eq('profile_id', profileId);
 
-  return (progress ?? [])
+  const relevantProgress = (progress ?? []).filter((p) => wordMap.has(p.word_id));
+
+  return relevantProgress
     .filter((p) => p.success_count + p.fail_count > 0)
     .map((p) => {
       const w = wordMap.get(p.word_id)!;
@@ -314,6 +315,45 @@ export async function getVocabularyScores(
         score: Math.round((p.success_count / (p.success_count + p.fail_count)) * 100),
       };
     });
+}
+
+export async function resetWordProgress(profileId: string, wordId: string): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from('vocabulary_progress')
+    .delete()
+    .eq('profile_id', profileId)
+    .eq('word_id', wordId);
+  if (error) throw new Error(error.message);
+}
+
+export async function resetAllVocabularyProgress(
+  profileId: string,
+  languageCode: string,
+  levelCode: string
+): Promise<void> {
+  const packIds = await getReadyVocabularyPackIds(languageCode, levelCode);
+  if (packIds.length === 0) return;
+
+  const { data: words } = await supabaseAdmin.from('vocabulary_words').select('id').in('pack_id', packIds);
+  const wordIds = (words ?? []).map((w) => w.id);
+  if (wordIds.length === 0) return;
+
+  const { data: progress } = await supabaseAdmin
+    .from('vocabulary_progress')
+    .select('word_id')
+    .eq('profile_id', profileId);
+
+  const toDelete = (progress ?? []).map((p) => p.word_id).filter((id) => wordIds.includes(id));
+
+  for (let i = 0; i < toDelete.length; i += 100) {
+    const batch = toDelete.slice(i, i + 100);
+    const { error } = await supabaseAdmin
+      .from('vocabulary_progress')
+      .delete()
+      .eq('profile_id', profileId)
+      .in('word_id', batch);
+    if (error) throw new Error(error.message);
+  }
 }
 
 export async function getVocabularyWords(
@@ -333,16 +373,14 @@ export async function getVocabularyWords(
   if (error) throw new Error(error.message);
   if (!words || words.length === 0) return [];
 
+  const wordIds = new Set(words.map((w) => w.id));
+
   const { data: progress } = await supabaseAdmin
     .from('vocabulary_progress')
     .select('word_id, success_count, fail_count')
-    .eq('profile_id', profileId)
-    .in(
-      'word_id',
-      words.map((w) => w.id)
-    );
+    .eq('profile_id', profileId);
 
-  const progressMap = new Map((progress ?? []).map((p) => [p.word_id, p]));
+  const progressMap = new Map((progress ?? []).filter((p) => wordIds.has(p.word_id)).map((p) => [p.word_id, p]));
 
   return words.map((w) => {
     const p = progressMap.get(w.id);

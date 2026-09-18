@@ -1135,6 +1135,25 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
   border-radius: 999px;
 }
 
+.stats-reset-btn {
+  flex: 0 0 auto;
+  margin-left: auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.stats-reset-btn:hover {
+  border-color: var(--es);
+  color: var(--es);
+}
+
 .conv-mini-btn.selected-mini {
   background: var(--ink);
   color: var(--paper);
