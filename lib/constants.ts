@@ -70,6 +70,10 @@ export const CONJUGATION_TARGET = 120;
 
 export const VOCAB_PACK_SIZE = 350;
 
+export const LISTENING_PACK_SIZE = 100;
+export const QUESTIONS_PER_ARTICLE = 25;
+export const QUIZ_DRAW_SIZE = 5;
+
 export const GRAMMAR_TOPICS = [
   { code: 'articles', label: 'Articles (défini / indéfini)' },
   { code: 'genre_nombre', label: 'Genre et nombre des noms' },

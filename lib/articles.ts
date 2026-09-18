@@ -3,63 +3,51 @@
 import { supabaseAdmin } from './supabaseAdmin';
 import { callGemini, LANGUAGE_NAMES } from './gemini';
 import { synthesizeAndStore } from './tts';
-import { THEMES } from './constants';
+import { THEMES, LISTENING_PACK_SIZE, QUESTIONS_PER_ARTICLE, QUIZ_DRAW_SIZE } from './constants';
 
-export type ArticleSummary = {
+// ---------------------------------------------------------
+// Packs d'articles (même principe que phrases/vocabulaire) : génération
+// par petits pas résumables, un article + sa banque de questions à la fois.
+// ---------------------------------------------------------
+export type ListeningPackInfo = {
   id: string;
-  title: string;
-  theme_code: string | null;
-  created_at: string;
+  pack_number: number;
+  status: 'pending' | 'generating' | 'ready';
+  generated_count: number;
+  target_count: number;
 };
 
-export type Article = {
-  id: string;
-  title: string;
-  content: string;
-  content_fr: string;
-  audio_url: string | null;
-  theme_code: string | null;
-};
-
-export type ComprehensionQuestion = {
-  id: string;
-  position: number;
-  question: string;
-  options: string[];
-  correct_index: number;
-};
-
-export type ComprehensionResult = {
-  correct_count: number;
-  total_count: number;
-  created_at: string;
-};
-
-export async function getArticles(languageCode: string, levelCode: string): Promise<ArticleSummary[]> {
+export async function getListeningPacks(languageCode: string, levelCode: string): Promise<ListeningPackInfo[]> {
   const { data, error } = await supabaseAdmin
-    .from('listening_articles')
-    .select('id, title, theme_code, created_at')
+    .from('listening_packs')
+    .select('id, pack_number, status, generated_count, target_count')
     .eq('language_code', languageCode)
     .eq('level_code', levelCode)
-    .order('created_at', { ascending: false });
+    .order('pack_number');
 
   if (error) throw new Error(error.message);
   return data ?? [];
 }
 
-export async function getArticle(articleId: string): Promise<Article | null> {
-  const { data } = await supabaseAdmin
-    .from('listening_articles')
-    .select('id, title, content, content_fr, audio_url, theme_code')
-    .eq('id', articleId)
+export async function createListeningPack(languageCode: string, levelCode: string): Promise<ListeningPackInfo> {
+  const { data: existing } = await supabaseAdmin
+    .from('listening_packs')
+    .select('pack_number')
+    .eq('language_code', languageCode)
+    .eq('level_code', levelCode)
+    .order('pack_number', { ascending: false })
+    .limit(1);
+
+  const nextNumber = (existing?.[0]?.pack_number ?? 0) + 1;
+
+  const { data, error } = await supabaseAdmin
+    .from('listening_packs')
+    .insert({ language_code: languageCode, level_code: levelCode, pack_number: nextNumber, target_count: LISTENING_PACK_SIZE })
+    .select('id, pack_number, status, generated_count, target_count')
     .single();
 
-  return data ?? null;
-}
-
-export async function deleteArticle(articleId: string): Promise<void> {
-  const { error } = await supabaseAdmin.from('listening_articles').delete().eq('id', articleId);
   if (error) throw new Error(error.message);
+  return data;
 }
 
 const LEVEL_LENGTH_HINT: Record<string, string> = {
@@ -70,9 +58,8 @@ const LEVEL_LENGTH_HINT: Record<string, string> = {
 };
 
 /**
- * Choisit un thème pour le prochain article : celui qui a le moins
- * d'articles existants pour cette langue/niveau (rotation), pour éviter de
- * retomber toujours sur le même sujet.
+ * Thème le moins représenté pour cette langue/niveau (rotation), pour
+ * varier les sujets d'un article à l'autre.
  */
 async function pickThemeForNextArticle(languageCode: string, levelCode: string): Promise<string> {
   const { data } = await supabaseAdmin
@@ -99,55 +86,119 @@ async function pickThemeForNextArticle(languageCode: string, levelCode: string):
   return chosen;
 }
 
-/**
- * Génère un court article façon presse locale (culture, vie quotidienne,
- * petit événement communautaire...) — volontairement générique/intemporel,
- * pas un fait d'actualité réel. `themeCode` optionnel : si omis, on choisit
- * automatiquement le thème le moins utilisé pour varier les sujets.
- */
-export async function generateArticle(languageCode: string, levelCode: string, themeCode?: string): Promise<Article> {
-  const langName = LANGUAGE_NAMES[languageCode] ?? languageCode;
-  const lengthHint = LEVEL_LENGTH_HINT[levelCode] ?? LEVEL_LENGTH_HINT.A1;
-  const chosenThemeCode = themeCode ?? (await pickThemeForNextArticle(languageCode, levelCode));
-  const themeMeta = THEMES.find((t) => t.code === chosenThemeCode);
+async function insertQuestionBank(articleId: string, content: string, count: number): Promise<void> {
+  const system = `Tu crées des questions de compréhension écrite/orale en FRANÇAIS à
+partir d'un texte en langue étrangère, pour vérifier qu'un apprenant a compris
+le sens général et des détails précis. ${count} questions à choix multiples
+(QCM), 4 options chacune, une seule correcte. Les questions et les options
+sont en français. Varie largement les angles (idée générale, détails,
+déduction, vocabulaire en contexte) et la difficulté, pour qu'un tirage
+aléatoire ultérieur dans cette banque ne ressemble jamais à un autre.
 
-  // Anti-doublon : titres déjà utilisés pour ce thème/langue/niveau, à éviter.
+Tu réponds STRICTEMENT en JSON valide, un tableau de ${count} objets, sans
+texte avant/après, sans balises markdown. Chaque objet :
+{ "question": "...", "options": ["...", "...", "...", "..."], "correct_index": 0 }`;
+
+  const user = `Texte source :\n${content}`;
+
+  const text = await callGemini(system, user);
+  let parsed: { question: string; options: string[]; correct_index: number }[];
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error('Réponse Gemini invalide (JSON non parsable) pour la banque de questions.');
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error('Format de questions inattendu reçu de Gemini');
+  }
+
+  const { error } = await supabaseAdmin.from('listening_questions').insert(
+    parsed.map((q, i) => ({
+      article_id: articleId,
+      position: i + 1,
+      question: q.question,
+      options: q.options,
+      correct_index: q.correct_index,
+    }))
+  );
+  if (error) throw new Error(error.message);
+}
+
+export type ListeningStepResult = {
+  done: boolean;
+  themeLabel?: string;
+  generatedThisStep: number;
+  generatedTotal: number;
+  targetTotal: number;
+};
+
+/**
+ * Génère UN article complet (texte + audio + banque de 25 questions) et
+ * s'arrête — le client rappelle en boucle jusqu'à `done: true`. Reprend
+ * automatiquement si interrompu (recompte les articles déjà en base).
+ */
+export async function runListeningPackStep(packId: string): Promise<ListeningStepResult> {
+  const { data: pack, error: packError } = await supabaseAdmin
+    .from('listening_packs')
+    .select('*')
+    .eq('id', packId)
+    .single();
+  if (packError || !pack) throw new Error(packError?.message ?? 'Pack introuvable');
+
+  const { count: currentCount } = await supabaseAdmin
+    .from('listening_articles')
+    .select('id', { count: 'exact', head: true })
+    .eq('pack_id', packId);
+
+  const generatedTotal = currentCount ?? 0;
+  if (generatedTotal >= pack.target_count) {
+    await supabaseAdmin
+      .from('listening_packs')
+      .update({ status: 'ready', completed_at: new Date().toISOString(), generated_count: generatedTotal })
+      .eq('id', packId);
+    return { done: true, generatedThisStep: 0, generatedTotal, targetTotal: pack.target_count };
+  }
+
+  if (pack.status !== 'generating') {
+    await supabaseAdmin.from('listening_packs').update({ status: 'generating' }).eq('id', packId);
+  }
+
+  const langName = LANGUAGE_NAMES[pack.language_code] ?? pack.language_code;
+  const lengthHint = LEVEL_LENGTH_HINT[pack.level_code] ?? LEVEL_LENGTH_HINT.A1;
+  const themeCode = await pickThemeForNextArticle(pack.language_code, pack.level_code);
+  const themeMeta = THEMES.find((t) => t.code === themeCode);
+
   const { data: prior } = await supabaseAdmin
     .from('listening_articles')
     .select('title')
-    .eq('language_code', languageCode)
-    .eq('level_code', levelCode)
-    .eq('theme_code', chosenThemeCode)
+    .eq('language_code', pack.language_code)
+    .eq('level_code', pack.level_code)
+    .eq('theme_code', themeCode)
     .order('created_at', { ascending: false })
-    .limit(30);
-
+    .limit(20);
   const avoidTitles = (prior ?? []).map((p) => p.title);
   const avoidInstruction =
     avoidTitles.length > 0
-      ? `\n\nCes sujets/titres ont déjà été utilisés pour ce thème, choisis un angle
-clairement différent (autre lieu, autre situation, autre personnage) :\n- ${avoidTitles.join('\n- ')}`
+      ? `\n\nDéjà utilisés pour ce thème, choisis un angle différent :\n- ${avoidTitles.join('\n- ')}`
       : '';
 
   const system = `Tu écris de courts articles façon presse locale en ${langName}, pour un
-apprenant francophone niveau CECRL ${levelCode}, destinés à un exercice
-d'écoute. Le thème imposé est : "${themeMeta?.label ?? chosenThemeCode}". Choisis un
+apprenant francophone niveau CECRL ${pack.level_code}, destinés à un exercice
+d'écoute. Le thème imposé est : "${themeMeta?.label ?? themeCode}". Choisis un
 angle concret et varié dans ce thème (lieu, personnage, situation précise) —
-générique et intemporel, PAS un événement réel daté, pour ne jamais donner
-une fausse information d'actualité. Longueur : ${lengthHint}${avoidInstruction}
+générique et intemporel, PAS un événement réel daté. Longueur : ${lengthHint}${avoidInstruction}
 
 Tu réponds STRICTEMENT en JSON valide, sans texte avant/après, sans balises
 markdown, avec exactement ces clés :
-{
-  "title": "titre court en ${langName}",
-  "content": "le corps de l'article en ${langName}",
-  "content_fr": "traduction française complète et fidèle de l'article"
-}`;
+{ "title": "titre court en ${langName}", "content": "le corps de l'article en ${langName}", "content_fr": "traduction française complète et fidèle" }`;
 
-  const user = `Écris un article de niveau ${levelCode} sur le thème "${themeMeta?.label ?? chosenThemeCode}".`;
-
-  const text = await callGemini(system, user);
-  const parsed = JSON.parse(text) as { title?: string; content?: string; content_fr?: string };
-
+  const text = await callGemini(system, `Écris un article de niveau ${pack.level_code} sur le thème "${themeMeta?.label ?? themeCode}".`);
+  let parsed: { title?: string; content?: string; content_fr?: string };
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error('Réponse Gemini invalide (JSON non parsable) pour l\'article.');
+  }
   if (!parsed.title || !parsed.content || !parsed.content_fr) {
     throw new Error("Format d'article inattendu reçu de Gemini");
   }
@@ -155,84 +206,118 @@ markdown, avec exactement ces clés :
   const { data: inserted, error } = await supabaseAdmin
     .from('listening_articles')
     .insert({
-      language_code: languageCode,
-      level_code: levelCode,
-      theme_code: chosenThemeCode,
+      language_code: pack.language_code,
+      level_code: pack.level_code,
+      pack_id: packId,
+      theme_code: themeCode,
       title: parsed.title,
       content: parsed.content,
       content_fr: parsed.content_fr,
     })
     .select('id, title, content, content_fr, audio_url, theme_code')
     .single();
-
   if (error || !inserted) throw new Error(error?.message ?? "Échec de l'enregistrement de l'article");
 
-  const storagePath = `${languageCode}/${levelCode}/articles/${inserted.id}.mp3`;
-  const { audioUrl } = await synthesizeAndStore(parsed.content, languageCode, storagePath);
-
+  const storagePath = `${pack.language_code}/${pack.level_code}/articles/${inserted.id}.mp3`;
+  const { audioUrl } = await synthesizeAndStore(parsed.content, pack.language_code, storagePath);
   await supabaseAdmin.from('listening_articles').update({ audio_url: audioUrl }).eq('id', inserted.id);
 
-  return { ...inserted, audio_url: audioUrl };
+  await insertQuestionBank(inserted.id, parsed.content, QUESTIONS_PER_ARTICLE);
+
+  const newTotal = generatedTotal + 1;
+  await supabaseAdmin.from('listening_packs').update({ generated_count: newTotal }).eq('id', packId);
+
+  return {
+    done: newTotal >= pack.target_count,
+    themeLabel: themeMeta?.label,
+    generatedThisStep: 1,
+    generatedTotal: newTotal,
+    targetTotal: pack.target_count,
+  };
 }
 
-/**
- * Questions de compréhension (QCM, notables automatiquement) pour un
- * article — générées à la demande la première fois, puis réutilisées.
- */
-export async function getOrCreateComprehensionQuestions(articleId: string): Promise<ComprehensionQuestion[]> {
-  const { data: existing } = await supabaseAdmin
-    .from('listening_questions')
-    .select('id, position, question, options, correct_index')
-    .eq('article_id', articleId)
-    .order('position');
+// ---------------------------------------------------------
+// Lecture / navigation (onglet Écoute)
+// ---------------------------------------------------------
+export type ArticleSummary = {
+  id: string;
+  title: string;
+  theme_code: string | null;
+  created_at: string;
+};
 
-  if (existing && existing.length > 0) return existing;
+export type Article = {
+  id: string;
+  title: string;
+  content: string;
+  content_fr: string;
+  audio_url: string | null;
+  theme_code: string | null;
+};
 
-  const { data: article } = await supabaseAdmin
+async function getReadyListeningPackIds(languageCode: string, levelCode: string): Promise<string[]> {
+  const { data } = await supabaseAdmin
+    .from('listening_packs')
+    .select('id')
+    .eq('language_code', languageCode)
+    .eq('level_code', levelCode)
+    .eq('status', 'ready');
+  return (data ?? []).map((p) => p.id);
+}
+
+export async function getArticles(languageCode: string, levelCode: string): Promise<ArticleSummary[]> {
+  const packIds = await getReadyListeningPackIds(languageCode, levelCode);
+  if (packIds.length === 0) return [];
+
+  const { data, error } = await supabaseAdmin
     .from('listening_articles')
-    .select('content')
-    .eq('id', articleId)
-    .single();
-
-  if (!article) throw new Error('Article introuvable');
-
-  const system = `Tu crées des questions de compréhension écrite/orale en FRANÇAIS à
-partir d'un texte en langue étrangère, pour vérifier qu'un apprenant a compris
-le sens général et quelques détails. 3 questions à choix multiples (QCM), 4
-options chacune, une seule correcte. Les questions et les options sont en
-français (l'apprenant répond en français même si le texte source est dans
-une autre langue). Varie la difficulté : une question de compréhension
-générale, une ou deux sur des détails précis.
-
-Tu réponds STRICTEMENT en JSON valide, un tableau de 3 objets, sans texte
-avant/après, sans balises markdown. Chaque objet :
-{ "question": "...", "options": ["...", "...", "...", "..."], "correct_index": 0 }
-(correct_index est l'index 0-3 de la bonne réponse dans "options")`;
-
-  const user = `Texte source :\n${article.content}`;
-
-  const text = await callGemini(system, user);
-  const parsed = JSON.parse(text) as { question: string; options: string[]; correct_index: number }[];
-
-  if (!Array.isArray(parsed) || parsed.length === 0) {
-    throw new Error('Format de questions inattendu reçu de Gemini');
-  }
-
-  const { data: insertedQuestions, error } = await supabaseAdmin
-    .from('listening_questions')
-    .insert(
-      parsed.map((q, i) => ({
-        article_id: articleId,
-        position: i + 1,
-        question: q.question,
-        options: q.options,
-        correct_index: q.correct_index,
-      }))
-    )
-    .select('id, position, question, options, correct_index');
+    .select('id, title, theme_code, created_at')
+    .in('pack_id', packIds)
+    .order('created_at', { ascending: false });
 
   if (error) throw new Error(error.message);
-  return insertedQuestions ?? [];
+  return data ?? [];
+}
+
+export async function getArticle(articleId: string): Promise<Article | null> {
+  const { data } = await supabaseAdmin
+    .from('listening_articles')
+    .select('id, title, content, content_fr, audio_url, theme_code')
+    .eq('id', articleId)
+    .single();
+  return data ?? null;
+}
+
+export async function deleteArticle(articleId: string): Promise<void> {
+  const { error } = await supabaseAdmin.from('listening_articles').delete().eq('id', articleId);
+  if (error) throw new Error(error.message);
+}
+
+// ---------------------------------------------------------
+// Quiz de compréhension : tirage aléatoire dans la banque de 25.
+// ---------------------------------------------------------
+export type ComprehensionQuestion = {
+  id: string;
+  position: number;
+  question: string;
+  options: string[];
+  correct_index: number;
+};
+
+export type ComprehensionResult = { correct_count: number; total_count: number; created_at: string };
+
+export async function getQuizQuestions(articleId: string): Promise<ComprehensionQuestion[]> {
+  const { data } = await supabaseAdmin
+    .from('listening_questions')
+    .select('id, position, question, options, correct_index')
+    .eq('article_id', articleId);
+
+  const all = data ?? [];
+  for (let i = all.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [all[i], all[j]] = [all[j], all[i]];
+  }
+  return all.slice(0, QUIZ_DRAW_SIZE);
 }
 
 export async function saveComprehensionResult(
@@ -254,6 +339,5 @@ export async function getComprehensionHistory(profileId: string, articleId: stri
     .eq('profile_id', profileId)
     .eq('article_id', articleId)
     .order('created_at', { ascending: false });
-
   return data ?? [];
 }

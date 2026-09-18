@@ -448,14 +448,47 @@ export async function getGameItems(
     const practicedVerbIds = new Set((verbProgress ?? []).map((p) => p.verb_id));
     wordItems = wordItems.filter((w) => practicedWordIds.has(w.id));
     verbItems = verbItems.filter((v) => practicedVerbIds.has(v.id));
+
+    const pool = [...wordItems, ...verbItems];
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    return pool.slice(0, count);
   }
 
-  const pool = [...wordItems, ...verbItems];
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
+  // Mix 70% jamais pratiqué / 30% déjà pratiqué (révision), pour ancrer ce
+  // qui a déjà été vu plutôt que de le laisser retomber dans l'oubli.
+  const [{ data: wordProgress }, { data: verbProgress }] = await Promise.all([
+    supabaseAdmin.from('vocabulary_progress').select('word_id').eq('profile_id', profileId),
+    supabaseAdmin.from('conjugation_progress').select('verb_id').eq('profile_id', profileId),
+  ]);
+  const practicedWordIds = new Set((wordProgress ?? []).map((p) => p.word_id));
+  const practicedVerbIds = new Set((verbProgress ?? []).map((p) => p.verb_id));
+
+  const allItems = [...wordItems, ...verbItems];
+  const isPracticed = (item: GameItem) =>
+    item.source === 'word' ? practicedWordIds.has(item.id) : practicedVerbIds.has(item.id);
+
+  const fresh = allItems.filter((i) => !isPracticed(i));
+  const practiced = allItems.filter(isPracticed);
+
+  const shuffle = (arr: GameItem[]) => arr.sort(() => Math.random() - 0.5);
+
+  const newGoal = Math.round(count * 0.7);
+  const reviewGoal = count - newGoal;
+
+  const freshPart = shuffle(fresh.slice()).slice(0, newGoal);
+  const reviewPart = shuffle(practiced.slice()).slice(0, reviewGoal);
+
+  let combined = shuffle([...freshPart, ...reviewPart]);
+  if (combined.length < count) {
+    const usedIds = new Set(combined.map((i) => i.id));
+    const filler = allItems.filter((i) => !usedIds.has(i.id)).slice(0, count - combined.length);
+    combined = shuffle([...combined, ...filler]);
   }
-  return pool.slice(0, count);
+
+  return combined.slice(0, count);
 }
 
 export async function recordGameResult(

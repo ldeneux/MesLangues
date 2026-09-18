@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Phrase } from '../../lib/data';
-import { markPhraseSeen } from '../../lib/data';
+import { markPhraseSeen, recordExerciseResult } from '../../lib/data';
 
 const MAX_ATTEMPTS = 3;
 
@@ -94,12 +94,17 @@ export default function ExercisePanel({
   function check(answer: string) {
     setTranscript(answer);
     setStatus('checked');
+    const answerWords = answer.split(/\s+/).map(normalizeWord).filter(Boolean);
+    const foundBlanks = blankWords.filter((w) => answerWords.includes(normalizeWord(w)));
+    const success = answer.trim().length > 0 && foundBlanks.length === blankWords.length;
+    recordExerciseResult(profileId, phrase.id, success);
   }
 
   function giveUp() {
     setGaveUp(true);
     setTranscript('');
     setStatus('checked');
+    recordExerciseResult(profileId, phrase.id, false);
   }
 
   function startListening() {

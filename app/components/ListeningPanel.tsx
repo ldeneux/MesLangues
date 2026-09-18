@@ -4,9 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   getArticles,
   getArticle,
-  generateArticle,
   deleteArticle,
-  getOrCreateComprehensionQuestions,
+  getQuizQuestions,
   saveComprehensionResult,
   getComprehensionHistory,
   type ArticleSummary,
@@ -30,8 +29,6 @@ export default function ListeningPanel({
   const [themeFilter, setThemeFilter] = useState<string>('all');
   const [revealed, setRevealed] = useState(false);
   const [revealedFr, setRevealedFr] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
 
   // Quiz de compréhension
@@ -56,14 +53,13 @@ export default function ListeningPanel({
       .then((list) => {
         if (list[0]) selectArticle(list[0].id);
       })
-      .catch((e: any) => {
-        setSummaries([]);
+      .catch((e: any) =>
         setLoadError(
           e?.message?.includes('relation') || e?.message?.includes('listening_')
-            ? "Des tables du mode Écoute n'existent pas encore en base — exécute les migrations 003 et 004 dans Supabase."
+            ? "Des tables du mode Écoute n'existent pas encore en base — exécute les migrations 003, 004 et 008 dans Supabase."
             : e?.message ?? 'Erreur de chargement des articles.'
-        );
-      });
+        )
+      );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [languageCode, levelCode]);
 
@@ -74,9 +70,7 @@ export default function ListeningPanel({
     resetQuiz();
     const a = await getArticle(id);
     setArticle(a);
-    if (a) {
-      getComprehensionHistory(profileId, a.id).then(setHistory);
-    }
+    if (a) getComprehensionHistory(profileId, a.id).then(setHistory);
   }
 
   function resetQuiz() {
@@ -93,24 +87,6 @@ export default function ListeningPanel({
     selectArticle(random.id);
   }
 
-  async function handleGenerate() {
-    setGenerating(true);
-    setError('');
-    try {
-      const a = await generateArticle(languageCode, levelCode, themeFilter === 'all' ? undefined : themeFilter);
-      await refresh();
-      setArticle(a);
-      setRevealed(false);
-      setRevealedFr(false);
-      resetQuiz();
-      setHistory([]);
-    } catch (e: any) {
-      setError(e.message ?? "Erreur pendant la génération de l'article.");
-    } finally {
-      setGenerating(false);
-    }
-  }
-
   async function handleDeleteCurrent() {
     if (!article) return;
     await deleteArticle(article.id);
@@ -124,7 +100,7 @@ export default function ListeningPanel({
     setQuizOpen(true);
     setQuizScore(null);
     setAnswers({});
-    const q = await getOrCreateComprehensionQuestions(article.id);
+    const q = await getQuizQuestions(article.id);
     setQuestions(q);
   }
 
@@ -148,11 +124,19 @@ export default function ListeningPanel({
 
   if (loadError) return <p className="conv-warning">{loadError}</p>;
 
+  if (summaries.length === 0) {
+    return (
+      <p className="eyebrow-free">
+        Aucun pack Écoute téléchargé pour ce niveau — va dans l'onglet "Packs" pour en télécharger un.
+      </p>
+    );
+  }
+
   return (
     <div>
       <p className="eyebrow-free">
-        Écoute de courts articles façon presse locale (contenu générique, pas de vraie actualité datée), avec les
-        mêmes options d'affichage texte/traduction que "Phrases du jour", et un quiz de compréhension noté.
+        Écoute de courts articles façon presse locale, avec les mêmes options d'affichage texte/traduction que
+        "Phrases du jour", et un quiz de compréhension noté (5 questions tirées d'une banque de 25 à chaque essai).
       </p>
 
       <div className="cascade-row">
@@ -179,29 +163,10 @@ export default function ListeningPanel({
           ))}
         </select>
 
-        <button className="secondary" onClick={pickRandom} disabled={summaries.length === 0}>
+        <button className="secondary" onClick={pickRandom}>
           🎲 Aléatoire
         </button>
       </div>
-
-      {error && <p className="conv-warning">{error}</p>}
-
-      <div className="conv-bubble-actions" style={{ marginBottom: '1rem' }}>
-        <button className="secondary" onClick={handleGenerate} disabled={generating}>
-          {generating
-            ? 'Génération en cours…'
-            : `+ Générer un article${themeFilter !== 'all' ? ` (${THEMES.find((t) => t.code === themeFilter)?.label})` : ''}`}
-        </button>
-        {article && (
-          <button className="conv-mini-btn" onClick={handleDeleteCurrent}>
-            Supprimer cet article
-          </button>
-        )}
-      </div>
-
-      {summaries.length === 0 && !generating && (
-        <p className="eyebrow-free">Aucun article pour ce niveau pour l'instant — génère le premier ci-dessus.</p>
-      )}
 
       {article && (
         <div className="phrase-card phrase-card-big">
@@ -235,6 +200,9 @@ export default function ListeningPanel({
             </button>
             <button className="conv-mini-btn" onClick={() => setRevealedFr((r) => !r)}>
               {revealedFr ? 'Masquer la traduction' : 'Afficher la traduction'}
+            </button>
+            <button className="conv-mini-btn" onClick={handleDeleteCurrent}>
+              Supprimer cet article
             </button>
           </div>
 
@@ -280,6 +248,9 @@ export default function ListeningPanel({
                   <div className="conv-correction-text">
                     {quizScore.correct} / {quizScore.total} bonnes réponses
                   </div>
+                  <button className="conv-mini-btn" style={{ marginTop: '0.5rem' }} onClick={openQuiz}>
+                    Rejouer (5 autres questions de la banque)
+                  </button>
                 </div>
               )}
             </div>

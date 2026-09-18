@@ -57,8 +57,66 @@ export async function getNextDailyPhrases(
     )
     .order('pack_position');
 
-  const unseen = (pool ?? []).filter((p) => !seenIds.has(p.id)).slice(0, dailyGoal);
-  return { phrases: unseen, hasReadyPacks: true };
+  const all = pool ?? [];
+  const unseen = all.filter((p) => !seenIds.has(p.id));
+  const seen = all.filter((p) => seenIds.has(p.id));
+
+  // Mix 70% nouveau / 30% révision (déjà vu), pour ancrer le vocabulaire
+  // plutôt que de le voir une seule fois et l'oublier.
+  const newGoal = Math.round(dailyGoal * 0.7);
+  const reviewGoal = dailyGoal - newGoal;
+
+  const shuffle = <T,>(arr: T[]) => arr.sort(() => Math.random() - 0.5);
+
+  const newPart = unseen.slice(0, newGoal);
+  const reviewPart = shuffle(seen.slice()).slice(0, reviewGoal);
+
+  // Si pas assez d'un des deux tas, on complète avec l'autre pour garder
+  // dailyGoal phrases au total quand c'est possible.
+  let combined = shuffle([...newPart, ...reviewPart]);
+  if (combined.length < dailyGoal) {
+    const usedIds = new Set(combined.map((p) => p.id));
+    const filler = all.filter((p) => !usedIds.has(p.id)).slice(0, dailyGoal - combined.length);
+    combined = shuffle([...combined, ...filler]);
+  }
+
+  return { phrases: combined, hasReadyPacks: true };
+}
+
+export async function recordExerciseResult(profileId: string, phraseId: string, success: boolean): Promise<void> {
+  const { data: existing } = await supabaseAdmin
+    .from('exercise_progress')
+    .select('success_count, fail_count')
+    .eq('profile_id', profileId)
+    .eq('phrase_id', phraseId)
+    .maybeSingle();
+
+  const { error } = await supabaseAdmin.from('exercise_progress').upsert(
+    {
+      profile_id: profileId,
+      phrase_id: phraseId,
+      success_count: (existing?.success_count ?? 0) + (success ? 1 : 0),
+      fail_count: (existing?.fail_count ?? 0) + (success ? 0 : 1),
+      last_practiced_at: new Date().toISOString(),
+    },
+    { onConflict: 'profile_id,phrase_id' }
+  );
+  if (error) throw new Error(error.message);
+}
+
+export async function getAllReadyPhrases(languageCode: string, levelCode: string): Promise<Phrase[]> {
+  const packs = await getReadyPacks(languageCode, levelCode);
+  if (packs.length === 0) return [];
+
+  const { data } = await supabaseAdmin
+    .from('phrases')
+    .select('id, target_text, translation_fr, notes, audio_url, theme_code')
+    .in(
+      'pack_id',
+      packs.map((p) => p.id)
+    );
+
+  return data ?? [];
 }
 
 export async function markPhraseSeen(profileId: string, phraseId: string): Promise<void> {

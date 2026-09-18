@@ -79,3 +79,22 @@ export function estimateVocabularyCost(wordCount: number): CostEstimate {
   const usd = geminiCost + ttsCost;
   return { usd, eur: usd * USD_TO_EUR };
 }
+
+// --- Écoute (article + 25 questions + audio, par article) ---
+const ARTICLE_INPUT_TOKENS = 300;
+const ARTICLE_OUTPUT_TOKENS = 400;
+const ARTICLE_CHARS = 500;
+const QUESTIONS_INPUT_TOKENS = 650;
+const QUESTIONS_OUTPUT_TOKENS_PER_25 = 1350;
+
+export function estimateListeningPackCost(articleCount: number): CostEstimate {
+  const inputTokens = articleCount * (ARTICLE_INPUT_TOKENS + QUESTIONS_INPUT_TOKENS);
+  const outputTokens = articleCount * (ARTICLE_OUTPUT_TOKENS + QUESTIONS_OUTPUT_TOKENS_PER_25);
+  const geminiCost = (inputTokens / 1e6) * GEMINI_INPUT_PRICE_PER_M + (outputTokens / 1e6) * GEMINI_OUTPUT_PRICE_PER_M;
+
+  const ttsChars = articleCount * ARTICLE_CHARS;
+  const ttsCost = (ttsChars / 1e6) * TTS_PRICE_PER_M_CHARS;
+
+  const usd = geminiCost + ttsCost;
+  return { usd, eur: usd * USD_TO_EUR };
+}

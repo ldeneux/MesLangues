@@ -1154,6 +1154,58 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
   color: var(--es);
 }
 
+/* --- Jeux --- */
+.game-correct {
+  border-color: var(--it) !important;
+  background: #e6efe9 !important;
+}
+
+.game-wrong {
+  border-color: var(--es) !important;
+  background: #fbeeea !important;
+}
+
+.memory-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.6rem;
+  margin: 1rem 0;
+}
+
+.memory-card {
+  aspect-ratio: 1;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 1.3rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem;
+  text-align: center;
+}
+
+.memory-card.flipped {
+  background: white;
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.memory-card.matched {
+  background: #e6efe9;
+  border-color: var(--it);
+  color: var(--it);
+  cursor: default;
+}
+
+@media (max-width: 780px) {
+  .memory-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
 .conv-mini-btn.selected-mini {
   background: var(--ink);
   color: var(--paper);

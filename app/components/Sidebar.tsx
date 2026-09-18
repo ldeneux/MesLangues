@@ -3,7 +3,7 @@
 import { LANGS, LEVELS, type LangCode, type LevelCode } from '../../lib/constants';
 import FlagIcon from './FlagIcon';
 
-export type Tab = 'today' | 'revision' | 'packs' | 'vocabulary' | 'grammar' | 'conjugation';
+export type Tab = 'today' | 'revision' | 'packs' | 'vocabulary' | 'grammar' | 'conjugation' | 'games';
 
 export default function Sidebar({
   lang,
@@ -98,6 +98,12 @@ export default function Sidebar({
           onClick={() => onTabChange('conjugation')}
         >
           Conjugaison
+        </button>
+        <button
+          className={`sidebar-item${tab === 'games' ? ' active' : ''}`}
+          onClick={() => onTabChange('games')}
+        >
+          🎮 Jeux
         </button>
         <button className="sidebar-item sidebar-item-disabled" disabled title="Temporairement désactivé">
           Conversation <span className="tab-badge">bientôt</span>
