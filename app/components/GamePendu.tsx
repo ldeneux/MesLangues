@@ -52,9 +52,17 @@ export default function GamePendu({
   }
   if (!word) return <p className="eyebrow-free">Pas de mot assez long trouvé pour ce niveau.</p>;
 
-  const letters = word.target_text.split('');
-  const display = letters.map((c) => (/[a-zA-ZÀ-ÿ]/.test(c) ? (guessed.has(normalizeLetter(c)) ? c : '_') : c));
-  const won = letters.every((c) => !/[a-zA-ZÀ-ÿ]/.test(c) || guessed.has(normalizeLetter(c)));
+  const wordChunks = word.target_text.split(' ');
+
+  const displayWords = wordChunks.map((w) =>
+    w
+      .split('')
+      .map((c) => (/[a-zA-ZÀ-ÿ]/.test(c) ? (guessed.has(normalizeLetter(c)) ? c : '_') : c))
+      .join(' ')
+  );
+
+  const allChars = word.target_text.split('');
+  const won = allChars.every((c) => !/[a-zA-ZÀ-ÿ]/.test(c) || guessed.has(normalizeLetter(c)));
   const lost = errors >= MAX_ERRORS;
   const finished = won || lost;
 
@@ -70,7 +78,7 @@ export default function GamePendu({
     setGuessed(next);
     setInput('');
 
-    const normalizedWordLetters = letters.filter((c) => /[a-zA-ZÀ-ÿ]/.test(c)).map(normalizeLetter);
+    const normalizedWordLetters = allChars.filter((c) => /[a-zA-ZÀ-ÿ]/.test(c)).map(normalizeLetter);
     if (!normalizedWordLetters.includes(letter)) {
       setErrors((e) => e + 1);
     }
@@ -84,8 +92,12 @@ export default function GamePendu({
       </p>
 
       <div className="phrase-card phrase-card-big">
-        <div className="phrase-target" style={{ letterSpacing: '0.3em', fontFamily: 'monospace' }}>
-          {display.join(' ')}
+        <div className="pendu-display">
+          {displayWords.map((w, i) => (
+            <span key={i} className="pendu-word">
+              {w}
+            </span>
+          ))}
         </div>
 
         {finished && (

@@ -1167,31 +1167,35 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 
 .memory-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 0.6rem;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.5rem;
   margin: 1rem 0;
+  max-width: 480px;
 }
 
 .memory-card {
   aspect-ratio: 1;
+  max-width: 70px;
+  max-height: 70px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--ink);
   color: var(--paper);
-  font-size: 1.3rem;
+  font-size: 0.85rem;
   font-weight: 700;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0.4rem;
+  padding: 0.25rem;
   text-align: center;
+  line-height: 1.1;
 }
 
 .memory-card.flipped {
   background: white;
   color: var(--ink);
-  font-size: 0.8rem;
+  font-size: 0.62rem;
   font-weight: 500;
 }
 
@@ -1203,7 +1207,20 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 }
 
 @media (max-width: 780px) {
-  .memory-grid { grid-template-columns: repeat(3, 1fr); }
+  .memory-grid { grid-template-columns: repeat(4, 1fr); max-width: 100%; }
+}
+
+.pendu-display {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.2rem;
+  font-family: monospace;
+  font-size: 1.3rem;
+  margin: 0.5rem 0;
+}
+
+.pendu-word {
+  letter-spacing: 0.25em;
 }
 
 .conv-mini-btn.selected-mini {

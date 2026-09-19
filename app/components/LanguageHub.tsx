@@ -41,7 +41,7 @@ export default function LanguageHub() {
           {tab === 'revision' && <RevisionPanel languageCode={lang} levelCode={level} />}
           {tab === 'packs' && <PacksPanel languageCode={lang} levelCode={level} />}
           {tab === 'vocabulary' && <VocabularyPanel profileId={profile.id} languageCode={lang} levelCode={level} />}
-          {tab === 'grammar' && <GrammarPanel languageCode={lang} />}
+          {tab === 'grammar' && <GrammarPanel profileId={profile.id} languageCode={lang} />}
           {tab === 'conjugation' && <ConjugationPanel languageCode={lang} />}
           {tab === 'games' && <GamesPanel profileId={profile.id} lang={lang} level={level} />}
         </main>

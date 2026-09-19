@@ -24,6 +24,8 @@ function buildRound(pool: Item[]): Round | null {
   return { item, options, correctIndex };
 }
 
+const RAFALE_DURATION = 60;
+
 export default function GameEcouteDevine({
   profileId,
   languageCode,
@@ -37,6 +39,9 @@ export default function GameEcouteDevine({
   const [round, setRound] = useState<Round | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [score, setScore] = useState({ correct: 0, total: 0 });
+  const [rafaleActive, setRafaleActive] = useState(false);
+  const [rafaleFinished, setRafaleFinished] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(RAFALE_DURATION);
 
   useEffect(() => {
     setPool(null);
@@ -53,9 +58,29 @@ export default function GameEcouteDevine({
   }, [profileId, languageCode, levelCode]);
 
   useEffect(() => {
-    if (pool && pool.length > 0) newRound(pool);
+    if (pool && pool.length > 0 && !rafaleActive) newRound(pool);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pool]);
+
+  useEffect(() => {
+    if (!rafaleActive) return;
+    if (timeLeft <= 0) {
+      setRafaleActive(false);
+      setRafaleFinished(true);
+      return;
+    }
+    const t = setTimeout(() => setTimeLeft((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [rafaleActive, timeLeft]);
+
+  function startRafale() {
+    if (!pool) return;
+    setScore({ correct: 0, total: 0 });
+    setTimeLeft(RAFALE_DURATION);
+    setRafaleActive(true);
+    setRafaleFinished(false);
+    newRound(pool);
+  }
 
   function newRound(p: Item[]) {
     setSelected(null);
@@ -71,6 +96,11 @@ export default function GameEcouteDevine({
     if (selected !== null || !round) return;
     setSelected(i);
     setScore((s) => ({ correct: s.correct + (i === round.correctIndex ? 1 : 0), total: s.total + 1 }));
+    if (rafaleActive && pool) {
+      setTimeout(() => {
+        if (timeLeft > 1) newRound(pool);
+      }, 700);
+    }
   }
 
   if (pool === null) return <p className="eyebrow-free">Chargement…</p>;
@@ -84,47 +114,67 @@ export default function GameEcouteDevine({
 
   return (
     <div>
-      <p className="eyebrow-free">
-        Score : {score.correct} / {score.total}
-      </p>
-
-      <div className="phrase-card phrase-card-big">
-        <p className="eyebrow-free">Écoute et choisis la bonne traduction :</p>
-        <div className="conv-controls">
-          <button className="mic-btn" onClick={play} aria-label="Écouter">
-            🔊
+      <div className="conv-bubble-actions" style={{ marginBottom: '0.75rem' }}>
+        <p className="eyebrow-free" style={{ margin: 0 }}>
+          Score : {score.correct} / {score.total}
+        </p>
+        {!rafaleActive && (
+          <button className="conv-mini-btn" onClick={startRafale}>
+            ⏱ Rafale (60s)
           </button>
-        </div>
-
-        <div className="quiz-options" style={{ marginTop: '1rem' }}>
-          {round.options.map((opt, i) => {
-            const isCorrect = i === round.correctIndex;
-            const showResult = selected !== null;
-            const cls =
-              showResult && i === selected
-                ? isCorrect
-                  ? 'quiz-option selected game-correct'
-                  : 'quiz-option selected game-wrong'
-                : showResult && isCorrect
-                ? 'quiz-option game-correct'
-                : 'quiz-option';
-            return (
-              <button key={i} className={cls} onClick={() => pick(i)}>
-                {opt}
-              </button>
-            );
-          })}
-        </div>
-
-        {selected !== null && (
-          <div className="conv-correction-explanation" style={{ marginTop: '0.75rem' }}>
-            C'était : "{round.item.target_text}"
-          </div>
         )}
+        {rafaleActive && <span className="mastery-badge">⏱ {timeLeft}s</span>}
       </div>
 
-      {selected !== null && (
-        <button className="primary" style={{ marginTop: '1rem' }} onClick={() => newRound(pool)}>
+      {rafaleActive && timeLeft <= 0 ? (
+        <div className="conv-correction exercise-success">
+          <div className="conv-correction-label">⏱ Temps écoulé</div>
+          <div className="conv-correction-text">
+            {score.correct} / {score.total} bonnes réponses
+          </div>
+          <button className="primary" style={{ marginTop: '0.75rem' }} onClick={startRafale}>
+            Rejouer une rafale
+          </button>
+        </div>
+      ) : (
+        <div className="phrase-card phrase-card-big">
+          <p className="eyebrow-free">Écoute et choisis la bonne traduction :</p>
+          <div className="conv-controls">
+            <button className="mic-btn" onClick={play} aria-label="Écouter">
+              🔊
+            </button>
+          </div>
+
+          <div className="quiz-options" style={{ marginTop: '1rem' }}>
+            {round.options.map((opt, i) => {
+              const isCorrect = i === round.correctIndex;
+              const showResult = selected !== null;
+              const cls =
+                showResult && i === selected
+                  ? isCorrect
+                    ? 'quiz-option selected game-correct'
+                    : 'quiz-option selected game-wrong'
+                  : showResult && isCorrect
+                  ? 'quiz-option game-correct'
+                  : 'quiz-option';
+              return (
+                <button key={i} className={cls} onClick={() => pick(i)}>
+                  {opt}
+                </button>
+              );
+            })}
+          </div>
+
+          {selected !== null && (
+            <div className="conv-correction-explanation" style={{ marginTop: '0.75rem' }}>
+              C'était : "{round.item.target_text}"
+            </div>
+          )}
+        </div>
+      )}
+
+      {!rafaleActive && selected !== null && (
+        <button className="primary" style={{ marginTop: '1rem' }} onClick={() => pool && newRound(pool)}>
           Suivant →
         </button>
       )}

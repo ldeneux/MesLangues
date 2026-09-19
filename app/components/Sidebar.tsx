@@ -67,37 +67,37 @@ export default function Sidebar({
           className={`sidebar-item${tab === 'today' ? ' active' : ''}`}
           onClick={() => onTabChange('today')}
         >
-          Phrases du jour
+          🗣️ Phrases du jour
         </button>
         <button
           className={`sidebar-item${tab === 'revision' ? ' active' : ''}`}
           onClick={() => onTabChange('revision')}
         >
-          Révision
+          🔁 Révision
         </button>
         <button
           className={`sidebar-item${tab === 'packs' ? ' active' : ''}`}
           onClick={() => onTabChange('packs')}
         >
-          Packs
+          📦 Packs
         </button>
         <button
           className={`sidebar-item${tab === 'vocabulary' ? ' active' : ''}`}
           onClick={() => onTabChange('vocabulary')}
         >
-          Vocabulaire
+          📚 Vocabulaire
         </button>
         <button
           className={`sidebar-item${tab === 'grammar' ? ' active' : ''}`}
           onClick={() => onTabChange('grammar')}
         >
-          Grammaire
+          ✏️ Grammaire
         </button>
         <button
           className={`sidebar-item${tab === 'conjugation' ? ' active' : ''}`}
           onClick={() => onTabChange('conjugation')}
         >
-          Conjugaison
+          🔤 Conjugaison
         </button>
         <button
           className={`sidebar-item${tab === 'games' ? ' active' : ''}`}
@@ -106,7 +106,7 @@ export default function Sidebar({
           🎮 Jeux
         </button>
         <button className="sidebar-item sidebar-item-disabled" disabled title="Temporairement désactivé">
-          Conversation <span className="tab-badge">bientôt</span>
+          💬 Conversation <span className="tab-badge">bientôt</span>
         </button>
       </nav>
     </aside>

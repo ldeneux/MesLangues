@@ -103,7 +103,6 @@ export default function GameIntrus({
             <button key={w.id} className={cardClass} onClick={() => pick(i)} style={{ textAlign: 'left' }}>
               <div className="revision-card-text">
                 <div className="revision-target">{w.target_text}</div>
-                <div className="revision-fr">{w.translation_fr}</div>
               </div>
             </button>
           );

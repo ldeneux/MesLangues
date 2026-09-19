@@ -68,9 +68,12 @@ export const LEVEL_CUMULATIVE_TARGET: Record<LevelCode, number> = {
 
 export const CONJUGATION_TARGET = 120;
 
+export const GRAMMAR_QUIZ_TARGET_PER_TOPIC = 100;
+export const GRAMMAR_QUIZ_DRAW_SIZE = 10;
+
 export const VOCAB_PACK_SIZE = 350;
 
-export const LISTENING_PACK_SIZE = 100;
+export const LISTENING_PACK_SIZE = 50;
 export const QUESTIONS_PER_ARTICLE = 25;
 export const QUIZ_DRAW_SIZE = 5;
 

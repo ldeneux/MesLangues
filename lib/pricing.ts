@@ -61,6 +61,19 @@ export function estimateGrammarConjugationCost(conjugationTarget: number): CostE
   return { usd, eur: usd * USD_TO_EUR };
 }
 
+// --- Banque de quiz de grammaire (texte seul, pas d'audio) ---
+const GRAMMAR_QUIZ_CHUNK_SIZE = 20;
+const GRAMMAR_QUIZ_INPUT_TOKENS_PER_CHUNK = 350;
+const GRAMMAR_QUIZ_OUTPUT_TOKENS_PER_QUESTION = 45;
+
+export function estimateGrammarQuizBankCost(totalQuestions: number): CostEstimate {
+  const chunks = Math.ceil(totalQuestions / GRAMMAR_QUIZ_CHUNK_SIZE);
+  const inputTokens = chunks * GRAMMAR_QUIZ_INPUT_TOKENS_PER_CHUNK;
+  const outputTokens = totalQuestions * GRAMMAR_QUIZ_OUTPUT_TOKENS_PER_QUESTION;
+  const usd = (inputTokens / 1e6) * GEMINI_INPUT_PRICE_PER_M + (outputTokens / 1e6) * GEMINI_OUTPUT_PRICE_PER_M;
+  return { usd, eur: usd * USD_TO_EUR };
+}
+
 // --- Vocabulaire (mots courts + 1 audio chacun) ---
 const VOCAB_CHUNK_SIZE = 15;
 const VOCAB_INPUT_TOKENS_PER_CHUNK = 500; // grossit avec la liste anti-doublon
