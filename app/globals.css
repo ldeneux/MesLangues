@@ -1154,6 +1154,182 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
   color: var(--es);
 }
 
+/* --- Mes scores --- */
+.topbar-icon-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: white;
+  font-size: 1.1rem;
+  cursor: pointer;
+  margin-right: 0.6rem;
+}
+
+.scores-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 3vh 1rem;
+  z-index: 50;
+  overflow-y: auto;
+}
+
+.scores-modal {
+  background: var(--paper);
+  border-radius: 16px;
+  padding: 1.75rem;
+  max-width: 780px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+}
+
+.scores-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+}
+
+.scores-global-block {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1rem 0 1.5rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 1.5rem;
+}
+
+.scores-global-ring {
+  flex: 0 0 auto;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scores-global-ring-inner {
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  background: var(--paper);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1.2rem;
+}
+
+.gauge-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+}
+
+.gauge-col {
+  flex: 1;
+  min-width: 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.gauge-track {
+  position: relative;
+  width: 26px;
+  height: 170px;
+  border-radius: 13px;
+  background: linear-gradient(to top, #c0392b 0%, #e67e22 25%, #f1c40f 50%, #8bc34a 75%, #27ae60 100%);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1);
+}
+
+.gauge-marker {
+  position: absolute;
+  left: -7px;
+  right: -7px;
+  height: 4px;
+  background: var(--ink);
+  border-radius: 2px;
+  transform: translateY(50%);
+}
+
+.gauge-marker-value {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ink);
+  background: white;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.gauge-label {
+  margin-top: 0.6rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.gauge-sublabel {
+  font-size: 0.68rem;
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+.scores-pie-block { margin-top: 0.5rem; }
+
+.scores-pie-row {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.scores-pie {
+  flex: 0 0 auto;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+}
+
+.scores-pie-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.scores-pie-legend-row {
+  font-size: 0.82rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.scores-pie-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+@media (max-width: 780px) {
+  .gauge-row { justify-content: flex-start; }
+  .scores-modal { padding: 1.25rem; }
+}
+
 /* --- Jeux --- */
 .game-correct {
   border-color: var(--it) !important;

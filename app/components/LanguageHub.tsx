@@ -25,7 +25,7 @@ export default function LanguageHub() {
 
   return (
     <>
-      <TopBar />
+      <TopBar lang={lang} level={level} onLangChange={setLang} onLevelChange={setLevel} />
       <div className="hub-layout">
         <Sidebar
           lang={lang}
