@@ -13,6 +13,7 @@ import VocabularyPanel from './VocabularyPanel';
 import GrammarPanel from './GrammarPanel';
 import ConjugationPanel from './ConjugationPanel';
 import GamesPanel from './GamesPanel';
+import WritingPanel from './WritingPanel';
 
 export default function LanguageHub() {
   const { profile, loading } = useProfile();
@@ -43,6 +44,7 @@ export default function LanguageHub() {
           {tab === 'vocabulary' && <VocabularyPanel profileId={profile.id} languageCode={lang} levelCode={level} />}
           {tab === 'grammar' && <GrammarPanel profileId={profile.id} languageCode={lang} />}
           {tab === 'conjugation' && <ConjugationPanel languageCode={lang} />}
+          {tab === 'writing' && <WritingPanel profileId={profile.id} languageCode={lang} levelCode={level} />}
           {tab === 'games' && <GamesPanel profileId={profile.id} lang={lang} level={level} />}
         </main>
       </div>

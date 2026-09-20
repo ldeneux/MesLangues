@@ -77,6 +77,8 @@ export const LISTENING_PACK_SIZE = 50;
 export const QUESTIONS_PER_ARTICLE = 25;
 export const QUIZ_DRAW_SIZE = 5;
 
+export const WRITING_PROMPTS_PER_LEVEL = 30;
+
 export const GRAMMAR_TOPICS = [
   { code: 'articles', label: 'Articles (défini / indéfini)' },
   { code: 'genre_nombre', label: 'Genre et nombre des noms' },

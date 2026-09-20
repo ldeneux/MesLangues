@@ -1154,6 +1154,18 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
   color: var(--es);
 }
 
+.writing-textarea {
+  width: 100%;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  resize: vertical;
+  margin-top: 0.75rem;
+}
+
 /* --- Mes scores --- */
 .topbar-icon-btn {
   width: 40px;

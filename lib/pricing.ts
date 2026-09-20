@@ -74,6 +74,19 @@ export function estimateGrammarQuizBankCost(totalQuestions: number): CostEstimat
   return { usd, eur: usd * USD_TO_EUR };
 }
 
+// --- Banque de consignes de rédaction (texte seul) ---
+const WRITING_CHUNK_SIZE = 5;
+const WRITING_INPUT_TOKENS_PER_CHUNK = 300;
+const WRITING_OUTPUT_TOKENS_PER_PROMPT = 90;
+
+export function estimateWritingBankCost(promptCount: number): CostEstimate {
+  const chunks = Math.ceil(promptCount / WRITING_CHUNK_SIZE);
+  const inputTokens = chunks * WRITING_INPUT_TOKENS_PER_CHUNK;
+  const outputTokens = promptCount * WRITING_OUTPUT_TOKENS_PER_PROMPT;
+  const usd = (inputTokens / 1e6) * GEMINI_INPUT_PRICE_PER_M + (outputTokens / 1e6) * GEMINI_OUTPUT_PRICE_PER_M;
+  return { usd, eur: usd * USD_TO_EUR };
+}
+
 // --- Vocabulaire (mots courts + 1 audio chacun) ---
 const VOCAB_CHUNK_SIZE = 15;
 const VOCAB_INPUT_TOKENS_PER_CHUNK = 500; // grossit avec la liste anti-doublon

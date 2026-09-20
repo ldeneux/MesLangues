@@ -7,6 +7,7 @@ import { LEVEL_CUMULATIVE_TARGET, PACK_SIZE, type LevelCode } from '../../lib/co
 import GrammarConjugationDownload from './GrammarConjugationDownload';
 import VocabularyDownload from './VocabularyDownload';
 import ListeningDownload from './ListeningDownload';
+import WritingDownload from './WritingDownload';
 
 export default function PacksPanel({ languageCode, levelCode }: { languageCode: string; levelCode: string }) {
   const [packs, setPacks] = useState<PackInfo[] | null>(null);
@@ -163,6 +164,7 @@ export default function PacksPanel({ languageCode, levelCode }: { languageCode: 
 
       <VocabularyDownload languageCode={languageCode} levelCode={levelCode} />
       <ListeningDownload languageCode={languageCode} levelCode={levelCode} />
+      <WritingDownload languageCode={languageCode} levelCode={levelCode} />
       <GrammarConjugationDownload languageCode={languageCode} />
     </div>
   );
