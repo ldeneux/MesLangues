@@ -1,7 +1,7 @@
 'use server';
 
 import { supabaseAdmin } from './supabaseAdmin';
-import { LEVEL_CUMULATIVE_TARGET, CONJUGATION_TARGET, GRAMMAR_TOPICS, type LevelCode } from './constants';
+import { LEVEL_CUMULATIVE_TARGET, CONJUGATION_TARGET, GRAMMAR_TOPICS, DOMAIN_WEIGHTS, type LevelCode } from './constants';
 
 const MASTERY_MIN_ATTEMPTS = 1;
 const MASTERY_MIN_RATE = 0.9;
@@ -310,14 +310,8 @@ export async function getWritingDomainScore(
 // Score global pondéré (pas une équivalence officielle CECRL — une
 // estimation "où j'en suis" pour le niveau actuellement sélectionné)
 // ---------------------------------------------------------
-export const DOMAIN_WEIGHTS = {
-  listening: 0.25,
-  phrases: 0.2,
-  vocabulary: 0.18,
-  writing: 0.15,
-  conjugation: 0.12,
-  grammar: 0.1,
-};
+// DOMAIN_WEIGHTS déplacé dans constants.ts (un fichier 'use server' ne peut
+// exporter que des fonctions async, pas des objets).
 
 export type AllDomainScores = {
   vocabulary: VocabularyDomainScore;

@@ -79,6 +79,15 @@ export const QUIZ_DRAW_SIZE = 5;
 
 export const WRITING_PROMPTS_PER_LEVEL = 30;
 
+export const DOMAIN_WEIGHTS = {
+  listening: 0.25,
+  phrases: 0.2,
+  vocabulary: 0.18,
+  writing: 0.15,
+  conjugation: 0.12,
+  grammar: 0.1,
+};
+
 export const GRAMMAR_TOPICS = [
   { code: 'articles', label: 'Articles (défini / indéfini)' },
   { code: 'genre_nombre', label: 'Genre et nombre des noms' },

@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getAllDomainScores, DOMAIN_WEIGHTS, type AllDomainScores } from '../../lib/scores';
-import { LANGS, LEVELS, type LangCode, type LevelCode } from '../../lib/constants';
+import { getAllDomainScores, type AllDomainScores } from '../../lib/scores';
+import { DOMAIN_WEIGHTS, LANGS, LEVELS, type LangCode, type LevelCode } from '../../lib/constants';
 import VerticalGauge from './VerticalGauge';
 
 const BUCKET_COLORS = ['#c0392b', '#e67e22', '#f1c40f', '#8bc34a', '#27ae60'];
