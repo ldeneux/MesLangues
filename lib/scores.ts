@@ -256,14 +256,66 @@ export async function getPhrasesDomainScore(
 }
 
 // ---------------------------------------------------------
+// Écriture (production libre notée) — un texte est "réussi" si sa dernière
+// note est >= 70/100 (seuil plus souple qu'un QCM, cohérent avec une
+// évaluation holistique plutôt que item par item).
+// ---------------------------------------------------------
+const WRITING_MASTERY_SCORE = 70;
+
+export type WritingDomainScore = {
+  promptsMastered: number;
+  promptsAttempted: number;
+  totalPrompts: number;
+  percentOfTarget: number;
+};
+
+export async function getWritingDomainScore(
+  profileId: string,
+  languageCode: string,
+  levelCode: LevelCode
+): Promise<WritingDomainScore> {
+  const { data: prompts } = await supabaseAdmin
+    .from('writing_prompts')
+    .select('id')
+    .eq('language_code', languageCode)
+    .eq('level_code', levelCode);
+  const totalPrompts = prompts?.length ?? 0;
+  const promptIds = new Set((prompts ?? []).map((p) => p.id));
+
+  const { data } = await supabaseAdmin
+    .from('writing_results')
+    .select('prompt_id, score, created_at')
+    .eq('profile_id', profileId)
+    .order('created_at', { ascending: false });
+
+  const latestByPrompt = new Map<string, number>();
+  for (const r of data ?? []) {
+    if (promptIds.has(r.prompt_id) && !latestByPrompt.has(r.prompt_id)) latestByPrompt.set(r.prompt_id, r.score);
+  }
+
+  let promptsMastered = 0;
+  for (const [, score] of Array.from(latestByPrompt)) {
+    if (score >= WRITING_MASTERY_SCORE) promptsMastered++;
+  }
+
+  return {
+    promptsMastered,
+    promptsAttempted: latestByPrompt.size,
+    totalPrompts,
+    percentOfTarget: totalPrompts > 0 ? Math.round((promptsMastered / totalPrompts) * 100) : 0,
+  };
+}
+
+// ---------------------------------------------------------
 // Score global pondéré (pas une équivalence officielle CECRL — une
 // estimation "où j'en suis" pour le niveau actuellement sélectionné)
 // ---------------------------------------------------------
 export const DOMAIN_WEIGHTS = {
-  listening: 0.3,
-  phrases: 0.25,
-  vocabulary: 0.2,
-  conjugation: 0.15,
+  listening: 0.25,
+  phrases: 0.2,
+  vocabulary: 0.18,
+  writing: 0.15,
+  conjugation: 0.12,
   grammar: 0.1,
 };
 
@@ -273,6 +325,7 @@ export type AllDomainScores = {
   grammar: GrammarDomainScore;
   listening: ListeningDomainScore;
   phrases: PhrasesDomainScore;
+  writing: WritingDomainScore;
   globalPercent: number;
 };
 
@@ -281,21 +334,23 @@ export async function getAllDomainScores(
   languageCode: string,
   levelCode: LevelCode
 ): Promise<AllDomainScores> {
-  const [vocabulary, conjugation, grammar, listening, phrases] = await Promise.all([
+  const [vocabulary, conjugation, grammar, listening, phrases, writing] = await Promise.all([
     getVocabularyDomainScore(profileId, languageCode, levelCode),
     getConjugationDomainScore(profileId, languageCode),
     getGrammarDomainScore(profileId, languageCode),
     getListeningDomainScore(profileId, languageCode, levelCode),
     getPhrasesDomainScore(profileId, languageCode, levelCode),
+    getWritingDomainScore(profileId, languageCode, levelCode),
   ]);
 
   const globalPercent = Math.round(
     listening.percentOfTarget * DOMAIN_WEIGHTS.listening +
       phrases.percentOfTarget * DOMAIN_WEIGHTS.phrases +
       vocabulary.percentOfTarget * DOMAIN_WEIGHTS.vocabulary +
+      writing.percentOfTarget * DOMAIN_WEIGHTS.writing +
       conjugation.percentOfTarget * DOMAIN_WEIGHTS.conjugation +
       grammar.percentOfTarget * DOMAIN_WEIGHTS.grammar
   );
 
-  return { vocabulary, conjugation, grammar, listening, phrases, globalPercent };
+  return { vocabulary, conjugation, grammar, listening, phrases, writing, globalPercent };
 }

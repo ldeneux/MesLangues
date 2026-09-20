@@ -96,8 +96,8 @@ export default function MyScoresPanel({
                   Estimation "où j'en suis" pour le niveau <strong style={{ color: currentLevelMeta?.color }}>{level}</strong> —
                   pondéré écoute {Math.round(DOMAIN_WEIGHTS.listening * 100)}% / phrases{' '}
                   {Math.round(DOMAIN_WEIGHTS.phrases * 100)}% / vocabulaire {Math.round(DOMAIN_WEIGHTS.vocabulary * 100)}% /
-                  conjugaison {Math.round(DOMAIN_WEIGHTS.conjugation * 100)}% / grammaire{' '}
-                  {Math.round(DOMAIN_WEIGHTS.grammar * 100)}%.
+                  écriture {Math.round(DOMAIN_WEIGHTS.writing * 100)}% / conjugaison{' '}
+                  {Math.round(DOMAIN_WEIGHTS.conjugation * 100)}% / grammaire {Math.round(DOMAIN_WEIGHTS.grammar * 100)}%.
                 </p>
                 <p className="eyebrow-free" style={{ marginTop: '0.4rem' }}>
                   ⚠️ Ce n'est pas une équivalence officielle CECRL, juste une estimation interne à l'appli.
@@ -120,6 +120,11 @@ export default function MyScoresPanel({
                 label="Vocabulaire"
                 percent={scores.vocabulary.percentOfTarget}
                 sublabel={`${scores.vocabulary.masteredCount}/${scores.vocabulary.levelTarget}`}
+              />
+              <VerticalGauge
+                label="Écriture"
+                percent={scores.writing.percentOfTarget}
+                sublabel={`${scores.writing.promptsMastered}/${scores.writing.totalPrompts} consignes`}
               />
               <VerticalGauge
                 label="Conjugaison"
