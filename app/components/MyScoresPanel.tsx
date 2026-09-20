@@ -72,6 +72,12 @@ export default function MyScoresPanel({
         {error && <p className="conv-warning">{error}</p>}
         {!scores && !error && <p className="eyebrow-free">Calcul des scores…</p>}
 
+        {scores && scores.domainErrors.length > 0 && (
+          <p className="conv-warning">
+            {scores.domainErrors.map((e) => `${e.domain} : ${e.message}`).join(' — ')}
+          </p>
+        )}
+
         {scores && (
           <>
             <div className="scores-global-block">

@@ -327,20 +327,58 @@ export type AllDomainScores = {
   phrases: PhrasesDomainScore;
   writing: WritingDomainScore;
   globalPercent: number;
+  domainErrors: { domain: string; message: string }[];
 };
+
+const ZERO_VOCAB: VocabularyDomainScore = {
+  masteredCount: 0,
+  practicedCount: 0,
+  neverPracticedCount: 0,
+  totalWords: 0,
+  levelTarget: 700,
+  buckets: [
+    { range: '0-20%', count: 0 },
+    { range: '20-40%', count: 0 },
+    { range: '40-60%', count: 0 },
+    { range: '60-80%', count: 0 },
+    { range: '80-100%', count: 0 },
+  ],
+  percentOfTarget: 0,
+};
+const ZERO_CONJ: ConjugationDomainScore = { masteredCount: 0, practicedCount: 0, totalVerbs: 0, target: CONJUGATION_TARGET, percentOfTarget: 0 };
+const ZERO_GRAMMAR: GrammarDomainScore = { topicsMastered: 0, topicsAttempted: 0, totalTopics: GRAMMAR_TOPICS.length, percentOfTarget: 0 };
+const ZERO_LISTENING: ListeningDomainScore = { articlesMastered: 0, articlesAttempted: 0, totalArticles: 0, percentOfTarget: 0 };
+const ZERO_PHRASES: PhrasesDomainScore = { masteredCount: 0, practicedCount: 0, levelTarget: 700, percentOfTarget: 0 };
+const ZERO_WRITING: WritingDomainScore = { promptsMastered: 0, promptsAttempted: 0, totalPrompts: 0, percentOfTarget: 0 };
+
+/**
+ * Enveloppe chaque calcul de domaine individuellement : si l'un échoue (ex.
+ * une table de migration pas encore exécutée), les 5 autres s'affichent
+ * quand même, et l'erreur précise est remontée au lieu de tout bloquer.
+ */
+async function safe<T>(domain: string, fn: () => Promise<T>, fallback: T, errors: { domain: string; message: string }[]): Promise<T> {
+  try {
+    return await fn();
+  } catch (e: any) {
+    errors.push({ domain, message: e?.message ?? 'Erreur inconnue' });
+    return fallback;
+  }
+}
 
 export async function getAllDomainScores(
   profileId: string,
   languageCode: string,
   levelCode: LevelCode
 ): Promise<AllDomainScores> {
+  const domainErrors: { domain: string; message: string }[] = [];
+
   const [vocabulary, conjugation, grammar, listening, phrases, writing] = await Promise.all([
-    getVocabularyDomainScore(profileId, languageCode, levelCode),
-    getConjugationDomainScore(profileId, languageCode),
-    getGrammarDomainScore(profileId, languageCode),
-    getListeningDomainScore(profileId, languageCode, levelCode),
-    getPhrasesDomainScore(profileId, languageCode, levelCode),
-    getWritingDomainScore(profileId, languageCode, levelCode),
+    safe('Vocabulaire', () => getVocabularyDomainScore(profileId, languageCode, levelCode), ZERO_VOCAB, domainErrors),
+    safe('Conjugaison', () => getConjugationDomainScore(profileId, languageCode), ZERO_CONJ, domainErrors),
+    safe('Grammaire', () => getGrammarDomainScore(profileId, languageCode), ZERO_GRAMMAR, domainErrors),
+    safe('Écoute', () => getListeningDomainScore(profileId, languageCode, levelCode), ZERO_LISTENING, domainErrors),
+    safe('Phrases', () => getPhrasesDomainScore(profileId, languageCode, levelCode), ZERO_PHRASES, domainErrors),
+    safe('Écriture', () => getWritingDomainScore(profileId, languageCode, levelCode), ZERO_WRITING, domainErrors),
   ]);
 
   const globalPercent = Math.round(
@@ -352,5 +390,5 @@ export async function getAllDomainScores(
       grammar.percentOfTarget * DOMAIN_WEIGHTS.grammar
   );
 
-  return { vocabulary, conjugation, grammar, listening, phrases, writing, globalPercent };
+  return { vocabulary, conjugation, grammar, listening, phrases, writing, globalPercent, domainErrors };
 }
