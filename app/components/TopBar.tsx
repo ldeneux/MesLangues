@@ -5,17 +5,7 @@ import { useProfile, EMOJI_CHOICES } from './ProfileContext';
 import type { LangCode, LevelCode } from '../../lib/constants';
 import MyScoresPanel from './MyScoresPanel';
 
-export default function TopBar({
-  lang,
-  level,
-  onLangChange,
-  onLevelChange,
-}: {
-  lang: LangCode;
-  level: LevelCode;
-  onLangChange: (l: LangCode) => void;
-  onLevelChange: (l: LevelCode) => void;
-}) {
+export default function TopBar({ lang, level }: { lang: LangCode; level: LevelCode }) {
   const { profile, profiles, selectProfile, addProfile } = useProfile();
   const [switching, setSwitching] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -93,14 +83,7 @@ export default function TopBar({
       </div>
 
       {scoresOpen && profile && (
-        <MyScoresPanel
-          profileId={profile.id}
-          lang={lang}
-          level={level}
-          onLangChange={onLangChange}
-          onLevelChange={onLevelChange}
-          onClose={() => setScoresOpen(false)}
-        />
+        <MyScoresPanel profileId={profile.id} lang={lang} level={level} onClose={() => setScoresOpen(false)} />
       )}
     </div>
   );

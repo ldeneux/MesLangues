@@ -1401,7 +1401,7 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 .pendu-display {
   display: flex;
   flex-wrap: wrap;
-  gap: 1.2rem;
+  gap: 2.2em;
   font-family: monospace;
   font-size: 1.3rem;
   margin: 0.5rem 0;

@@ -119,18 +119,28 @@ export type GrammarQuizQuestion = {
 export type GrammarQuizResult = { correct_count: number; total_count: number; created_at: string };
 
 export async function getGrammarQuizBankTotal(languageCode: string): Promise<number> {
+  const counts = await getAllTopicQuestionCounts(languageCode);
   let total = 0;
-  for (const t of GRAMMAR_TOPICS) total += await getTopicQuestionCount(languageCode, t.code);
+  for (const t of GRAMMAR_TOPICS) total += counts.get(t.code) ?? 0;
   return total;
 }
 
-async function getTopicQuestionCount(languageCode: string, topicCode: string): Promise<number> {
-  const { count } = await supabaseAdmin
+/**
+ * Compte les questions par fiche en UNE seule requête (au lieu d'une par
+ * fiche) — optimisation : avant, chaque étape de génération faisait jusqu'à
+ * 10 allers-retours DB séquentiels rien que pour savoir où reprendre.
+ */
+async function getAllTopicQuestionCounts(languageCode: string): Promise<Map<string, number>> {
+  const { data } = await supabaseAdmin
     .from('grammar_questions')
-    .select('id', { count: 'exact', head: true })
-    .eq('language_code', languageCode)
-    .eq('topic_code', topicCode);
-  return count ?? 0;
+    .select('topic_code')
+    .eq('language_code', languageCode);
+
+  const counts = new Map<string, number>();
+  for (const row of data ?? []) {
+    counts.set(row.topic_code, (counts.get(row.topic_code) ?? 0) + 1);
+  }
+  return counts;
 }
 
 export type GrammarQuizStepResult = {
@@ -143,13 +153,16 @@ export type GrammarQuizStepResult = {
 
 /**
  * Fait avancer la banque de questions d'un cran : trouve la première fiche
- * n'ayant pas encore ses 100 questions, en génère jusqu'à 20 de plus, et
- * s'arrête. Le client rappelle en boucle jusqu'à `done: true`.
+ * n'ayant pas encore ses ${GRAMMAR_QUIZ_TARGET_PER_TOPIC} questions, en
+ * génère jusqu'à 20 de plus, et s'arrête. Le client rappelle en boucle
+ * jusqu'à `done: true`.
  */
 export async function runGrammarQuizStep(languageCode: string): Promise<GrammarQuizStepResult> {
+  const counts = await getAllTopicQuestionCounts(languageCode);
+
   let targetTopic: { code: string; label: string; existing: number } | null = null;
   for (const t of GRAMMAR_TOPICS) {
-    const existing = await getTopicQuestionCount(languageCode, t.code);
+    const existing = counts.get(t.code) ?? 0;
     if (existing < GRAMMAR_QUIZ_TARGET_PER_TOPIC) {
       targetTopic = { code: t.code, label: t.label, existing };
       break;
@@ -159,7 +172,7 @@ export async function runGrammarQuizStep(languageCode: string): Promise<GrammarQ
   const totalTarget = GRAMMAR_TOPICS.length * GRAMMAR_QUIZ_TARGET_PER_TOPIC;
   if (!targetTopic) {
     let total = 0;
-    for (const t of GRAMMAR_TOPICS) total += await getTopicQuestionCount(languageCode, t.code);
+    for (const t of GRAMMAR_TOPICS) total += counts.get(t.code) ?? 0;
     return { done: true, generatedThisStep: 0, generatedTotal: total, targetTotal: totalTarget };
   }
 
@@ -204,7 +217,7 @@ sans texte avant/après, sans balises markdown. Chaque objet :
   const newExisting = targetTopic.existing + parsed.length;
   let generatedTotal = 0;
   for (const t of GRAMMAR_TOPICS) {
-    generatedTotal += t.code === targetTopic.code ? newExisting : await getTopicQuestionCount(languageCode, t.code);
+    generatedTotal += t.code === targetTopic.code ? newExisting : counts.get(t.code) ?? 0;
   }
 
   return {

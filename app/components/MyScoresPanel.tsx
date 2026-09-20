@@ -32,24 +32,25 @@ export default function MyScoresPanel({
   profileId,
   lang,
   level,
-  onLangChange,
-  onLevelChange,
   onClose,
 }: {
   profileId: string;
   lang: LangCode;
   level: LevelCode;
-  onLangChange: (l: LangCode) => void;
-  onLevelChange: (l: LevelCode) => void;
   onClose: () => void;
 }) {
   const [scores, setScores] = useState<AllDomainScores | null>(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     setScores(null);
-    getAllDomainScores(profileId, lang, level).then(setScores);
+    setError('');
+    getAllDomainScores(profileId, lang, level)
+      .then(setScores)
+      .catch((e: any) => setError(e?.message ?? 'Erreur pendant le calcul des scores.'));
   }, [profileId, lang, level]);
 
+  const currentLang = LANGS.find((l) => l.code === lang);
   const currentLevelMeta = LEVELS.find((l) => l.code === level);
   const pie = scores ? buildConicGradient(scores) : null;
 
@@ -57,30 +58,19 @@ export default function MyScoresPanel({
     <div className="scores-overlay" onClick={onClose}>
       <div className="scores-modal" onClick={(e) => e.stopPropagation()}>
         <div className="scores-header">
-          <h2 style={{ margin: 0, fontFamily: 'Fraunces, Georgia, serif' }}>Mes scores</h2>
+          <div>
+            <h2 style={{ margin: 0, fontFamily: 'Fraunces, Georgia, serif' }}>Mes scores</h2>
+            <p className="eyebrow-free" style={{ margin: '0.2rem 0 0' }}>
+              {currentLang?.flag} {currentLang?.label} — {currentLevelMeta?.label}
+            </p>
+          </div>
           <button className="conv-mini-btn" onClick={onClose}>
             Fermer ✕
           </button>
         </div>
 
-        <div className="cascade-row">
-          <select className="cascade-select" value={lang} onChange={(e) => onLangChange(e.target.value as LangCode)}>
-            {LANGS.map((l) => (
-              <option key={l.code} value={l.code}>
-                {l.flag} {l.label}
-              </option>
-            ))}
-          </select>
-          <select className="cascade-select" value={level} onChange={(e) => onLevelChange(e.target.value as LevelCode)}>
-            {LEVELS.map((l) => (
-              <option key={l.code} value={l.code}>
-                {l.label} — {l.subtitle}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {!scores && <p className="eyebrow-free">Calcul des scores…</p>}
+        {error && <p className="conv-warning">{error}</p>}
+        {!scores && !error && <p className="eyebrow-free">Calcul des scores…</p>}
 
         {scores && (
           <>

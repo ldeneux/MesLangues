@@ -56,6 +56,7 @@ export default function PacksPanel({ languageCode, levelCode }: { languageCode: 
     setError('');
     try {
       const pack = await createPack(languageCode, levelCode);
+      setPacks((prev) => [...(prev ?? []), pack]);
       await runLoop(pack.id, 0, pack.target_count);
     } catch (e: any) {
       setError(e.message ?? 'Erreur pendant la création du pack.');

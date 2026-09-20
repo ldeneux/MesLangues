@@ -22,6 +22,7 @@ export default function GamePendu({
   const [words, setWords] = useState<VocabularyWordWithMastery[] | null>(null);
   const [word, setWord] = useState<VocabularyWordWithMastery | null>(null);
   const [guessed, setGuessed] = useState<Set<string>>(new Set());
+  const [wrongGuesses, setWrongGuesses] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState(0);
   const [input, setInput] = useState('');
 
@@ -42,6 +43,7 @@ export default function GamePendu({
     if (candidates.length === 0) return;
     setWord(candidates[Math.floor(Math.random() * candidates.length)]);
     setGuessed(new Set());
+    setWrongGuesses(new Set());
     setErrors(0);
     setInput('');
   }
@@ -81,6 +83,7 @@ export default function GamePendu({
     const normalizedWordLetters = allChars.filter((c) => /[a-zA-ZÀ-ÿ]/.test(c)).map(normalizeLetter);
     if (!normalizedWordLetters.includes(letter)) {
       setErrors((e) => e + 1);
+      setWrongGuesses((prev) => new Set(prev).add(letter));
     }
   }
 
@@ -90,6 +93,9 @@ export default function GamePendu({
       <p className="eyebrow-free">
         Erreurs : {errors} / {MAX_ERRORS}
       </p>
+      {wrongGuesses.size > 0 && (
+        <p className="eyebrow-free">Lettres essayées et absentes : {Array.from(wrongGuesses).join(', ')}</p>
+      )}
 
       <div className="phrase-card phrase-card-big">
         <div className="pendu-display">

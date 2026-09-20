@@ -55,6 +55,7 @@ export default function ListeningDownload({ languageCode, levelCode }: { languag
     setError('');
     try {
       const pack = await createListeningPack(languageCode, levelCode);
+      setPacks((prev) => [...(prev ?? []), pack]);
       await runLoop(pack.id, pack.target_count);
     } catch (e: any) {
       setError(e.message ?? 'Erreur pendant la création du pack.');

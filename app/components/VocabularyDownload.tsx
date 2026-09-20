@@ -55,6 +55,7 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
     setError('');
     try {
       const pack = await createVocabularyPack(languageCode, levelCode);
+      setPacks((prev) => [...(prev ?? []), pack]);
       await runLoop(pack.id, pack.target_count);
     } catch (e: any) {
       setError(e.message ?? 'Erreur pendant la création du pack.');

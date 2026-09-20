@@ -225,10 +225,18 @@ markdown, avec exactement ces clés :
   await insertQuestionBank(inserted.id, parsed.content, QUESTIONS_PER_ARTICLE);
 
   const newTotal = generatedTotal + 1;
-  await supabaseAdmin.from('listening_packs').update({ generated_count: newTotal }).eq('id', packId);
+  const isNowComplete = newTotal >= pack.target_count;
+  await supabaseAdmin
+    .from('listening_packs')
+    .update(
+      isNowComplete
+        ? { generated_count: newTotal, status: 'ready', completed_at: new Date().toISOString() }
+        : { generated_count: newTotal }
+    )
+    .eq('id', packId);
 
   return {
-    done: newTotal >= pack.target_count,
+    done: isNowComplete,
     themeLabel: themeMeta?.label,
     generatedThisStep: 1,
     generatedTotal: newTotal,

@@ -436,7 +436,9 @@ export async function getGameItems(
     source: 'verb',
     target_text: v.infinitive,
     translation_fr: v.translation_fr,
-    audio_url: (v.tense_audio as Record<string, string>)?.present ?? null,
+    // Pas d'audio de l'infinitif seul généré à part — réutiliser l'audio de
+    // conjugaison au présent ferait entendre toute la déclinaison, trompeur.
+    audio_url: null,
   }));
 
   if (onlyPracticed) {
