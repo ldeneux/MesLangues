@@ -1,8 +1,8 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Frasi — italien, espagnol, anglais au quotidien',
-  description: '30 phrases par jour, générées et prononcées, pour progresser en A1/A2 et au-delà.',
+  title: 'Mes langues',
+  description: 'Apprendre au quotidien : 30 phrases par jour, générées et prononcées, pour progresser en A1/A2 et au-delà.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
