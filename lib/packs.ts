@@ -26,13 +26,7 @@ export type PackStepResult = {
 const TTS_CONCURRENCY = 6;
 const CHUNK_SIZE = 20;
 
-function normalize(s: string) {
-  return s
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]/g, '');
-}
+import { normalizeForCompare } from './textUtils';
 
 export async function getPacks(languageCode: string, levelCode: string): Promise<PackInfo[]> {
   const { data, error } = await supabaseAdmin
@@ -158,9 +152,9 @@ export async function runPackStep(packId: string): Promise<PackStepResult> {
   // Filet de sécurité anti-doublon côté code (en plus de l'instruction à
   // Gemini) : normalisation simple, on écarte les répétitions exactes ou
   // quasi identiques.
-  const seenNormalized = new Set(avoidList.map(normalize));
+  const seenNormalized = new Set(avoidList.map(normalizeForCompare));
   const unique = generated.filter((p) => {
-    const n = normalize(p.target_text);
+    const n = normalizeForCompare(p.target_text);
     if (seenNormalized.has(n)) return false;
     seenNormalized.add(n);
     return true;

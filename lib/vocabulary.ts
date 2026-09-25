@@ -9,13 +9,7 @@ const CHUNK_SIZE = 15;
 const MASTERY_MIN_ATTEMPTS = 1;
 const MASTERY_MIN_RATE = 0.9;
 
-function normalize(s: string) {
-  return s
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]/g, '');
-}
+import { normalizeForCompare } from './textUtils';
 
 function computeMastered(success: number, fail: number): boolean {
   const total = success + fail;
@@ -178,12 +172,12 @@ avant/après, sans balises markdown. Chaque objet :
 
   // Filet de sécurité anti-doublon côté code, en plus de l'instruction à
   // Gemini (global, pas juste le thème courant).
-  const seenNormalized = new Set(avoidList.map(normalize));
+  const seenNormalized = new Set(avoidList.map(normalizeForCompare));
   const validTypes = new Set(['nom', 'adjectif', 'adverbe', 'expression']);
   const rows = parsed
     .filter((w) => w.target_text && w.translation_fr)
     .filter((w) => {
-      const n = normalize(w.target_text!);
+      const n = normalizeForCompare(w.target_text!);
       if (seenNormalized.has(n)) return false;
       seenNormalized.add(n);
       return true;

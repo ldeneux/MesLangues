@@ -29,7 +29,11 @@ export const BCP47: Record<string, string> = {
  * Appelle l'API Gemini et retourne le texte brut de la réponse (JSON forcé
  * côté génération pour éviter d'avoir à nettoyer des balises markdown).
  */
-export async function callGemini(system: string, user: string): Promise<string> {
+export async function callGemini(
+  system: string,
+  user: string,
+  options?: { temperature?: number; maxOutputTokens?: number }
+): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY manquant');
 
@@ -40,9 +44,9 @@ export async function callGemini(system: string, user: string): Promise<string> 
       system_instruction: { parts: [{ text: system }] },
       contents: [{ role: 'user', parts: [{ text: user }] }],
       generationConfig: {
-        temperature: 0.9,
+        temperature: options?.temperature ?? 0.9,
         responseMimeType: 'application/json',
-        maxOutputTokens: 8192,
+        maxOutputTokens: options?.maxOutputTokens ?? 8192,
       },
     }),
   });

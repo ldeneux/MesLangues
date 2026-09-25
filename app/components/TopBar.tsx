@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useProfile, EMOJI_CHOICES } from './ProfileContext';
 import type { LangCode, LevelCode } from '../../lib/constants';
 import MyScoresPanel from './MyScoresPanel';
+import SettingsPanel from './SettingsPanel';
 
 export default function TopBar({ lang, level }: { lang: LangCode; level: LevelCode }) {
   const { profile, profiles, selectProfile, addProfile } = useProfile();
@@ -12,6 +13,7 @@ export default function TopBar({ lang, level }: { lang: LangCode; level: LevelCo
   const [name, setName] = useState('');
   const [emoji, setEmoji] = useState(EMOJI_CHOICES[0]);
   const [scoresOpen, setScoresOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   async function handleCreate() {
     if (!name.trim()) return;
@@ -23,6 +25,9 @@ export default function TopBar({ lang, level }: { lang: LangCode; level: LevelCo
 
   return (
     <div className="topbar">
+      <button className="topbar-icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Réglages" title="Réglages">
+        ⚙️
+      </button>
       <button className="topbar-icon-btn" onClick={() => setScoresOpen(true)} aria-label="Mes scores" title="Mes scores">
         📊
       </button>
@@ -81,6 +86,8 @@ export default function TopBar({ lang, level }: { lang: LangCode; level: LevelCo
           </div>
         )}
       </div>
+
+      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
 
       {scoresOpen && profile && (
         <MyScoresPanel profileId={profile.id} lang={lang} level={level} onClose={() => setScoresOpen(false)} />

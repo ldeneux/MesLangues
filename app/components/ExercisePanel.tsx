@@ -3,16 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Phrase } from '../../lib/data';
 import { markPhraseSeen, recordExerciseResult } from '../../lib/data';
+import { normalizeForCompare as normalizeWord } from '../../lib/textUtils';
 
 const MAX_ATTEMPTS = 3;
-
-function normalizeWord(w: string) {
-  return w
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]/g, '');
-}
 
 type Cloze = { tokens: string[]; blankIndices: number[] };
 

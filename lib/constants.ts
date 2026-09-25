@@ -79,6 +79,15 @@ export const QUIZ_DRAW_SIZE = 5;
 
 export const WRITING_PROMPTS_PER_LEVEL = 30;
 
+// Budget de temps indicatif pour la rédaction, par niveau (minutes) —
+// inspiré des durées d'épreuve DELF/DALF, pris large ("temps min").
+export const WRITING_TIME_BUDGET_MINUTES: Record<string, number> = {
+  A1: 10,
+  A2: 15,
+  B1: 20,
+  B2: 25,
+};
+
 export const DOMAIN_WEIGHTS = {
   listening: 0.25,
   phrases: 0.2,

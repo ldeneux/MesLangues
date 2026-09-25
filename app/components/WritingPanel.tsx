@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   getWritingPrompts,
   submitWriting,
@@ -8,8 +8,10 @@ import {
   type WritingPrompt,
   type WritingResult,
 } from '../../lib/writing';
-import { THEMES } from '../../lib/constants';
-import HighlightText from './HighlightText';
+import { THEMES, WRITING_TIME_BUDGET_MINUTES } from '../../lib/constants';
+import { countLength } from '../../lib/writingRubric';
+import WritingFeedback from './WritingFeedback';
+import WritingTimer, { type WritingTimerHandle } from './WritingTimer';
 
 export default function WritingPanel({
   profileId,
@@ -28,6 +30,7 @@ export default function WritingPanel({
   const [result, setResult] = useState<WritingResult | null>(null);
   const [history, setHistory] = useState<WritingResult[]>([]);
   const [error, setError] = useState('');
+  const timerRef = useRef<WritingTimerHandle>(null);
 
   useEffect(() => {
     setPrompts(null);
@@ -55,6 +58,7 @@ export default function WritingPanel({
 
   async function handleSubmit() {
     if (!selected || !text.trim()) return;
+    timerRef.current?.stop();
     setSubmitting(true);
     setError('');
     try {
@@ -62,13 +66,22 @@ export default function WritingPanel({
       setResult(r);
       getWritingHistory(profileId, selected.id).then(setHistory);
     } catch (e: any) {
-      setError(e.message ?? 'Erreur pendant la correction.');
+      setError(
+        e?.message?.includes('relation') || e?.message?.includes('column')
+          ? "Le détail de notation n'existe pas encore en base — exécute la migration 013 dans Supabase."
+          : e?.message ?? 'Erreur pendant la correction.'
+      );
     } finally {
       setSubmitting(false);
     }
   }
 
-  const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
+  const lengthInfo = useMemo(() => countLength(text, languageCode), [text, languageCode]);
+  const inRange = selected
+    ? languageCode === 'ja'
+      ? true // fourchette japonaise gérée côté serveur (conversion mots -> caractères)
+      : lengthInfo.count >= selected.min_words && lengthInfo.count <= selected.max_words
+    : true;
 
   const availableThemes = useMemo(
     () => THEMES.filter((t) => (prompts ?? []).some((p) => p.theme_code === t.code)),
@@ -123,8 +136,11 @@ export default function WritingPanel({
 
       {selected && (
         <div className="phrase-card phrase-card-big">
-          <div className="phrase-fr" style={{ fontWeight: 600, color: 'var(--ink)' }}>
-            {selected.instruction}
+          <div className="writing-top-row">
+            <div className="phrase-fr" style={{ fontWeight: 600, color: 'var(--ink)' }}>
+              {selected.instruction}
+            </div>
+            <WritingTimer ref={timerRef} budgetMinutes={WRITING_TIME_BUDGET_MINUTES[levelCode] ?? 15} />
           </div>
           <ul style={{ marginTop: '0.5rem', paddingLeft: '1.2rem' }}>
             {selected.guiding_points.map((pt, i) => (
@@ -144,28 +160,24 @@ export default function WritingPanel({
             placeholder="Écris ta réponse ici…"
             rows={6}
           />
-          <p className="eyebrow-free">{wordCount} mot(s)</p>
+          <p className={`eyebrow-free${inRange ? '' : ' writing-count-warning'}`}>
+            {lengthInfo.count} {lengthInfo.unit}
+            {languageCode !== 'ja' ? ` / ${selected.min_words}-${selected.max_words}` : ''}
+          </p>
 
           <button className="primary" onClick={handleSubmit} disabled={submitting || !text.trim()}>
             {submitting ? 'Correction en cours…' : 'Corriger ma production'}
           </button>
 
-          {result && (
-            <div className={result.score >= 70 ? 'conv-correction exercise-success' : 'conv-correction'}>
-              <div className="conv-correction-label">Score : {result.score} / 100</div>
-              <div className="conv-correction-text">
-                <HighlightText text={result.corrected_text} />
-              </div>
-              <div className="conv-correction-explanation">{result.feedback_fr}</div>
-            </div>
-          )}
+          {result && <WritingFeedback result={result} />}
 
           {history.length > 0 && (
             <div className="quiz-history">
               <div className="sidebar-label">Historique sur cette consigne</div>
               {history.map((h) => (
                 <div key={h.id} className="quiz-history-row">
-                  {h.score} / 100 — {new Date(h.created_at).toLocaleDateString('fr-FR')}
+                  {h.score} / 100 {h.level_code ? `(${h.level_code})` : ''} —{' '}
+                  {new Date(h.created_at).toLocaleDateString('fr-FR')}
                 </div>
               ))}
             </div>

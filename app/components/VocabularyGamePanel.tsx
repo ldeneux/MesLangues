@@ -2,17 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { getGameItems, recordGameResult, type GameItem } from '../../lib/vocabulary';
+import { normalizeForCompare as normalize } from '../../lib/textUtils';
 
 const MAX_ATTEMPTS = 3;
-
-function normalize(s: string) {
-  return s
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\s]/g, '')
-    .trim();
-}
 
 type Status = 'idle' | 'listening' | 'checked' | 'finished';
 
