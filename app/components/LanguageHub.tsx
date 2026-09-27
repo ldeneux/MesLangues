@@ -26,16 +26,9 @@ export default function LanguageHub() {
 
   return (
     <>
-      <TopBar lang={lang} level={level} />
+      <TopBar lang={lang} level={level} onLangChange={setLang} onLevelChange={setLevel} />
       <div className="hub-layout">
-        <Sidebar
-          lang={lang}
-          level={level}
-          tab={tab}
-          onLangChange={setLang}
-          onLevelChange={setLevel}
-          onTabChange={setTab}
-        />
+        <Sidebar tab={tab} onTabChange={setTab} />
 
         <main className="hub-content">
           {tab === 'today' && <LearnPanel profileId={profile.id} lang={lang} level={level} />}
