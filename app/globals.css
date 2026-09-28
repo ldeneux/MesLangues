@@ -257,6 +257,44 @@ a { color: inherit; }
   padding: 1rem 1.5rem 0;
 }
 
+.topbar-full {
+  justify-content: flex-start;
+  align-items: center;
+  gap: 1.75rem;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.topbar-logo {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  flex: 0 0 auto;
+}
+
+.topbar-block { display: flex; flex-direction: column; gap: 0.3rem; }
+
+.topbar-flag-row {
+  display: flex !important;
+  gap: 0.3rem;
+}
+
+.topbar-flag-row .flag-icon-btn { width: auto; }
+
+.topbar-level-row { display: flex !important; gap: 0.35rem; }
+
+.topbar-level-row .level-swatch {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  aspect-ratio: auto;
+  font-size: 0.85rem;
+  border-radius: 10px;
+}
+
+.topbar-spacer { flex: 1; }
+
 .topbar-profile-wrap { position: relative; width: 220px; }
 
 .topbar-profile-menu { left: auto; right: 0; width: 220px; }
@@ -1444,7 +1482,12 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
   width: 100%;
   border-collapse: collapse;
   font-size: 0.85rem;
+  table-layout: fixed;
 }
+
+.inv-table th:nth-child(1),
+.inv-table td.inv-lang-cell { width: 22%; }
+.inv-table th:nth-child(2) { width: 10%; }
 
 .inv-table th {
   text-align: left;
