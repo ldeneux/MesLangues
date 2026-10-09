@@ -70,7 +70,9 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
                       <tr key={`${lang.code}-${row.levelCode}`}>
                         {i === 0 && (
                           <td rowSpan={langRows.length} className="inv-lang-cell">
-                            <FlagIcon code={lang.code} /> {lang.label}
+                            <span className="inv-lang-cell-inner">
+                              <FlagIcon code={lang.code} /> {lang.label}
+                            </span>
                           </td>
                         )}
                         <td>
@@ -119,7 +121,9 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
                     return (
                       <tr key={row.languageCode}>
                         <td className="inv-lang-cell">
-                          <FlagIcon code={lang.code} /> {lang.label}
+                          <span className="inv-lang-cell-inner">
+                            <FlagIcon code={lang.code} /> {lang.label}
+                          </span>
                         </td>
                         <td>
                           <CellBadge {...row.grammarTopics} />

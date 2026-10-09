@@ -143,13 +143,24 @@ const TABLE_LEVEL_SCOPE: Record<string, 'level' | 'language'> = {
 };
 
 export async function getStorageStats(): Promise<StorageStats> {
-  const [{ data: dbSizeData }, { data: storageSizeData }, { data: tableSizes }, { data: storageByPrefix }] =
-    await Promise.all([
-      supabaseAdmin.rpc('get_db_size_bytes'),
-      supabaseAdmin.rpc('get_storage_size_bytes'),
-      supabaseAdmin.rpc('get_content_table_sizes'),
-      supabaseAdmin.rpc('get_storage_size_by_prefix'),
-    ]);
+  const [dbSizeRes, storageSizeRes, tableSizesRes, storageByPrefixRes] = await Promise.all([
+    supabaseAdmin.rpc('get_db_size_bytes'),
+    supabaseAdmin.rpc('get_storage_size_bytes'),
+    supabaseAdmin.rpc('get_content_table_sizes'),
+    supabaseAdmin.rpc('get_storage_size_by_prefix'),
+  ]);
+
+  const firstError = [dbSizeRes, storageSizeRes, tableSizesRes, storageByPrefixRes].find((r) => r.error)?.error;
+  if (firstError) {
+    throw new Error(
+      `Fonctions de volumétrie indisponibles (${firstError.message}) — exécute la migration 012 dans Supabase.`
+    );
+  }
+
+  const { data: dbSizeData } = dbSizeRes;
+  const { data: storageSizeData } = storageSizeRes;
+  const { data: tableSizes } = tableSizesRes;
+  const { data: storageByPrefix } = storageByPrefixRes;
 
   const dbUsedBytes = typeof dbSizeData === 'number' ? dbSizeData : 0;
   const storageUsedBytes = typeof storageSizeData === 'number' ? storageSizeData : 0;

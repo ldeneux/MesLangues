@@ -2,11 +2,22 @@
 
 import { useState } from 'react';
 import { useProfile, EMOJI_CHOICES } from './ProfileContext';
-import type { LangCode, LevelCode } from '../../lib/constants';
+import { LANGS, LEVELS, type LangCode, type LevelCode } from '../../lib/constants';
+import FlagIcon from './FlagIcon';
 import MyScoresPanel from './MyScoresPanel';
 import SettingsPanel from './SettingsPanel';
 
-export default function TopBar({ lang, level }: { lang: LangCode; level: LevelCode }) {
+export default function TopBar({
+  lang,
+  level,
+  onLangChange,
+  onLevelChange,
+}: {
+  lang: LangCode;
+  level: LevelCode;
+  onLangChange: (l: LangCode) => void;
+  onLevelChange: (l: LevelCode) => void;
+}) {
   const { profile, profiles, selectProfile, addProfile } = useProfile();
   const [switching, setSwitching] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -24,7 +35,44 @@ export default function TopBar({ lang, level }: { lang: LangCode; level: LevelCo
   }
 
   return (
-    <div className="topbar">
+    <div className="topbar topbar-full">
+      <img src="/logo.svg" alt="Mes langues" className="topbar-logo" />
+
+      <div className="topbar-block">
+        <div className="sidebar-label">Langue</div>
+        <div className="flag-icon-row topbar-flag-row">
+          {LANGS.map((l) => (
+            <button
+              key={l.code}
+              className={`flag-icon-btn${lang === l.code ? ' active' : ''}`}
+              onClick={() => onLangChange(l.code)}
+              aria-label={l.label}
+            >
+              <FlagIcon code={l.code} />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="topbar-block">
+        <div className="sidebar-label">Niveau</div>
+        <div className="level-swatch-row topbar-level-row">
+          {LEVELS.map((lv) => (
+            <button
+              key={lv.code}
+              className={`level-swatch${level === lv.code ? ' active' : ''}`}
+              style={{ background: lv.color }}
+              onClick={() => onLevelChange(lv.code)}
+              aria-label={lv.label}
+            >
+              {lv.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="topbar-spacer" />
+
       <button className="topbar-icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Réglages" title="Réglages">
         ⚙️
       </button>

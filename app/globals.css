@@ -1508,6 +1508,9 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 .inv-lang-cell {
   font-weight: 600;
   white-space: nowrap;
+}
+
+.inv-lang-cell-inner {
   display: flex;
   align-items: center;
   gap: 0.5rem;
