@@ -138,3 +138,23 @@ export const JA_GRAMMAR_TOPICS: GrammarTopicMeta[] = [
 export function grammarTopicsFor(languageCode: string): readonly GrammarTopicMeta[] {
   return languageCode === 'ja' ? JA_GRAMMAR_TOPICS : GRAMMAR_TOPICS;
 }
+
+// Catégories de kanji (filtre « thème » de l'onglet Kanji). Distinctes des thèmes de vocabulaire :
+// un kanji se range par sens (nature, corps, temps…), pas par situation (restaurant, hôtel…).
+export const KANJI_CATEGORIES = [
+  { code: 'numbers', label: 'Nombres et quantités' },
+  { code: 'time', label: 'Temps et calendrier' },
+  { code: 'nature', label: 'Nature et météo' },
+  { code: 'animals_plants', label: 'Animaux et plantes' },
+  { code: 'body', label: 'Corps et santé' },
+  { code: 'people', label: 'Personnes et famille' },
+  { code: 'school', label: 'École, langue et communication' },
+  { code: 'places', label: 'Lieux, ville et pays' },
+  { code: 'transport', label: 'Déplacement et transport' },
+  { code: 'food', label: 'Nourriture et boissons' },
+  { code: 'colors_size', label: 'Couleurs, tailles et positions' },
+  { code: 'actions', label: 'Actions et verbes courants' },
+  { code: 'society', label: 'Travail, société et argent' },
+  { code: 'objects', label: 'Objets, maison et vêtements' },
+  { code: 'abstract', label: 'Idées, sentiments et qualités' },
+] as const;

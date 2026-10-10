@@ -10,6 +10,9 @@ import {
 } from '../../lib/kanji';
 import { speak } from '../../lib/speech';
 import KanjiStrokes from './KanjiStrokes';
+import KanjiDraw from './KanjiDraw';
+import KanjiListenGame from './KanjiListenGame';
+import { KANJI_CATEGORIES } from '../../lib/constants';
 
 type QType = 'meaning' | 'reading' | 'listen';
 type QuizMode = QType | 'mixed';
@@ -75,7 +78,8 @@ export default function KanjiPanel({ profileId, levelCode }: { profileId: string
   const [kanjis, setKanjis] = useState<KanjiItem[] | null>(null);
   const [progress, setProgress] = useState<KanjiProgressMap>({});
   const [error, setError] = useState('');
-  const [view, setView] = useState<'list' | 'quiz'>('list');
+  const [view, setView] = useState<'list' | 'quiz' | 'listen'>('list');
+  const [category, setCategory] = useState<string>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [speechOk, setSpeechOk] = useState(true);
 
@@ -102,14 +106,27 @@ export default function KanjiPanel({ profileId, levelCode }: { profileId: string
 
   const masteredCount = useMemo(() => (kanjis ?? []).filter((k) => isMastered(progress[k.id])).length, [kanjis, progress]);
 
+  // Filtre par thème (fiches, quiz et écoute)
+  const visible = useMemo(
+    () => (kanjis ?? []).filter((k) => category === 'all' || k.category === category),
+    [kanjis, category]
+  );
+  const availableCategories = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const k of kanjis ?? []) if (k.category) counts.set(k.category, (counts.get(k.category) ?? 0) + 1);
+    return KANJI_CATEGORIES.filter((c) => counts.has(c.code)).map((c) => ({ ...c, count: counts.get(c.code) ?? 0 }));
+  }, [kanjis]);
+
   function play(text: string) {
     setSpeechOk(speak(cleanKana(text)));
   }
 
   function startQuiz() {
     const all = kanjis ?? [];
-    const pool = scope === 'todo' ? all.filter((k) => !isMastered(progress[k.id])) : all;
-    setQuestions(buildQuestions(pool.length >= 1 ? pool : all, all, mode));
+    const inTheme = category === 'all' ? all : all.filter((k) => k.category === category);
+    const base = inTheme.length >= 1 ? inTheme : all;
+    const pool = scope === 'todo' ? base.filter((k) => !isMastered(progress[k.id])) : base;
+    setQuestions(buildQuestions(pool.length >= 1 ? pool : base, all, mode));
     setQIndex(0);
     setPicked(null);
     setScore(0);
@@ -139,7 +156,8 @@ export default function KanjiPanel({ profileId, levelCode }: { profileId: string
   }
 
   const selected = kanjis.find((k) => k.id === selectedId) ?? null;
-  const selIndex = selected ? kanjis.indexOf(selected) : -1;
+  const navList = selected && visible.includes(selected) ? visible : kanjis;
+  const selIndex = selected ? navList.indexOf(selected) : -1;
 
   return (
     <div>
@@ -154,13 +172,39 @@ export default function KanjiPanel({ profileId, levelCode }: { profileId: string
         <button className={`conv-mini-btn${view === 'quiz' ? ' active' : ''}`} onClick={() => setView('quiz')}>
           Quiz
         </button>
+        <button className={`conv-mini-btn${view === 'listen' ? ' active' : ''}`} onClick={() => setView('listen')}>
+          Écoute
+        </button>
+        {availableCategories.length > 0 && (
+          <select
+            className="cascade-select"
+            value={category}
+            onChange={(e) => {
+              setCategory(e.target.value);
+              setSelectedId(null);
+              setQuestions(null);
+            }}
+          >
+            <option value="all">Tous les thèmes ({kanjis.length})</option>
+            {availableCategories.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.label} ({c.count})
+              </option>
+            ))}
+          </select>
+        )}
       </div>
+      {availableCategories.length === 0 && (
+        <p className="eyebrow-free">
+          Pour filtrer par thème : onglet Packs → Kanji → « Classer par thème » (migration 018 à exécuter avant).
+        </p>
+      )}
 
       {!speechOk && <p className="conv-warning">Ton navigateur ne propose pas de voix japonaise (essaie Chrome ou Edge).</p>}
 
       {view === 'list' && !selected && (
         <div className="kanji-grid">
-          {kanjis.map((k) => (
+          {visible.map((k) => (
             <button key={k.id} className={`kanji-cell${isMastered(progress[k.id]) ? ' mastered' : ''}`} onClick={() => setSelectedId(k.id)}>
               <span className="kanji-cell-glyph" lang="ja">
                 {k.char}
@@ -178,10 +222,10 @@ export default function KanjiPanel({ profileId, levelCode }: { profileId: string
               ← Tous les kanji
             </button>
             <span style={{ flex: 1 }} />
-            <button className="conv-mini-btn" disabled={selIndex === 0} onClick={() => setSelectedId(kanjis[selIndex - 1].id)}>
+            <button className="conv-mini-btn" disabled={selIndex === 0} onClick={() => setSelectedId(navList[selIndex - 1].id)}>
               ←
             </button>
-            <button className="conv-mini-btn" disabled={selIndex === kanjis.length - 1} onClick={() => setSelectedId(kanjis[selIndex + 1].id)}>
+            <button className="conv-mini-btn" disabled={selIndex === navList.length - 1} onClick={() => setSelectedId(navList[selIndex + 1].id)}>
               →
             </button>
           </div>
@@ -199,6 +243,7 @@ export default function KanjiPanel({ profileId, levelCode }: { profileId: string
           </div>
 
           <KanjiStrokes char={selected.char} />
+          <KanjiDraw char={selected.char} />
 
           <div className="sidebar-label" style={{ marginTop: '1rem' }}>
             Lectures
@@ -246,6 +291,8 @@ export default function KanjiPanel({ profileId, levelCode }: { profileId: string
           </p>
         </div>
       )}
+
+      {view === 'listen' && <KanjiListenGame kanjis={visible} />}
 
       {view === 'quiz' && (
         <div className="phrase-card phrase-card-big">

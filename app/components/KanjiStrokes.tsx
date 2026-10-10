@@ -1,12 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-
-// Tracés : KanjiVG (https://kanjivg.tagaini.net), licence CC BY-SA 3.0 — chargés à la demande.
-const cache = new Map<string, string[]>();
+import { loadKanjiPaths } from './kanjiPaths';
 
 export default function KanjiStrokes({ char }: { char: string }) {
-  const [paths, setPaths] = useState<string[] | null>(cache.get(char) ?? null);
+  const [paths, setPaths] = useState<string[] | null>(null);
   const [error, setError] = useState(false);
   const [runId, setRunId] = useState(0);
   const [showAll, setShowAll] = useState(false);
@@ -16,25 +14,9 @@ export default function KanjiStrokes({ char }: { char: string }) {
     setError(false);
     setShowAll(false);
     setRunId((n) => n + 1);
-    const cached = cache.get(char);
-    if (cached) {
-      setPaths(cached);
-      return;
-    }
     setPaths(null);
-    const code = (char.codePointAt(0) ?? 0).toString(16).padStart(5, '0');
-    fetch(`https://raw.githubusercontent.com/KanjiVG/kanjivg/master/kanji/${code}.svg`)
-      .then((r) => {
-        if (!r.ok) throw new Error(String(r.status));
-        return r.text();
-      })
-      .then((txt) => {
-        const doc = new DOMParser().parseFromString(txt, 'image/svg+xml');
-        const ds = Array.from(doc.querySelectorAll('path'))
-          .map((p) => p.getAttribute('d') || '')
-          .filter(Boolean);
-        if (ds.length === 0) throw new Error('vide');
-        cache.set(char, ds);
+    loadKanjiPaths(char)
+      .then((ds) => {
         if (!cancelled) setPaths(ds);
       })
       .catch(() => {

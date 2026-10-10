@@ -3,6 +3,7 @@
 import { supabaseAdmin } from './supabaseAdmin';
 import { callGemini } from './gemini';
 import { kanjiForLevel } from './kanjiLists';
+import { KANJI_CATEGORIES } from './constants';
 
 export type KanjiExample = { word: string; reading: string; meaning_fr: string };
 
@@ -15,6 +16,7 @@ export type KanjiItem = {
   onyomi: string[];
   kunyomi: string[];
   examples: KanjiExample[];
+  category?: string | null; // thème (voir KANJI_CATEGORIES) ; null tant que non classé
 };
 
 export type KanjiProgressMap = Record<string, { success: number; fail: number }>;
@@ -29,11 +31,12 @@ function tableMissing(msg: string) {
 }
 
 export async function getKanjiList(levelCode: string): Promise<KanjiItem[]> {
-  const { data, error } = await supabaseAdmin
-    .from('kanji')
-    .select('id, char, level_code, position, meaning_fr, onyomi, kunyomi, examples')
-    .eq('level_code', levelCode)
-    .order('position');
+  const baseColumns = 'id, char, level_code, position, meaning_fr, onyomi, kunyomi, examples';
+  let { data, error } = await supabaseAdmin.from('kanji').select(`${baseColumns}, category`).eq('level_code', levelCode).order('position');
+  if (error && error.message.includes('category')) {
+    // Migration 018 pas encore exécutée : on charge quand même les kanji, sans le filtre par thème
+    ({ data, error } = (await supabaseAdmin.from('kanji').select(baseColumns).eq('level_code', levelCode).order('position')) as any);
+  }
   if (error) {
     throw new Error(tableMissing(error.message) ? 'La table "kanji" n\'existe pas encore — exécute la migration 015 dans Supabase.' : error.message);
   }
@@ -83,6 +86,7 @@ Chaque objet a exactement ces clés :
 - "meaning_fr" : sens principal(s) en français, 1 à 3 mots (ex. "soleil, jour")
 - "onyomi" : lectures on'yomi en KATAKANA (ex. ["ニチ","ジツ"]), seulement les 1 à 3 plus courantes ; [] s'il n'y en a pas
 - "kunyomi" : lectures kun'yomi en HIRAGANA (ex. ["ひ","か"]) ; pour un verbe/adjectif, sépare avec un point la partie en kanji et les okurigana (ex. "た.べる") ; 1 à 3 plus courantes ; [] s'il n'y en a pas
+- "category" : UN code parmi : ${KANJI_CATEGORIES.map((c) => c.code + ' (' + c.label + ')').join(' ; ')}
 - "examples" : exactement 3 mots COURANTS contenant ce kanji : { "word": "mot en écriture japonaise normale", "reading": "lecture complète en hiragana", "meaning_fr": "traduction française courte" }
 Les lectures doivent être exactes et usuelles dans le japonais moderne. N'invente rien.`;
   const user = `Kanji : ${batch.join(' ')}`;
@@ -125,6 +129,7 @@ Les lectures doivent être exactes et usuelles dans le japonais moderne. N'inven
       onyomi,
       kunyomi,
       examples,
+      category: KANJI_CATEGORIES.some((c) => c.code === p.category) ? p.category : null,
     });
   }
 
@@ -168,4 +173,61 @@ export async function recordKanjiAnswer(profileId: string, kanjiId: string, corr
     { onConflict: 'profile_id,kanji_id' }
   );
   if (error) throw new Error(error.message);
+}
+
+// --- Classement par thème (kanji déjà générés sans catégorie) ---
+export async function getKanjiCategoryCount(levelCode: string): Promise<{ total: number; unclassified: number }> {
+  const total = await supabaseAdmin.from('kanji').select('id', { count: 'exact', head: true }).eq('level_code', levelCode);
+  const missing = await supabaseAdmin
+    .from('kanji')
+    .select('id', { count: 'exact', head: true })
+    .eq('level_code', levelCode)
+    .is('category', null);
+  if (missing.error) {
+    throw new Error(missing.error.message.includes('category') ? 'La colonne "category" n\'existe pas encore — exécute la migration 018 dans Supabase.' : missing.error.message);
+  }
+  return { total: total.count ?? 0, unclassified: missing.count ?? 0 };
+}
+
+/** Classe jusqu'à 50 kanji sans thème (coût négligible : quelques centimes de centime). */
+export async function runKanjiCategoryStep(levelCode: string): Promise<{ done: boolean; remaining: number }> {
+  const { data, error } = await supabaseAdmin
+    .from('kanji')
+    .select('id, char, meaning_fr')
+    .eq('level_code', levelCode)
+    .is('category', null)
+    .order('position')
+    .limit(50);
+  if (error) {
+    throw new Error(error.message.includes('category') ? 'La colonne "category" n\'existe pas encore — exécute la migration 018 dans Supabase.' : error.message);
+  }
+  const todo = data ?? [];
+  if (todo.length === 0) return { done: true, remaining: 0 };
+
+  const codes = KANJI_CATEGORIES.map((c) => `${c.code} = ${c.label}`).join('\n');
+  const system = `Tu ranges des kanji par thème. Pour chaque kanji, choisis UN SEUL code de catégorie, le plus évident
+d'après son sens principal. Codes possibles :
+${codes}
+Tu réponds STRICTEMENT en JSON valide : un objet {"kanji": "code", ...}, sans texte avant/après, sans balises markdown.`;
+  const user = todo.map((k: any) => `${k.char} (${k.meaning_fr})`).join('\n');
+  const raw = await callGemini(system, user, { temperature: 0.1 });
+  let parsed: Record<string, string>;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('Réponse Gemini invalide (JSON non parsable) pour le classement des kanji.');
+  }
+
+  const valid = new Set<string>(KANJI_CATEGORIES.map((c) => c.code));
+  for (let i = 0; i < todo.length; i += 10) {
+    await Promise.all(
+      todo.slice(i, i + 10).map(async (k: any) => {
+        const code = valid.has(parsed?.[k.char]) ? parsed[k.char] : 'abstract'; // « idées / qualités » par défaut, pour ne jamais boucler
+        const { error: upErr } = await supabaseAdmin.from('kanji').update({ category: code }).eq('id', k.id);
+        if (upErr) throw new Error(upErr.message);
+      })
+    );
+  }
+  const { unclassified } = await getKanjiCategoryCount(levelCode);
+  return { done: unclassified === 0, remaining: unclassified };
 }

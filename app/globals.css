@@ -1865,3 +1865,19 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 /* --- Jeux japonais --- */
 .flash-ok { box-shadow: 0 0 0 3px #2f6b4f inset; }
 .flash-ko { box-shadow: 0 0 0 3px #a3402f inset; }
+
+/* --- Dessin de kanji + jeu d'écoute --- */
+.kanji-draw-canvas {
+  display: block; width: 100%; max-width: 320px; aspect-ratio: 1 / 1;
+  background: #fff; border: 1px solid var(--line); border-radius: 12px;
+  touch-action: none; user-select: none; -webkit-user-select: none; cursor: crosshair;
+}
+.kanji-tile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 0.4rem; margin-top: 0.75rem; }
+.kanji-tile {
+  font-size: 1.9rem; line-height: 1; padding: 0.55rem 0; text-align: center;
+  background: #fff; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; color: var(--ink);
+}
+.kanji-tile:hover:not(:disabled) { border-color: var(--ink-soft); }
+.kanji-tile.wrong { background: #f3d6d0; border-color: #a3402f; }
+.kanji-tile.right { background: #d8ecd0; border-color: #2f6b4f; }
+.kanji-tile:disabled { cursor: default; }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getKanjiCount, runKanjiStep } from '../../lib/kanji';
+import { getKanjiCount, runKanjiStep, getKanjiCategoryCount, runKanjiCategoryStep } from '../../lib/kanji';
 import { estimateKanjiCost } from '../../lib/pricing';
 
 export default function KanjiDownload({ levelCode }: { levelCode: string }) {
@@ -9,10 +9,32 @@ export default function KanjiDownload({ levelCode }: { levelCode: string }) {
   const [confirming, setConfirming] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState('');
+  const [unclassified, setUnclassified] = useState(0);
+  const [classifying, setClassifying] = useState(false);
+
+  async function classify() {
+    setError('');
+    setClassifying(true);
+    try {
+      let done = false;
+      while (!done) {
+        const step = await runKanjiCategoryStep(levelCode);
+        setUnclassified(step.remaining);
+        done = step.done;
+      }
+    } catch (e: any) {
+      setError(e?.message ?? 'Erreur pendant le classement par thème.');
+    } finally {
+      setClassifying(false);
+    }
+  }
 
   async function refresh() {
     try {
       setCount(await getKanjiCount(levelCode));
+      getKanjiCategoryCount(levelCode)
+        .then((c) => setUnclassified(c.unclassified))
+        .catch(() => setUnclassified(0)); // migration 018 absente : on ne propose simplement pas le classement
     } catch (e: any) {
       setError(e?.message ?? 'Erreur de chargement.');
     }
@@ -66,6 +88,12 @@ export default function KanjiDownload({ levelCode }: { levelCode: string }) {
       </div>
 
       {error && <p className="conv-warning">{error}</p>}
+
+      {!running && have > 0 && unclassified > 0 && (
+        <button className="secondary" onClick={classify} disabled={classifying} style={{ marginBottom: '0.5rem' }}>
+          {classifying ? 'Classement en cours…' : `Classer ${unclassified} kanji par thème (≈ 0,01 €)`}
+        </button>
+      )}
 
       {running ? (
         <div className="pack-progress">
