@@ -43,26 +43,51 @@ export type Inventory = {
 
 // Comptage EXACT côté base (head count). On ne lit plus les lignes : Supabase plafonne chaque lecture à
 // 1000 lignes, ce qui faussait les totaux (les langues « en fin de table » apparaissaient à zéro).
+// Réessais automatiques : une requête de comptage peut échouer ponctuellement sous charge.
 async function countRows(table: string, filters: Record<string, string> = {}): Promise<number> {
-  let query = supabaseAdmin.from(table).select('*', { count: 'exact', head: true });
-  for (const [column, value] of Object.entries(filters)) query = query.eq(column, value);
-  const { count, error } = await query;
-  if (error) throw new Error(`${table} : ${error.message}`);
-  return count ?? 0;
+  let lastError = '';
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let query = supabaseAdmin.from(table).select('*', { count: 'exact', head: true });
+    for (const [column, value] of Object.entries(filters)) query = query.eq(column, value);
+    const { count, error, status } = await query;
+    if (!error) return count ?? 0;
+    // Une requête HEAD n'a pas de corps de réponse : le message peut être vide, on ajoute le code HTTP et les détails.
+    lastError = [error.message, error.code, error.details, error.hint, status ? `HTTP ${status}` : ''].filter(Boolean).join(' | ');
+    await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+  }
+  throw new Error(`Comptage impossible sur "${table}" (${lastError || 'erreur inconnue'})`);
 }
+
+// Exécute des tâches avec au plus `limit` requêtes simultanées (évite de saturer l'API de la base)
+async function runLimited<T>(tasks: (() => Promise<T>)[], limit = 4): Promise<T[]> {
+  const results: T[] = new Array(tasks.length);
+  let next = 0;
+  async function worker() {
+    while (next < tasks.length) {
+      const i = next++;
+      results[i] = await tasks[i]();
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
+  return results;
+}
+
+// En production, Next.js masque le message des erreurs levées par une action serveur : on renvoie donc
+// l'erreur dans le résultat, pour que Réglages affiche la vraie cause.
+export type Result<T> = { ok: true; data: T } | { ok: false; error: string };
 
 const INVENTORY_TABLES = ['phrases', 'vocabulary_words', 'listening_articles', 'writing_prompts'] as const;
 
-export async function getInventory(): Promise<Inventory> {
+async function buildInventory(): Promise<Inventory> {
   const rows: InventoryRow[] = [];
 
   for (const lang of LANGS) {
-    const counts = await Promise.all(
-      LEVELS.flatMap((level) => INVENTORY_TABLES.map((t) => countRows(t, { language_code: lang.code, level_code: level.code })))
+    const counts = await runLimited(
+      LEVELS.flatMap((level) => INVENTORY_TABLES.map((t) => () => countRows(t, { language_code: lang.code, level_code: level.code })))
     );
     // Kanji : japonais uniquement (la table n'existe qu'après la migration 015 → 0 sinon)
     const kanjiCounts =
-      lang.code === 'ja' ? await Promise.all(LEVELS.map((l) => countRows('kanji', { level_code: l.code }).catch(() => 0))) : null;
+      lang.code === 'ja' ? await runLimited(LEVELS.map((l) => () => countRows('kanji', { level_code: l.code }).catch(() => 0))) : null;
 
     LEVELS.forEach((level, li) => {
       const base = li * INVENTORY_TABLES.length;
@@ -80,8 +105,10 @@ export async function getInventory(): Promise<Inventory> {
 
   // Grammaire/Conjugaison : transverses, par langue uniquement (pas de
   // niveau — un même verbe/une même fiche sert à tous les niveaux).
-  const langWide: LangWideRow[] = await Promise.all(
-    LANGS.map(async (lang) => {
+  const langWide: LangWideRow[] = [];
+  for (const lang of LANGS) {
+    langWide.push(
+      await (async () => {
       const [topics, questions, verbs] = await Promise.all([
         countRows('grammar_topics', { language_code: lang.code }),
         countRows('grammar_questions', { language_code: lang.code }),
@@ -101,10 +128,19 @@ export async function getInventory(): Promise<Inventory> {
         grammarQuiz: { ready: questions, target: grammarTopicsFor(lang.code).length * GRAMMAR_QUIZ_TARGET_PER_TOPIC },
         conjugation: { ready: verbs, target: CONJUGATION_TARGET },
       };
-    })
-  );
+      })()
+    );
+  }
 
   return { rows, langWide };
+}
+
+export async function getInventory(): Promise<Result<Inventory>> {
+  try {
+    return { ok: true, data: await buildInventory() };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "Erreur pendant le chargement de l'inventaire." };
+  }
 }
 
 // ---------------------------------------------------------
@@ -160,7 +196,7 @@ const JA_ONLY = new Set(['kanji', 'kanji_progress', 'ja_readings']);
 // Tables « langue » qui ont une colonne language_code : on peut les attribuer exactement à une langue
 const LANG_COL_TABLES = new Set(['grammar_topics', 'grammar_questions', 'conjugation_verbs']);
 
-export async function getStorageStats(languageCode: string = 'all'): Promise<StorageStats> {
+async function buildStorageStats(languageCode: string): Promise<StorageStats> {
   const filterLang = languageCode !== 'all' ? languageCode : null;
   const [dbSizeRes, storageSizeRes, tableSizesRes, storageByPrefixRes] = await Promise.all([
     supabaseAdmin.rpc('get_db_size_bytes'),
@@ -202,17 +238,17 @@ export async function getStorageStats(languageCode: string = 'all'): Promise<Sto
   let langContentShare = 1;
   if (filterLang) {
     const contentTables = ['phrases', 'vocabulary_words', 'listening_articles'];
-    const [mine, all] = await Promise.all([
-      Promise.all(contentTables.map((t) => countRows(t, { language_code: filterLang }))),
-      Promise.all(contentTables.map((t) => countRows(t))),
-    ]);
+    const mine = await runLimited(contentTables.map((t) => () => countRows(t, { language_code: filterLang })));
+    const all = await runLimited(contentTables.map((t) => () => countRows(t)));
     const sumMine = mine.reduce((a, b) => a + b, 0);
     const sumAll = all.reduce((a, b) => a + b, 0);
     langContentShare = sumAll > 0 ? sumMine / sumAll : 0;
   }
 
-  const contributions = await Promise.all(
-    ((tableSizes ?? []) as { table_name: string; total_bytes: number }[]).map(async (t) => {
+  const contributions: Map<string, number>[] = [];
+  for (const t of (tableSizes ?? []) as { table_name: string; total_bytes: number }[]) {
+    contributions.push(
+      await (async () => {
       const result = new Map<string, number>();
       const scope = TABLE_LEVEL_SCOPE[t.table_name];
       const bytes = Number(t.total_bytes);
@@ -236,15 +272,17 @@ export async function getStorageStats(languageCode: string = 'all'): Promise<Sto
 
       const total = await countRows(t.table_name);
       if (total === 0) return result;
-      const counts = await Promise.all(
-        LEVELS.map((l) =>
-          countRows(t.table_name, filterLang && !jaOnly ? { language_code: filterLang, level_code: l.code } : { level_code: l.code })
+      const counts = await runLimited(
+        LEVELS.map(
+          (l) => () =>
+            countRows(t.table_name, filterLang && !jaOnly ? { language_code: filterLang, level_code: l.code } : { level_code: l.code })
         )
       );
       LEVELS.forEach((l, i) => result.set(l.code, (counts[i] / total) * bytes));
       return result;
-    })
-  );
+      })()
+    );
+  }
 
   const dbByLevel = new Map<string, number>(LEVELS.map((l) => [l.code, 0]));
   for (const c of contributions) for (const [lvl, v] of Array.from(c)) dbByLevel.set(lvl, (dbByLevel.get(lvl) ?? 0) + v);
@@ -263,4 +301,12 @@ export async function getStorageStats(languageCode: string = 'all'): Promise<Sto
     dbByLevel: dbLevels,
     storageByLevel: storageLevels,
   };
+}
+
+export async function getStorageStats(languageCode: string = 'all'): Promise<Result<StorageStats>> {
+  try {
+    return { ok: true, data: await buildStorageStats(languageCode) };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? 'Erreur pendant le chargement de la volumétrie.' };
+  }
 }

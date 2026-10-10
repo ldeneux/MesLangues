@@ -27,23 +27,31 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     getInventory()
-      .then(setInventory)
-      .catch((e: any) => setError(e?.message ?? "Erreur pendant le chargement de l'inventaire."));
+      .then((r) => {
+        if (r.ok) setInventory((r as { data: Inventory }).data);
+        else setError((r as { error: string }).error);
+      })
+      .catch(() => setError("Erreur réseau pendant le chargement de l'inventaire."));
   }, []);
 
-  // La volumétrie est recalculée à chaque changement de langue
+  // La volumétrie est recalculée à chaque changement de langue (et seulement une fois l'inventaire chargé,
+  // pour ne pas lancer tous les comptages en même temps)
   useEffect(() => {
+    if (!inventory) return;
     let cancelled = false;
     setStorageLoading(true);
     getStorageStats(filterLang)
-      .then((st) => {
-        if (!cancelled) {
-          setStorage(st);
+      .then((r) => {
+        if (cancelled) return;
+        if (r.ok) {
+          setStorage((r as { data: StorageStats }).data);
           setError('');
+        } else {
+          setError((r as { error: string }).error);
         }
       })
-      .catch((e: any) => {
-        if (!cancelled) setError(e?.message ?? 'Erreur pendant le chargement de la volumétrie.');
+      .catch(() => {
+        if (!cancelled) setError('Erreur réseau pendant le chargement de la volumétrie.');
       })
       .finally(() => {
         if (!cancelled) setStorageLoading(false);
@@ -51,7 +59,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
     return () => {
       cancelled = true;
     };
-  }, [filterLang]);
+  }, [filterLang, inventory]);
 
   const shownLangs = filterLang === 'all' ? LANGS : LANGS.filter((l) => l.code === filterLang);
   const showKanjiColumn = shownLangs.some((l) => l.code === 'ja');
