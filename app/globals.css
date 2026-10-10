@@ -1861,3 +1861,7 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 .ja-conj-term { font-size: 0.75rem; opacity: 0.8; }
 .ja-conj-form { font-size: 1.3rem; text-align: right; }
 .ja-conj-reading { font-size: 0.75rem; color: var(--ink-soft); }
+
+/* --- Jeux japonais --- */
+.flash-ok { box-shadow: 0 0 0 3px #2f6b4f inset; }
+.flash-ko { box-shadow: 0 0 0 3px #a3402f inset; }

@@ -1,21 +1,67 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import HighlightText from './HighlightText';
+import RubyHighlight from './RubyHighlight';
+import { usePersistentFlag } from './usePersistentFlag';
+import { getJapaneseReadings } from '../../lib/japaneseReadings';
+import { applyHighlightToRuby } from '../../lib/japanese';
 import { CRITERIA, type CriterionKey } from '../../lib/writingRubric';
 import type { WritingResult } from '../../lib/writing';
 
 const CRITERION_KEYS: CriterionKey[] = ['task', 'grammar', 'vocabulary', 'coherence'];
 const NUMBER_WORDS = ['zéro', 'un', 'deux', 'trois', 'quatre', 'cinq'];
 
-export default function WritingFeedback({ result }: { result: WritingResult }) {
+export default function WritingFeedback({ result, languageCode }: { result: WritingResult; languageCode?: string }) {
   const hasDetail = !!result.criteria;
+  const isJa = languageCode === 'ja';
+  const [furigana, setFurigana] = usePersistentFlag('ja-furigana');
+  const [ruby, setRuby] = useState<string | null>(null);
+  const [rubyLoading, setRubyLoading] = useState(false);
+  const [rubyError, setRubyError] = useState('');
+
+  // Japonais : furigana de la correction (demandé une fois, puis mis en cache en base)
+  useEffect(() => {
+    setRuby(null);
+    setRubyError('');
+    if (!isJa || !furigana) return;
+    const plain = result.corrected_text.replace(/\*\*/g, '');
+    let cancelled = false;
+    setRubyLoading(true);
+    getJapaneseReadings([plain])
+      .then((r) => {
+        if (cancelled) return;
+        const entry = r[plain];
+        const withHl = entry ? applyHighlightToRuby(result.corrected_text, entry.ruby) : null;
+        if (withHl && /\{[^|}]+\|[^}]+\}/.test(withHl)) setRuby(withHl);
+        else setRubyError('Furigana indisponible pour ce texte.');
+      })
+      .catch((e: any) => {
+        if (!cancelled) setRubyError(e?.message ?? 'Furigana indisponible.');
+      })
+      .finally(() => {
+        if (!cancelled) setRubyLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isJa, furigana, result.id, result.corrected_text]);
 
   return (
     <div className={result.score >= 70 ? 'conv-correction exercise-success' : 'conv-correction'}>
       <div className="conv-correction-label">Score : {result.score} / 100</div>
-      <div className="conv-correction-text">
-        <HighlightText text={result.corrected_text} />
+      <div className="conv-correction-text" lang={isJa ? 'ja' : undefined}>
+        {isJa && furigana && ruby ? <RubyHighlight ruby={ruby} /> : <HighlightText text={result.corrected_text} />}
       </div>
+      {isJa && (
+        <div className="conv-bubble-actions" style={{ margin: '0.5rem 0' }}>
+          <button className={`conv-mini-btn${furigana ? ' active' : ''}`} onClick={() => setFurigana(!furigana)}>
+            Furigana : {furigana ? 'oui' : 'non'}
+          </button>
+          {rubyLoading && <span className="eyebrow-free" style={{ marginBottom: 0 }}>Chargement…</span>}
+          {rubyError && <span className="eyebrow-free" style={{ marginBottom: 0 }}>{rubyError}</span>}
+        </div>
+      )}
 
       {hasDetail && (
         <div className="writing-detail">

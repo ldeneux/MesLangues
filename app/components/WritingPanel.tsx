@@ -182,9 +182,9 @@ export default function WritingPanel({
             {submitting ? 'Correction en cours…' : 'Corriger ma production'}
           </button>
 
-          {result && <WritingFeedback result={result} />}
+          {result && <WritingFeedback result={result} languageCode={languageCode} />}
 
-          <WritingHistory history={history} onDelete={handleDeleteResult} />
+          <WritingHistory history={history} onDelete={handleDeleteResult} languageCode={languageCode} />
         </div>
       )}
     </div>

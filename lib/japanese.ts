@@ -272,3 +272,55 @@ export function kanaToRomaji(kana: string): string {
   }
   return out.replace(/ou/g, 'ō').replace(/oo/g, 'ō').replace(/uu/g, 'ū').replace(/aa/g, 'ā').replace(/ee/g, 'ē');
 }
+
+/**
+ * Reporte les surbrillances **...** d'un texte sur sa version avec furigana.
+ * marked : "私は**学生**です" ; ruby : "{私|わたし}は{学生|がくせい}です" → "{私|わたし}は**{学生|がくせい}**です"
+ * Renvoie null si le furigana ne correspond pas au texte (on affichera alors le texte sans furigana).
+ */
+export function applyHighlightToRuby(marked: string, ruby: string): string | null {
+  // 1. texte brut + intervalles surlignés
+  let plain = '';
+  const intervals: [number, number][] = [];
+  for (const part of marked.split(/(\*\*[^*]+\*\*)/g)) {
+    if (!part) continue;
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+      const inner = part.slice(2, -2);
+      intervals.push([plain.length, plain.length + inner.length]);
+      plain += inner;
+    } else {
+      plain += part;
+    }
+  }
+  if (stripRuby(ruby) !== plain) return null;
+
+  // 2. unités : un groupe {kanji|lecture} = 1 unité ; un texte brut = 1 unité par caractère
+  type Unit = { text: string; start: number; end: number };
+  const units: Unit[] = [];
+  let pos = 0;
+  for (const seg of parseRuby(ruby)) {
+    if (seg.rt) {
+      units.push({ text: `{${seg.base}|${seg.rt}}`, start: pos, end: pos + seg.base.length });
+      pos += seg.base.length;
+    } else {
+      for (const ch of Array.from(seg.base)) {
+        units.push({ text: ch, start: pos, end: pos + ch.length });
+        pos += ch.length;
+      }
+    }
+  }
+
+  // 3. on regroupe les unités surlignées voisines entre ** **
+  const isHl = (u: Unit) => intervals.some(([a, b]) => u.start < b && u.end > a);
+  let out = '';
+  let open = false;
+  for (const u of units) {
+    const hl = isHl(u);
+    if (hl && !open) out += '**';
+    if (!hl && open) out += '**';
+    open = hl;
+    out += u.text;
+  }
+  if (open) out += '**';
+  return out;
+}

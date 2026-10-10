@@ -35,9 +35,11 @@ function formatDate(iso: string) {
 export default function WritingHistory({
   history,
   onDelete,
+  languageCode,
 }: {
   history: WritingResult[];
   onDelete: (id: string) => Promise<void>;
+  languageCode?: string;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -121,7 +123,7 @@ export default function WritingHistory({
             <div className="sidebar-label">Mon texte</div>
             <div className="history-text">{open.submitted_text}</div>
 
-            <WritingFeedback result={open} />
+            <WritingFeedback result={open} languageCode={languageCode} />
 
             {error && <p className="conv-warning">{error}</p>}
 

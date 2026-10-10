@@ -3,7 +3,7 @@
 import { supabaseAdmin } from './supabaseAdmin';
 import { callGemini, LANGUAGE_NAMES } from './gemini';
 import { packThemeQuotas, WRITING_PROMPTS_PER_LEVEL } from './constants';
-import { computeWritingScore, RUBRIC_VERSION, type CriterionKey, type WritingError, type ComputeResult } from './writingRubric';
+import { computeWritingScore, adjustedRange, RUBRIC_VERSION, type CriterionKey, type WritingError, type ComputeResult } from './writingRubric';
 
 const CHUNK_SIZE = 5;
 
@@ -169,8 +169,10 @@ export async function submitWriting(
   languageCode: string
 ): Promise<WritingResult> {
   const clean = submittedText.trim();
-  const quickWordCheck = clean.split(/\s+/).filter(Boolean).length;
-  if (!clean || quickWordCheck < 3) throw new Error('Écris au moins quelques mots avant de corriger.');
+  // Japonais : pas d'espaces entre les mots, on vérifie donc un nombre minimal de caractères
+  const tooShort =
+    languageCode === 'ja' ? clean.replace(/\s+/g, '').length < 8 : clean.split(/\s+/).filter(Boolean).length < 3;
+  if (!clean || tooShort) throw new Error('Écris au moins quelques mots avant de corriger.');
   if (clean.length > 2000) throw new Error('Texte trop long (2000 caractères maximum).');
 
   const { data: prompt } = await supabaseAdmin
@@ -227,15 +229,29 @@ markdown, avec exactement cette forme :
 point à aborder, dans l'ordre donné. Ne signale AUCUNE faute si une phrase est
 déjà correcte.`;
 
+  const isJa = languageCode === 'ja';
+  const [lenMin, lenMax] = isJa ? adjustedRange(prompt.min_words, prompt.max_words, languageCode) : [prompt.min_words, prompt.max_words];
+
+  const jaRules = isJa
+    ? `
+
+RÈGLES SPÉCIFIQUES AU JAPONAIS :
+- Vérifie surtout : les particules (は/が/を/に/で/へ…), les formes verbales, la cohérence de politesse (です・ます OU familier, pas un mélange non voulu), l'ordre des mots.
+- Aux niveaux A1 et A2, écrire un mot en hiragana au lieu de kanji n'est PAS une erreur. À B1/B2, signale-le comme "spelling" mineur seulement si le mot est très courant.
+- Un texte écrit en rōmaji (lettres latines) n'est pas du japonais écrit : signale-le ("spelling", "major") et baisse la note de grammaire.
+- La longueur se compte en caractères (kana et kanji), pas en mots.
+- N'ajoute ni furigana ni rōmaji dans "corrected_text".`
+    : '';
+
   const user = `Consigne : ${prompt.instruction}
 Points à aborder : ${guidingPoints.join(' / ')}
-Longueur attendue : ${prompt.min_words}-${prompt.max_words} mots
+Longueur attendue : ${lenMin}-${lenMax} ${isJa ? 'caractères' : 'mots'}
 
 <texte_apprenant>
 ${clean}
 </texte_apprenant>`;
 
-  const text = await callGemini(system, user, { temperature: 0.1 });
+  const text = await callGemini(system + jaRules, user, { temperature: 0.1 });
   let parsed: {
     scores?: Record<CriterionKey, number>;
     justifications?: Record<CriterionKey, string>;
