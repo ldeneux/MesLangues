@@ -198,3 +198,77 @@ export function parseRuby(ruby: string): RubySegment[] {
 export function stripRuby(ruby: string): string {
   return ruby.replace(/\{([^|}]+)\|([^}]+)\}/g, '$1');
 }
+
+// ---------------------------------------------------------
+// Lectures et comparaison de textes japonais
+// ---------------------------------------------------------
+/** katakana → hiragana (pour comparer "コーヒー" et "こーひー") */
+export function toHiragana(s: string): string {
+  return s.replace(/[\u30A1-\u30F6]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
+}
+
+/** Lecture complète en kana d'un texte au format furigana : "{食|た}べる" → "たべる" */
+export function readingFromRuby(ruby: string): string {
+  return parseRuby(ruby)
+    .map((seg) => seg.rt ?? seg.base)
+    .join('');
+}
+
+// ---------------------------------------------------------
+// Kana → rōmaji (Hepburn, avec macrons) — pour afficher la prononciation d'une lecture en kana
+// ---------------------------------------------------------
+const KANA_TO_ROMAJI: Record<string, string> = {};
+for (const section of KANA_SECTIONS) {
+  for (const r of section.rows) {
+    for (const e of r) if (e && !e.rare) KANA_TO_ROMAJI[e.hira] = e.romaji;
+  }
+}
+Object.assign(KANA_TO_ROMAJI, { を: 'o', ぢ: 'ji', づ: 'zu', ん: 'n' });
+const MACRON: Record<string, string> = { a: 'ā', i: 'ī', u: 'ū', e: 'ē', o: 'ō' };
+
+export function kanaToRomaji(kana: string): string {
+  const s = toHiragana(kana);
+  let out = '';
+  let geminate = false;
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (c === 'っ') {
+      geminate = true;
+      i++;
+      continue;
+    }
+    if (c === 'ー') {
+      out = out.replace(/[aiueo]$/, (m) => MACRON[m]);
+      i++;
+      continue;
+    }
+    if (c === 'ん') {
+      const next = s[i + 1];
+      out += 'n' + (next && /[あいうえおやゆよ]/.test(next) ? "'" : '');
+      i++;
+      continue;
+    }
+    let r: string | undefined;
+    let len = 1;
+    if (i + 1 < s.length && /[ゃゅょ]/.test(s[i + 1]) && KANA_TO_ROMAJI[s.slice(i, i + 2)]) {
+      r = KANA_TO_ROMAJI[s.slice(i, i + 2)];
+      len = 2;
+    } else {
+      r = KANA_TO_ROMAJI[c];
+    }
+    if (!r) {
+      out += c; // kanji, espace, ponctuation : on laisse tel quel
+      geminate = false;
+      i++;
+      continue;
+    }
+    if (geminate) {
+      out += r.startsWith('ch') ? 't' : r[0];
+      geminate = false;
+    }
+    out += r;
+    i += len;
+  }
+  return out.replace(/ou/g, 'ō').replace(/oo/g, 'ō').replace(/uu/g, 'ū').replace(/aa/g, 'ā').replace(/ee/g, 'ē');
+}

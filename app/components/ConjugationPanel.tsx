@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { getConjugationVerbs, type ConjugationVerb } from '../../lib/conjugation';
 import { THEMES, CONJUGATION_TARGET } from '../../lib/constants';
 import { splitEnding } from '../../lib/conjugationHighlight';
+import JapaneseConjugationDetail from './JapaneseConjugationDetail';
 
 const TENSE_LABELS: Record<string, string> = {
   present: 'Présent',
@@ -20,7 +21,7 @@ function themeLabel(code: string | null) {
   return THEMES.find((t) => t.code === code)?.label ?? 'Autre';
 }
 
-export default function ConjugationPanel({ languageCode }: { languageCode: string }) {
+export default function ConjugationPanel({ languageCode, levelCode = 'A1' }: { languageCode: string; levelCode?: string }) {
   const [verbs, setVerbs] = useState<ConjugationVerb[] | null>(null);
   const [selected, setSelected] = useState<ConjugationVerb | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>('frequency');
@@ -62,8 +63,10 @@ export default function ConjugationPanel({ languageCode }: { languageCode: strin
   return (
     <div>
       <p className="eyebrow-free">
-        {verbs?.length ?? 0} / {CONJUGATION_TARGET} verbes générés pour cette langue — présent, futur simple, passé
-        composé, imparfait.
+        {verbs?.length ?? 0} / {CONJUGATION_TARGET} verbes générés pour cette langue —{' '}
+        {languageCode === 'ja'
+          ? 'formes poli / familier, en て, négation, passé, potentiel, passif… (selon ton niveau).'
+          : 'présent, futur simple, passé composé, imparfait.'}
       </p>
 
       {error && <p className="conv-warning">{error}</p>}
@@ -114,7 +117,11 @@ export default function ConjugationPanel({ languageCode }: { languageCode: strin
               })}
             </div>
 
-            {selected && (
+            {selected && languageCode === 'ja' && selected.ja_data && (
+              <JapaneseConjugationDetail verb={selected} levelCode={levelCode} />
+            )}
+
+            {selected && !(languageCode === 'ja') && (
               <div className="phrase-card conjugation-detail">
                 <div className="phrase-fr" style={{ fontWeight: 600, color: 'var(--ink)', fontSize: '1.1rem' }}>
                   {selected.infinitive} <span className="revision-fr">— {selected.translation_fr}</span>

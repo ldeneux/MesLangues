@@ -3,6 +3,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { getGameItems, recordGameResult, type GameItem } from '../../lib/vocabulary';
 import { normalizeForCompare as normalize } from '../../lib/textUtils';
+import { toHiragana, readingFromRuby } from '../../lib/japanese';
+import { getJapaneseReadings } from '../../lib/japaneseReadings';
+import { useJapaneseReadings } from './useJapaneseReadings';
+import JapaneseRuby from './JapaneseRuby';
 
 const MAX_ATTEMPTS = 3;
 
@@ -31,6 +35,10 @@ export default function VocabularyGamePanel({
   const recognitionRef = useRef<any>(null);
   const resultCapturedRef = useRef(false);
   const attemptsRef = useRef(0);
+  const [busy, setBusy] = useState(false);
+  const isJa = languageCode === 'ja';
+  // Japonais : lectures (kana) des 20 mots de la partie, pour comparer à la prononciation et non aux kanji
+  const { readings } = useJapaneseReadings(isJa && items ? items.map((i) => i.target_text) : [], isJa);
 
   useEffect(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -56,12 +64,34 @@ export default function VocabularyGamePanel({
 
   async function check(answer: string) {
     if (!item) return;
-    const success = answer.trim().length > 0 && normalize(answer).includes(normalize(item.target_text));
+    setBusy(true);
+    let success = answer.trim().length > 0 && normalize(answer).includes(normalize(item.target_text));
+    if (!success && isJa && answer.trim()) {
+      // La reconnaissance vocale peut écrire le mot autrement (kana / autres kanji) : on compare les prononciations.
+      const rd = readings[item.target_text];
+      const wanted = rd ? normalize(toHiragana(readingFromRuby(rd.ruby))) : '';
+      if (wanted) {
+        if (normalize(toHiragana(answer)).includes(wanted)) {
+          success = true;
+        } else {
+          try {
+            const got = (await getJapaneseReadings([answer.trim()]))[answer.trim()];
+            if (got && normalize(toHiragana(readingFromRuby(got.ruby))).includes(wanted)) success = true;
+          } catch {
+            /* lecture indisponible : on garde le résultat de la comparaison directe */
+          }
+        }
+      }
+    }
     setCorrect(success);
     setStatus('checked');
     setTranscript(answer);
     setScore((s) => ({ correct: s.correct + (success ? 1 : 0), total: s.total + 1 }));
-    await recordGameResult(profileId, item.id, item.source, success);
+    try {
+      await recordGameResult(profileId, item.id, item.source, success);
+    } finally {
+      setBusy(false);
+    }
   }
 
   function startListening() {
@@ -186,7 +216,12 @@ export default function VocabularyGamePanel({
             {status === 'checked' && (
               <div className={correct ? 'conv-correction exercise-success' : 'conv-correction'}>
                 <div className="conv-correction-label">{correct ? '✅ Correct' : '✏️ Pas tout à fait'}</div>
-                <div className="conv-correction-text">{item.target_text}</div>
+                <div className="conv-correction-text" lang={isJa ? 'ja' : undefined}>
+                  {isJa && readings[item.target_text] ? <JapaneseRuby ruby={readings[item.target_text].ruby} /> : item.target_text}
+                </div>
+                {isJa && readings[item.target_text]?.romaji && (
+                  <div className="conv-correction-explanation">{readings[item.target_text].romaji}</div>
+                )}
                 <div className="conv-correction-explanation">
                   {transcript ? `Toi : "${transcript}"` : "Le micro n'a rien capté après 3 essais."}
                 </div>
@@ -204,11 +239,11 @@ export default function VocabularyGamePanel({
                   <button
                     className={`mic-btn${status === 'listening' ? ' active' : ''}`}
                     onClick={startListening}
-                    disabled={status === 'listening'}
+                    disabled={status === 'listening' || busy}
                   >
                     {status === 'listening' ? '🎙️ Écoute…' : '🎙️ Répondre'}
                   </button>
-                  <button className="conv-mini-btn" onClick={() => check('')}>
+                  <button className="conv-mini-btn" onClick={() => check('')} disabled={busy}>
                     Je ne sais pas
                   </button>
                 </>

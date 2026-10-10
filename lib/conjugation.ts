@@ -4,6 +4,8 @@ import { supabaseAdmin } from './supabaseAdmin';
 import { callGemini, LANGUAGE_NAMES } from './gemini';
 import { synthesizeAndStore } from './tts';
 import { THEMES, CONJUGATION_TARGET } from './constants';
+import { runJapaneseVerbStep } from './japaneseConjugation';
+import type { JaVerbData } from './japaneseVerbs';
 
 const CHUNK_SIZE = 10;
 const TENSES = ['present', 'futur', 'passe_compose', 'imparfait'] as const;
@@ -15,18 +17,24 @@ export type ConjugationVerb = {
   frequency_rank: number;
   theme_code: string | null;
   tenses: Record<(typeof TENSES)[number], string[]>;
-  tense_audio: Partial<Record<(typeof TENSES)[number], string>>;
+  tense_audio: Partial<Record<(typeof TENSES)[number], string>> & { basic?: string };
+  ja_data?: JaVerbData | null; // japonais : groupe + lecture (les formes sont calculées par code)
 };
 
 export async function getConjugationVerbs(languageCode: string): Promise<ConjugationVerb[]> {
-  const { data, error } = await supabaseAdmin
+  const isJa = languageCode === 'ja';
+  let query = supabaseAdmin
     .from('conjugation_verbs')
-    .select('id, infinitive, translation_fr, frequency_rank, theme_code, tenses, tense_audio')
-    .eq('language_code', languageCode)
-    .order('frequency_rank');
+    .select(isJa ? 'id, infinitive, translation_fr, frequency_rank, theme_code, tenses, tense_audio, ja_data' : 'id, infinitive, translation_fr, frequency_rank, theme_code, tenses, tense_audio')
+    .eq('language_code', languageCode);
+  // Japonais : on ignore d'éventuels anciens verbes générés au format européen (sans ja_data)
+  if (isJa) query = query.not('ja_data', 'is', null);
+  const { data, error } = await query.order('frequency_rank');
 
-  if (error) throw new Error(error.message);
-  return data ?? [];
+  if (error) {
+    throw new Error(error.message.includes('ja_data') ? 'La colonne "ja_data" n\'existe pas encore — exécute la migration 016 dans Supabase.' : error.message);
+  }
+  return (data ?? []) as any;
 }
 
 const BACKFILL_BATCH_SIZE = 5;
@@ -100,6 +108,8 @@ export async function runConjugationStep(
   languageCode: string,
   target: number = CONJUGATION_TARGET
 ): Promise<ConjugationStepResult> {
+  if (languageCode === 'ja') return runJapaneseVerbStep(target); // formes calculées par code
+
   const { count: existingCount } = await supabaseAdmin
     .from('conjugation_verbs')
     .select('id', { count: 'exact', head: true })

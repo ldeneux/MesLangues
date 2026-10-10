@@ -109,3 +109,32 @@ export const GRAMMAR_TOPICS = [
   { code: 'comparatifs', label: 'Comparatifs et superlatifs' },
   { code: 'passe', label: 'Parler au passé (aperçu)' },
 ] as const;
+
+
+// ---------------------------------------------------------
+// Grammaire : thèmes par langue. Les thèmes ci-dessus (articles, genre, accord…) n'ont aucun sens
+// en japonais (pas d'articles, de genre ni d'accords) : le japonais a ses propres fiches.
+// ---------------------------------------------------------
+export type GrammarTopicMeta = { code: string; label: string; level?: string; hint?: string };
+
+export const JA_GRAMMAR_TOPICS: GrammarTopicMeta[] = [
+  { code: 'ja_desu', level: 'A1', label: 'です / じゃありません : dire « c\'est… » (A1)', hint: "phrases nominales : AはBです, négation じゃありません / ではありません, passé でした, question か, politesse de base" },
+  { code: 'ja_wa_ga', level: 'A1', label: 'Les particules は et が : thème et sujet (A1)', hint: "は marque le thème (ce dont on parle), が le sujet ; différences de sens, cas typiques (nouvelle information, question avec だれ/なに, 好き/できる)" },
+  { code: 'ja_particles', level: 'A1', label: 'Les particules を, に, で, へ (A1)', hint: "を complément d'objet ; に destination/temps/lieu d'existence ; で lieu de l'action/moyen ; へ direction ; exemples avec verbes courants" },
+  { code: 'ja_no_to_mo_ka', level: 'A1', label: 'の, と, も, か : possession, « et », « aussi », question (A1)', hint: "の possession/apposition ; と « et » entre noms et « avec » ; も « aussi » ; か question ; や « et (liste non exhaustive) »" },
+  { code: 'ja_kosoado', level: 'A1', label: 'これ・それ・あれ, この・その・あの, ここ・そこ・あそこ (A1)', hint: "démonstratifs de proximité (moi / toi / loin des deux), pronoms vs adjectifs, lieux, どれ・どの・どこ" },
+  { code: 'ja_arimasu', level: 'A1', label: 'あります / います : exister, se trouver (A1)', hint: "あります (choses) vs います (êtres animés), particule に pour le lieu, lieux relatifs (上・下・前・後ろ・となり), négation ありません/いません" },
+  { code: 'ja_masu', level: 'A1', label: 'Le verbe poli en ます : présent, négatif, passé (A1)', hint: "ordre sujet-objet-verbe, ます / ません / ました / ませんでした, ましょう et ませんか pour inviter, présent = futur" },
+  { code: 'ja_adjectives', level: 'A2', label: 'Adjectifs en い et en な (A2)', hint: "adjectifs en い (négatif くない, passé かった) et en な (な devant un nom, じゃない, だった), adverbes く/に, adjectif + です" },
+  { code: 'ja_te_form', level: 'A2', label: 'La forme en て : enchaîner, demander, être en train de (A2)', hint: "formation par groupe, 〜てください, 〜ています (action en cours / état), enchaîner des actions avec て, 〜てもいいです, 〜てはいけません" },
+  { code: 'ja_plain_form', level: 'A2', label: 'La forme familière : dictionnaire, ない, た (A2)', hint: "différence poli / familier, forme du dictionnaire, ない, た, なかった, adjectifs et です au style familier, quand l'utiliser" },
+  { code: 'ja_tai_mashou', level: 'A2', label: 'Vouloir, proposer, avoir l\'intention : 〜たい, 〜ましょう, 〜つもり (A2)', hint: "〜たい (vouloir faire, が/を), 〜ましょう/〜ませんか, 〜つもりです, 〜ほうがいい, 〜でしょう" },
+  { code: 'ja_counters', level: 'A2', label: 'Nombres et compteurs : 〜つ, 〜人, 〜個, 〜枚… (A2)', hint: "nombres, compteurs courants (つ, 人, 個, 枚, 本, 台, 回, 歳), place du compteur dans la phrase, lectures irrégulières (一人, 二人, 三本)" },
+  { code: 'ja_conditional', level: 'B1', label: 'La condition : 〜たら, 〜ば, 〜と, 〜なら (B1)', hint: "quatre façons d'exprimer « si/quand », formation et différences de nuance" },
+  { code: 'ja_potential_passive', level: 'B1', label: 'Le potentiel et le passif (B1)', hint: "forme potentielle (pouvoir) par groupe, が avec le potentiel, passif (られる) pour subir ou pour le passif neutre, agent avec に" },
+  { code: 'ja_causative_keigo', level: 'B2', label: 'Le causatif et la politesse élevée (敬語) (B2)', hint: "causatif (faire faire / laisser faire), causatif-passif (être forcé), sonkeigo (お〜になる, なさる, いらっしゃる), kenjōgo (お〜する, いたす, 参る), quand les employer" },
+];
+
+export function grammarTopicsFor(languageCode: string): readonly GrammarTopicMeta[] {
+  return languageCode === 'ja' ? JA_GRAMMAR_TOPICS : GRAMMAR_TOPICS;
+}

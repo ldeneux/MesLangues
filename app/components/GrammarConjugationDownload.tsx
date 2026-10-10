@@ -10,7 +10,7 @@ import {
 } from '../../lib/grammar';
 import { getConjugationVerbs, runConjugationStep, backfillConjugationAudio } from '../../lib/conjugation';
 import { estimateGrammarConjugationCost, estimateGrammarQuizBankCost } from '../../lib/pricing';
-import { GRAMMAR_TOPICS, CONJUGATION_TARGET, GRAMMAR_QUIZ_TARGET_PER_TOPIC } from '../../lib/constants';
+import { grammarTopicsFor, CONJUGATION_TARGET, GRAMMAR_QUIZ_TARGET_PER_TOPIC } from '../../lib/constants';
 
 type Stage = 'grammar' | 'conjugation' | 'quiz' | null;
 
@@ -23,7 +23,8 @@ export default function GrammarConjugationDownload({ languageCode }: { languageC
   const [stage, setStage] = useState<Stage>(null);
   const [error, setError] = useState('');
 
-  const quizTarget = GRAMMAR_TOPICS.length * GRAMMAR_QUIZ_TARGET_PER_TOPIC;
+  const topics = grammarTopicsFor(languageCode);
+  const quizTarget = topics.length * GRAMMAR_QUIZ_TARGET_PER_TOPIC;
 
   async function refresh() {
     const [topicCodes, verbs, quizTotal] = await Promise.all([
@@ -47,7 +48,7 @@ export default function GrammarConjugationDownload({ languageCode }: { languageC
   const cost = estimateGrammarConjugationCost(CONJUGATION_TARGET);
   const quizCost = estimateGrammarQuizBankCost(quizTarget);
   const complete =
-    grammarDone >= GRAMMAR_TOPICS.length && conjugationDone >= CONJUGATION_TARGET && quizDone >= quizTarget;
+    grammarDone >= topics.length && conjugationDone >= CONJUGATION_TARGET && quizDone >= quizTarget;
 
   async function handleConfirmDownload() {
     setConfirming(false);
@@ -100,7 +101,7 @@ export default function GrammarConjugationDownload({ languageCode }: { languageC
           <div className="pack-row-sub">
             {complete
               ? `Prêt — ${grammarDone} fiches, ${conjugationDone} verbes, ${quizDone} questions de quiz`
-              : `Grammaire ${grammarDone}/${GRAMMAR_TOPICS.length} · Conjugaison ${conjugationDone}/${CONJUGATION_TARGET} · Quiz ${quizDone}/${quizTarget}`}
+              : `Grammaire ${grammarDone}/${topics.length} · Conjugaison ${conjugationDone}/${CONJUGATION_TARGET} · Quiz ${quizDone}/${quizTarget}`}
           </div>
         </div>
         {complete && <span className="pack-status pack-status-ready">Prêt</span>}
@@ -111,7 +112,7 @@ export default function GrammarConjugationDownload({ languageCode }: { languageC
       {running ? (
         <div className="pack-progress">
           <div className="pack-progress-label">
-            {stage === 'grammar' && `Fiches de grammaire : ${grammarDone} / ${GRAMMAR_TOPICS.length}`}
+            {stage === 'grammar' && `Fiches de grammaire : ${grammarDone} / ${topics.length}`}
             {stage === 'conjugation' && `Verbes : ${conjugationDone} / ${CONJUGATION_TARGET}`}
             {stage === 'quiz' && `Questions de quiz : ${quizDone} / ${quizTarget}`}
           </div>
@@ -121,7 +122,7 @@ export default function GrammarConjugationDownload({ languageCode }: { languageC
               style={{
                 width:
                   stage === 'grammar'
-                    ? `${Math.min(100, (grammarDone / GRAMMAR_TOPICS.length) * 100)}%`
+                    ? `${Math.min(100, (grammarDone / topics.length) * 100)}%`
                     : stage === 'conjugation'
                     ? `${Math.min(100, (conjugationDone / CONJUGATION_TARGET) * 100)}%`
                     : `${Math.min(100, (quizDone / quizTarget) * 100)}%`,
@@ -142,7 +143,7 @@ export default function GrammarConjugationDownload({ languageCode }: { languageC
             <p>
               {complete
                 ? "Vérifie s'il y a des fiches, de l'audio ou des questions de quiz à régénérer/compléter. S'il n'y a rien à faire, ça ne coûtera rien."
-                : `Cette opération va générer ${GRAMMAR_TOPICS.length - grammarDone} fiche(s) de grammaire, ${CONJUGATION_TARGET - conjugationDone} verbe(s) conjugués (+ audio), et ${quizTarget - quizDone} questions de quiz de grammaire (10 fiches × 100).`}
+                : `Cette opération va générer ${topics.length - grammarDone} fiche(s) de grammaire, ${CONJUGATION_TARGET - conjugationDone} verbe(s) conjugués (+ audio), et ${quizTarget - quizDone} questions de quiz de grammaire (${topics.length} fiches × ${GRAMMAR_QUIZ_TARGET_PER_TOPIC}).`}
             </p>
             <p>
               Coût estimé : <strong>≈ {(cost.eur + quizCost.eur).toFixed(2)}€</strong> (≈ {(cost.usd + quizCost.usd).toFixed(2)}$).

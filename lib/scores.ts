@@ -1,7 +1,7 @@
 'use server';
 
 import { supabaseAdmin } from './supabaseAdmin';
-import { LEVEL_CUMULATIVE_TARGET, CONJUGATION_TARGET, GRAMMAR_TOPICS, DOMAIN_WEIGHTS, type LevelCode } from './constants';
+import { LEVEL_CUMULATIVE_TARGET, CONJUGATION_TARGET, GRAMMAR_TOPICS, grammarTopicsFor, DOMAIN_WEIGHTS, type LevelCode } from './constants';
 
 const MASTERY_MIN_ATTEMPTS = 1;
 const MASTERY_MIN_RATE = 0.9;
@@ -149,8 +149,8 @@ export async function getGrammarDomainScore(profileId: string, languageCode: str
   return {
     topicsMastered,
     topicsAttempted: latestByTopic.size,
-    totalTopics: GRAMMAR_TOPICS.length,
-    percentOfTarget: Math.round((topicsMastered / GRAMMAR_TOPICS.length) * 100),
+    totalTopics: grammarTopicsFor(languageCode).length,
+    percentOfTarget: Math.round((topicsMastered / grammarTopicsFor(languageCode).length) * 100),
   };
 }
 

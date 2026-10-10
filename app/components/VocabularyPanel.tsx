@@ -5,6 +5,9 @@ import { getVocabularyWords, type VocabularyWordWithMastery } from '../../lib/vo
 import { THEMES, LANGS } from '../../lib/constants';
 import VocabularyGamePanel from './VocabularyGamePanel';
 import VocabularyStatsPanel from './VocabularyStatsPanel';
+import JapaneseRuby from './JapaneseRuby';
+import { usePersistentFlag } from './usePersistentFlag';
+import { useJapaneseReadings } from './useJapaneseReadings';
 
 const WORD_TYPES = [
   { code: 'nom', label: 'Noms' },
@@ -31,6 +34,12 @@ export default function VocabularyPanel({
   const [masteredOnly, setMasteredOnly] = useState(false);
   const [error, setError] = useState('');
   const [playingId, setPlayingId] = useState<string | null>(null);
+
+  const isJa = languageCode === 'ja';
+  const [furigana, setFurigana] = usePersistentFlag('ja-furigana', levelCode === 'A1' || levelCode === 'A2');
+  const [romaji, setRomaji] = usePersistentFlag('ja-romaji');
+  const [visible, setVisible] = useState(40);
+  const PAGE = 40;
 
   const bcp47 = LANGS.find((l) => l.code === languageCode)?.bcp47 ?? 'en-GB';
 
@@ -59,6 +68,16 @@ export default function VocabularyPanel({
       (themeFilter === 'all' || w.theme_code === themeFilter) &&
       (typeFilter === 'all' || w.word_type === typeFilter) &&
       (!masteredOnly || w.mastered)
+  );
+
+  // Japonais : liste paginée, lectures chargées seulement pour les mots affichés
+  const shown = isJa ? filtered.slice(0, visible) : filtered;
+  useEffect(() => {
+    setVisible(PAGE);
+  }, [themeFilter, typeFilter, masteredOnly, words]);
+  const { readings, error: readingError, loading: readingLoading } = useJapaneseReadings(
+    isJa ? shown.map((w) => w.target_text) : [],
+    isJa && subTab === 'list' && (furigana || romaji)
   );
 
   function play(word: VocabularyWordWithMastery) {
@@ -129,10 +148,23 @@ export default function VocabularyPanel({
                 </button>
               </div>
 
+              {isJa && (
+                <div className="conv-bubble-actions" style={{ marginBottom: '1rem' }}>
+                  <button className={`conv-mini-btn${furigana ? ' active' : ''}`} onClick={() => setFurigana(!furigana)}>
+                    Furigana : {furigana ? 'oui' : 'non'}
+                  </button>
+                  <button className={`conv-mini-btn${romaji ? ' active' : ''}`} onClick={() => setRomaji(!romaji)}>
+                    Rōmaji : {romaji ? 'oui' : 'non'}
+                  </button>
+                  {readingLoading && <span className="eyebrow-free" style={{ marginBottom: 0 }}>Chargement des lectures…</span>}
+                </div>
+              )}
+              {readingError && <p className="conv-warning">{readingError}</p>}
+
               <p className="eyebrow-free">{filtered.length} mot(s)</p>
 
               <div className="revision-grid">
-                {filtered.map((w) => (
+                {shown.map((w) => (
                   <div key={w.id} className="revision-card">
                     <button
                       className={`play-btn${playingId === w.id ? ' playing' : ''}`}
@@ -144,14 +176,27 @@ export default function VocabularyPanel({
                     </button>
                     <div className="revision-card-text">
                       <div className="revision-target">
-                        {w.target_text}
+                        {isJa && furigana && readings[w.target_text] ? (
+                          <JapaneseRuby ruby={readings[w.target_text].ruby} />
+                        ) : (
+                          <span lang={isJa ? 'ja' : undefined}>{w.target_text}</span>
+                        )}
                         {w.mastered && <span className="mastery-badge">✅ Acquis</span>}
                       </div>
+                      {isJa && romaji && readings[w.target_text]?.romaji && (
+                        <div className="phrase-notes">{readings[w.target_text].romaji}</div>
+                      )}
                       <div className="revision-fr">{w.translation_fr}</div>
                     </div>
                   </div>
                 ))}
               </div>
+
+              {isJa && shown.length < filtered.length && (
+                <button className="secondary" style={{ marginTop: '1rem' }} onClick={() => setVisible((v) => v + PAGE)}>
+                  Afficher {Math.min(PAGE, filtered.length - shown.length)} mots de plus (reste {filtered.length - shown.length})
+                </button>
+              )}
             </>
           )}
         </>

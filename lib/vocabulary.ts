@@ -10,6 +10,7 @@ const MASTERY_MIN_ATTEMPTS = 1;
 const MASTERY_MIN_RATE = 0.9;
 
 import { normalizeForCompare } from './textUtils';
+import { stripRuby, readingFromRuby } from './japanese';
 
 function computeMastered(success: number, fail: number): boolean {
   const total = success + fail;
@@ -159,8 +160,33 @@ avant/après, sans balises markdown. Chaque objet :
 
   const user = `Donne ${chunkCount} mots/expressions de niveau ${pack.level_code} sur le thème "${targetTheme.label}".`;
 
-  const text = await callGemini(system, user);
-  let parsed: Array<{ target_text?: string; translation_fr?: string; word_type?: string }>;
+  const isJa = pack.language_code === 'ja';
+
+  // Japonais : écriture moderne naturelle (kanji + kana), plus furigana et rōmaji pour l'affichage.
+  const systemJa = `Tu es un professeur de japonais pour francophones. Tu constitues une banque de
+vocabulaire de base niveau CECRL ${pack.level_code}, thème "${targetTheme.label}".
+Donne des mots ou courtes expressions isolés (PAS des phrases complètes), utiles au quotidien.
+
+ÉCRITURE : écris chaque mot comme dans le japonais d'aujourd'hui :
+- kanji + hiragana (okurigana) pour les mots normalement écrits avec des kanji (食べる, 学校, 大きい) ;
+- hiragana seul pour les mots courants qui s'écrivent d'habitude en kana (ありがとう, ください, とても) ;
+- katakana pour les mots d'origine étrangère (コーヒー, テレビ).
+Verbes et adjectifs à la forme du dictionnaire. Pas d'article (le japonais n'en a pas), mais la traduction
+française garde son article (ex. "l'école", "une table"). Choisis des mots dont les kanji sont courants et
+adaptés au niveau (les plus simples en A1/A2).
+
+Tu réponds STRICTEMENT en JSON valide, un tableau d'objets, sans texte avant/après, sans balises markdown.
+Chaque objet :
+{
+  "target_text": "le mot en écriture japonaise moderne",
+  "translation_fr": "traduction française (avec article si nom)",
+  "word_type": "nom | adjectif | adverbe | expression",
+  "ruby": "le MÊME mot où chaque groupe de kanji est écrit {kanji|lecture en hiragana}, ex. {食|た}べる ; ne change aucun caractère",
+  "romaji": "rōmaji Hepburn avec macrons (ō ū), ex. taberu"
+}${avoidInstruction}`;
+
+  const text = await callGemini(isJa ? systemJa : system, user);
+  let parsed: Array<{ target_text?: string; translation_fr?: string; word_type?: string; ruby?: string; romaji?: string }>;
   try {
     parsed = JSON.parse(text);
   } catch {
@@ -192,6 +218,16 @@ avant/après, sans balises markdown. Chaque objet :
       translation_fr: w.translation_fr!,
     }));
 
+  // Japonais : lectures validées (le ruby, sans accolades, doit redonner exactement le mot)
+  const jaReadingByText = new Map<string, { ruby: string; romaji: string }>();
+  if (isJa) {
+    for (const w of parsed) {
+      if (w.target_text && typeof w.ruby === 'string' && typeof w.romaji === 'string' && w.romaji.trim() && stripRuby(w.ruby) === w.target_text) {
+        jaReadingByText.set(w.target_text, { ruby: w.ruby, romaji: w.romaji.trim() });
+      }
+    }
+  }
+
   if (rows.length === 0) {
     // Tout était doublon cette fois — pas d'avancée, le client rappellera.
     return { done: false, generatedThisStep: 0, generatedTotal: pack.generated_count, targetTotal: pack.target_count };
@@ -204,13 +240,23 @@ avant/après, sans balises markdown. Chaque objet :
 
   if (insertError) throw new Error(insertError.message);
 
+  if (isJa && jaReadingByText.size > 0) {
+    const { error: readingError } = await supabaseAdmin
+      .from('ja_readings')
+      .upsert(Array.from(jaReadingByText, ([t, r]) => ({ text: t, ruby: r.ruby, romaji: r.romaji })), { onConflict: 'text' });
+    if (readingError) console.error('ja_readings (migration 014 exécutée ?) :', readingError.message); // non bloquant
+  }
+
   const TTS_CONCURRENCY = 6;
   for (let i = 0; i < (inserted?.length ?? 0); i += TTS_CONCURRENCY) {
     const batch = inserted!.slice(i, i + TTS_CONCURRENCY);
     await Promise.allSettled(
       batch.map(async (row) => {
         const storagePath = `${pack.language_code}/${pack.level_code}/vocabulary/${row.id}.mp3`;
-        const { audioUrl } = await synthesizeAndStore(row.target_text, pack.language_code, storagePath);
+        // Japonais : on fait lire la prononciation en kana (évite les kanji à lectures multiples)
+        const rd = jaReadingByText.get(row.target_text);
+        const ttsText = rd ? readingFromRuby(rd.ruby) : row.target_text;
+        const { audioUrl } = await synthesizeAndStore(ttsText, pack.language_code, storagePath);
         await supabaseAdmin.from('vocabulary_words').update({ audio_url: audioUrl }).eq('id', row.id);
       })
     );

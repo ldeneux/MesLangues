@@ -5,27 +5,7 @@ import type { Phrase } from '../../lib/data';
 import { markPhraseSeen } from '../../lib/data';
 import { getJapaneseReadings, type JaReading } from '../../lib/japaneseReadings';
 import JapaneseRuby from './JapaneseRuby';
-
-// Petit réglage mémorisé dans le navigateur (furigana / rōmaji)
-function usePersistentFlag(key: string): [boolean, (v: boolean) => void] {
-  const [value, setValue] = useState(false);
-  useEffect(() => {
-    try {
-      setValue(localStorage.getItem(key) === '1');
-    } catch {
-      /* stockage indisponible : on garde la valeur par défaut */
-    }
-  }, [key]);
-  const set = (v: boolean) => {
-    setValue(v);
-    try {
-      localStorage.setItem(key, v ? '1' : '0');
-    } catch {
-      /* ignoré */
-    }
-  };
-  return [value, set];
-}
+import { usePersistentFlag } from './usePersistentFlag';
 
 export default function PhraseDeck({
   phrases,

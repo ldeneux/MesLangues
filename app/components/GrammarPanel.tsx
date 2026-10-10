@@ -10,11 +10,17 @@ import {
   type GrammarQuizQuestion,
   type GrammarQuizResult,
 } from '../../lib/grammar';
-import { GRAMMAR_TOPICS } from '../../lib/constants';
+import { grammarTopicsFor } from '../../lib/constants';
 import HighlightText from './HighlightText';
+import RubyHighlight from './RubyHighlight';
+import { usePersistentFlag } from './usePersistentFlag';
 
 export default function GrammarPanel({ profileId, languageCode }: { profileId: string; languageCode: string }) {
-  const [selected, setSelected] = useState<string>(GRAMMAR_TOPICS[0].code);
+  const topics = grammarTopicsFor(languageCode);
+  const isJa = languageCode === 'ja';
+  const [furigana, setFurigana] = usePersistentFlag('ja-furigana');
+  const [romaji, setRomaji] = usePersistentFlag('ja-romaji');
+  const [selected, setSelected] = useState<string>(topics[0].code);
   const [topic, setTopic] = useState<GrammarTopic | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -78,7 +84,7 @@ export default function GrammarPanel({ profileId, languageCode }: { profileId: s
     <div>
       <div className="cascade-row">
         <select className="cascade-select" value={selected} onChange={(e) => setSelected(e.target.value)}>
-          {GRAMMAR_TOPICS.map((t) => (
+          {topics.map((t) => (
             <option key={t.code} value={t.code}>
               {t.label}
             </option>
@@ -103,12 +109,24 @@ export default function GrammarPanel({ profileId, languageCode }: { profileId: s
           </div>
           <p style={{ lineHeight: 1.6 }}>{topic.explanation_fr}</p>
 
+          {isJa && (
+            <div className="conv-bubble-actions" style={{ marginBottom: '0.75rem' }}>
+              <button className={`conv-mini-btn${furigana ? ' active' : ''}`} onClick={() => setFurigana(!furigana)}>
+                Furigana : {furigana ? 'oui' : 'non'}
+              </button>
+              <button className={`conv-mini-btn${romaji ? ' active' : ''}`} onClick={() => setRomaji(!romaji)}>
+                Rōmaji : {romaji ? 'oui' : 'non'}
+              </button>
+            </div>
+          )}
+
           <div className="grammar-examples">
             {(Array.isArray(topic.examples) ? topic.examples : []).map((ex, i) => (
               <div key={i} className="grammar-example-row">
-                <div className="revision-target">
-                  <HighlightText text={ex.target} />
+                <div className="revision-target" lang={isJa ? 'ja' : undefined}>
+                  {isJa && furigana && ex.ruby ? <RubyHighlight ruby={ex.ruby} /> : <HighlightText text={ex.target} />}
                 </div>
+                {isJa && romaji && ex.romaji && <div className="phrase-notes">{ex.romaji}</div>}
                 <div className="revision-fr">
                   <HighlightText text={ex.fr} />
                 </div>

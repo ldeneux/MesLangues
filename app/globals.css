@@ -1854,3 +1854,10 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 .kanji-example-word { font-size: 1.5rem; }
 .kanji-example-word rt { font-size: 0.55em; color: var(--ink-soft); }
 .kanji-quiz-prompt { font-size: 3.5rem; text-align: center; margin: 0.75rem 0; }
+
+/* --- Conjugaison japonaise --- */
+.ja-conj-row { display: flex; justify-content: space-between; gap: 1rem; padding: 0.55rem 0; border-bottom: 1px solid var(--line); align-items: center; }
+.ja-conj-label { font-size: 0.9rem; color: var(--ink-soft); display: flex; flex-direction: column; }
+.ja-conj-term { font-size: 0.75rem; opacity: 0.8; }
+.ja-conj-form { font-size: 1.3rem; text-align: right; }
+.ja-conj-reading { font-size: 0.75rem; color: var(--ink-soft); }

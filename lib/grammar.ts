@@ -2,9 +2,10 @@
 
 import { supabaseAdmin } from './supabaseAdmin';
 import { callGemini, LANGUAGE_NAMES } from './gemini';
-import { GRAMMAR_TOPICS, GRAMMAR_QUIZ_TARGET_PER_TOPIC, GRAMMAR_QUIZ_DRAW_SIZE } from './constants';
+import { grammarTopicsFor, GRAMMAR_QUIZ_TARGET_PER_TOPIC, GRAMMAR_QUIZ_DRAW_SIZE } from './constants';
+import { stripRuby } from './japanese';
 
-export type GrammarExample = { target: string; fr: string };
+export type GrammarExample = { target: string; fr: string; ruby?: string; romaji?: string };
 
 export type GrammarTopic = {
   topic_code: string;
@@ -26,6 +27,8 @@ export async function getGrammarTopic(languageCode: string, topicCode: string): 
   const examples = (Array.isArray(data.examples) ? data.examples : []).map((ex: any) => ({
     target: typeof ex?.target === 'string' ? ex.target : String(ex?.target ?? ''),
     fr: typeof ex?.fr === 'string' ? ex.fr : String(ex?.fr ?? ''),
+    ...(typeof ex?.ruby === 'string' ? { ruby: ex.ruby } : {}),
+    ...(typeof ex?.romaji === 'string' ? { romaji: ex.romaji } : {}),
   }));
   return { ...data, examples };
 }
@@ -49,7 +52,7 @@ export async function getTopicsNeedingRegeneration(languageCode: string): Promis
 
   const existingByCode = new Map((data ?? []).map((r) => [r.topic_code, r.examples as GrammarExample[]]));
 
-  return GRAMMAR_TOPICS.map((t) => t.code).filter((code) => {
+  return grammarTopicsFor(languageCode).map((t) => t.code).filter((code) => {
     const examples = existingByCode.get(code);
     if (!Array.isArray(examples)) return true; // manquante ou malformée
     return !examples.some((ex) => ex.target?.includes('**') || ex.fr?.includes('**'));
@@ -58,7 +61,7 @@ export async function getTopicsNeedingRegeneration(languageCode: string): Promis
 
 export async function generateGrammarTopic(languageCode: string, topicCode: string): Promise<GrammarTopic> {
   const langName = LANGUAGE_NAMES[languageCode] ?? languageCode;
-  const topicMeta = GRAMMAR_TOPICS.find((t) => t.code === topicCode);
+  const topicMeta = grammarTopicsFor(languageCode).find((t) => t.code === topicCode);
   if (!topicMeta) throw new Error(`Thème de grammaire inconnu : ${topicCode}`);
 
   const system = `Tu es un professeur de ${langName} langue étrangère qui rédige des fiches
@@ -81,13 +84,57 @@ markdown, avec exactement ces clés :
 }
 Donne entre 4 et 6 exemples, variés et représentatifs du point de grammaire.`;
 
+  const isJa = languageCode === 'ja';
+  const hint = (topicMeta as { hint?: string }).hint;
+  const level = (topicMeta as { level?: string }).level ?? 'A1';
+
+  // Japonais : fiche pensée pour le japonais (particules, politesse, groupes de verbes…), exemples avec furigana + rōmaji
+  const systemJa = `Tu es un professeur de japonais qui rédige des fiches de grammaire claires pour un apprenant
+francophone. Explique le point en français, simplement, avec des exemples concrets du quotidien. Écris les termes
+japonais importants avec leur lecture (ex. « は (wa) »). Niveau de la fiche : ${level} — phrases courtes et naturelles,
+vocabulaire courant, kanji simples (hiragana pour le reste).
+
+Dans chaque exemple, encadre avec **doubles astérisques** UNIQUEMENT l'élément qui illustre le point (la particule, la
+terminaison…), dans "target", dans "ruby" ET dans la traduction "fr".
+
+Tu réponds STRICTEMENT en JSON valide, sans texte avant/après, sans balises markdown, avec exactement ces clés :
+{
+  "title": "titre de la fiche en français",
+  "explanation_fr": "explication claire en français, 5 à 9 phrases, avec les règles de formation et les pièges pour un francophone",
+  "examples": [ {
+    "target": "phrase japonaise avec **élément clé** encadré",
+    "ruby": "la MÊME phrase où chaque groupe de kanji est écrit {kanji|lecture en hiragana}, en gardant les ** ; ne change aucun caractère",
+    "romaji": "rōmaji Hepburn de la phrase, sans les **, particules lues comme elles se prononcent (は → wa)",
+    "fr": "traduction française avec **élément clé** encadré"
+  }, ... ]
+}
+Donne entre 5 et 7 exemples, variés et représentatifs.`;
+  const userJa = `Fiche de grammaire : "${topicMeta.label}".${hint ? ' À couvrir : ' + hint + '.' : ''}`;
+
   const user = `Fiche de grammaire : "${topicMeta.label}".`;
 
-  const text = await callGemini(system, user);
+  const text = await callGemini(isJa ? systemJa : system, isJa ? userJa : user);
   const parsed = JSON.parse(text) as { title?: string; explanation_fr?: string; examples?: GrammarExample[] };
 
   if (!parsed.title || !parsed.explanation_fr || !parsed.examples) {
     throw new Error('Format de fiche de grammaire inattendu reçu de Gemini');
+  }
+
+  // Japonais : on contrôle chaque exemple (le furigana, accolades retirées, doit redonner la phrase d'origine)
+  if (isJa) {
+    const strip = (t: string) => t.replace(/\*\*/g, '');
+    parsed.examples = (parsed.examples as GrammarExample[])
+      .filter((ex) => typeof ex?.target === 'string' && ex.target.trim() && typeof ex?.fr === 'string')
+      .map((ex) => {
+        const rubyOk = typeof ex.ruby === 'string' && stripRuby(strip(ex.ruby)) === strip(ex.target);
+        return {
+          target: ex.target,
+          fr: ex.fr,
+          ...(rubyOk ? { ruby: ex.ruby } : {}),
+          ...(typeof ex.romaji === 'string' && ex.romaji.trim() ? { romaji: ex.romaji.trim() } : {}),
+        };
+      });
+    if (parsed.examples.length === 0) throw new Error('Aucun exemple valide dans la fiche japonaise reçue de Gemini');
   }
 
   const { data: inserted, error } = await supabaseAdmin
@@ -127,7 +174,7 @@ export type GrammarQuizResult = { correct_count: number; total_count: number; cr
 export async function getGrammarQuizBankTotal(languageCode: string): Promise<number> {
   const counts = await getAllTopicQuestionCounts(languageCode);
   let total = 0;
-  for (const t of GRAMMAR_TOPICS) total += counts.get(t.code) ?? 0;
+  for (const t of grammarTopicsFor(languageCode)) total += counts.get(t.code) ?? 0;
   return total;
 }
 
@@ -167,7 +214,7 @@ export async function runGrammarQuizStep(languageCode: string): Promise<GrammarQ
   const counts = await getAllTopicQuestionCounts(languageCode);
 
   let targetTopic: { code: string; label: string; existing: number } | null = null;
-  for (const t of GRAMMAR_TOPICS) {
+  for (const t of grammarTopicsFor(languageCode)) {
     const existing = counts.get(t.code) ?? 0;
     if (existing < GRAMMAR_QUIZ_TARGET_PER_TOPIC) {
       targetTopic = { code: t.code, label: t.label, existing };
@@ -175,10 +222,10 @@ export async function runGrammarQuizStep(languageCode: string): Promise<GrammarQ
     }
   }
 
-  const totalTarget = GRAMMAR_TOPICS.length * GRAMMAR_QUIZ_TARGET_PER_TOPIC;
+  const totalTarget = grammarTopicsFor(languageCode).length * GRAMMAR_QUIZ_TARGET_PER_TOPIC;
   if (!targetTopic) {
     let total = 0;
-    for (const t of GRAMMAR_TOPICS) total += counts.get(t.code) ?? 0;
+    for (const t of grammarTopicsFor(languageCode)) total += counts.get(t.code) ?? 0;
     return { done: true, generatedThisStep: 0, generatedTotal: total, targetTotal: totalTarget };
   }
 
@@ -198,7 +245,20 @@ sans texte avant/après, sans balises markdown. Chaque objet :
 
   const user = `Donne ${chunkCount} questions sur le point de grammaire "${targetTopic.label}" en ${langName}, niveau A1-B2 mélangé.`;
 
-  const text = await callGemini(system, user);
+  // Japonais : QCM adaptés (particules à choisir, formes verbales, traductions) — consigne en français, options en japonais
+  const topicMeta2 = grammarTopicsFor(languageCode).find((t) => t.code === targetTopic!.code) as { hint?: string; level?: string } | undefined;
+  const systemJa = `Tu es un professeur de japonais pour francophones. Tu crées des questions à choix multiples (QCM)
+pour vérifier la maîtrise d'un point de grammaire précis : "${targetTopic.label}"${topicMeta2?.hint ? ' (' + topicMeta2.hint + ')' : ''}.
+Chaque question est rédigée en FRANÇAIS (consigne) et contient, si besoin, la phrase japonaise (ex. « Complète : わたし＿＿ がくせいです。 »).
+4 options distinctes, UNE seule correcte, les 3 autres plausibles (erreurs typiques de francophones). Les options sont en japonais
+(ou en français pour une question de traduction). Types variés : particule à choisir, forme verbale ou adjectivale à choisir,
+traduction FR→JA ou JA→FR, phrase correcte à repérer. Phrases simples comme dans un manuel : peu de kanji, hiragana sinon ;
+jamais de rōmaji. Varie largement les phrases et le vocabulaire.
+
+Tu réponds STRICTEMENT en JSON valide, un tableau de ${chunkCount} objets, sans texte avant/après, sans balises markdown.
+Chaque objet : { "question": "...", "options": ["...", "...", "...", "..."], "correct_index": 0 }`;
+
+  const text = await callGemini(languageCode === 'ja' ? systemJa : system, user);
   let parsed: { question: string; options: string[]; correct_index: number }[];
   try {
     parsed = JSON.parse(text);
@@ -208,6 +268,20 @@ sans texte avant/après, sans balises markdown. Chaque objet :
   if (!Array.isArray(parsed) || parsed.length === 0) {
     throw new Error('Format de questions de grammaire inattendu reçu de Gemini');
   }
+
+  // On ne garde que les questions bien formées (4 options distinctes, bonne réponse valide)
+  parsed = parsed.filter(
+    (q) =>
+      typeof q?.question === 'string' &&
+      q.question.trim() &&
+      Array.isArray(q.options) &&
+      q.options.length >= 2 &&
+      new Set(q.options).size === q.options.length &&
+      Number.isInteger(q.correct_index) &&
+      q.correct_index >= 0 &&
+      q.correct_index < q.options.length
+  );
+  if (parsed.length === 0) throw new Error('Aucune question valide reçue de Gemini pour ce point de grammaire — relance.');
 
   const { error } = await supabaseAdmin.from('grammar_questions').insert(
     parsed.map((q) => ({
@@ -222,7 +296,7 @@ sans texte avant/après, sans balises markdown. Chaque objet :
 
   const newExisting = targetTopic.existing + parsed.length;
   let generatedTotal = 0;
-  for (const t of GRAMMAR_TOPICS) {
+  for (const t of grammarTopicsFor(languageCode)) {
     generatedTotal += t.code === targetTopic.code ? newExisting : counts.get(t.code) ?? 0;
   }
 

@@ -9,7 +9,7 @@ import {
   LISTENING_PACK_SIZE,
   WRITING_PROMPTS_PER_LEVEL,
   CONJUGATION_TARGET,
-  GRAMMAR_TOPICS,
+  grammarTopicsFor,
   GRAMMAR_QUIZ_TARGET_PER_TOPIC,
 } from './constants';
 
@@ -89,10 +89,10 @@ export async function getInventory(): Promise<Inventory> {
 
   const langWide: LangWideRow[] = LANGS.map((lang) => ({
     languageCode: lang.code,
-    grammarTopics: { ready: topicsByLang.get(lang.code) ?? 0, target: GRAMMAR_TOPICS.length },
+    grammarTopics: { ready: topicsByLang.get(lang.code) ?? 0, target: grammarTopicsFor(lang.code).length },
     grammarQuiz: {
       ready: questionsByLang.get(lang.code) ?? 0,
-      target: GRAMMAR_TOPICS.length * GRAMMAR_QUIZ_TARGET_PER_TOPIC,
+      target: grammarTopicsFor(lang.code).length * GRAMMAR_QUIZ_TARGET_PER_TOPIC,
     },
     conjugation: { ready: verbsByLang.get(lang.code) ?? 0, target: CONJUGATION_TARGET },
   }));
