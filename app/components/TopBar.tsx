@@ -36,7 +36,7 @@ export default function TopBar({
 
   return (
     <div className="topbar topbar-full">
-      <img src="/logo.svg" alt="Mes langues" className="topbar-logo" />
+      <img src="/logo.png" alt="Mes langues" className="topbar-logo" width={90} height={90} />
 
       <div className="topbar-block">
         <div className="sidebar-label">Langue</div>

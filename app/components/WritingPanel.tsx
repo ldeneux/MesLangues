@@ -5,12 +5,14 @@ import {
   getWritingPrompts,
   submitWriting,
   getWritingHistory,
+  deleteWritingResult,
   type WritingPrompt,
   type WritingResult,
 } from '../../lib/writing';
 import { THEMES, WRITING_TIME_BUDGET_MINUTES } from '../../lib/constants';
 import { countLength } from '../../lib/writingRubric';
 import WritingFeedback from './WritingFeedback';
+import WritingHistory from './WritingHistory';
 import WritingTimer, { type WritingTimerHandle } from './WritingTimer';
 
 export default function WritingPanel({
@@ -74,6 +76,12 @@ export default function WritingPanel({
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function handleDeleteResult(id: string) {
+    await deleteWritingResult(profileId, id);
+    setHistory((h) => h.filter((x) => x.id !== id));
+    if (result?.id === id) setResult(null);
   }
 
   const lengthInfo = useMemo(() => countLength(text, languageCode), [text, languageCode]);
@@ -171,17 +179,7 @@ export default function WritingPanel({
 
           {result && <WritingFeedback result={result} />}
 
-          {history.length > 0 && (
-            <div className="quiz-history">
-              <div className="sidebar-label">Historique sur cette consigne</div>
-              {history.map((h) => (
-                <div key={h.id} className="quiz-history-row">
-                  {h.score} / 100 {h.level_code ? `(${h.level_code})` : ''} —{' '}
-                  {new Date(h.created_at).toLocaleDateString('fr-FR')}
-                </div>
-              ))}
-            </div>
-          )}
+          <WritingHistory history={history} onDelete={handleDeleteResult} />
         </div>
       )}
     </div>

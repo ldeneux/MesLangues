@@ -267,9 +267,10 @@ a { color: inherit; }
 }
 
 .topbar-logo {
-  width: 52px;
-  height: 52px;
-  border-radius: 12px;
+  width: 90px;
+  height: 90px;
+  border-radius: 20px;
+  object-fit: cover;
   flex: 0 0 auto;
 }
 
@@ -1747,3 +1748,53 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 .conv-reset {
   width: 100%;
 }
+
+/* --- Historique d'écriture cliquable --- */
+.history-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--en);
+  text-decoration: underline;
+  cursor: pointer;
+  text-align: left;
+}
+.history-link:hover { color: var(--ink); }
+
+.history-modal { max-width: 720px; }
+
+.history-meta { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.4rem; }
+
+.history-badge {
+  font-size: 0.8rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--ink-soft);
+}
+
+.history-text {
+  white-space: pre-wrap;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.8rem 1rem;
+  margin: 0.4rem 0 1rem;
+  line-height: 1.5;
+}
+
+.history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.history-delete { margin-left: auto; color: #a3402f; }
+
+.history-confirm { display: inline-flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-left: auto; }

@@ -306,3 +306,13 @@ export async function getWritingHistory(profileId: string, promptId: string): Pr
     .order('created_at', { ascending: false });
   return data ?? [];
 }
+
+export async function deleteWritingResult(profileId: string, resultId: string): Promise<void> {
+  // On filtre aussi par profil : impossible de supprimer le texte d'un autre apprenant.
+  const { error } = await supabaseAdmin
+    .from('writing_results')
+    .delete()
+    .eq('id', resultId)
+    .eq('profile_id', profileId);
+  if (error) throw new Error(error.message);
+}
