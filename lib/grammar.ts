@@ -21,7 +21,13 @@ export async function getGrammarTopic(languageCode: string, topicCode: string): 
     .eq('topic_code', topicCode)
     .maybeSingle();
 
-  return data ?? null;
+  if (!data) return null;
+  // Normalisation : on ne renvoie jamais au client une donnée qui ne soit pas du texte.
+  const examples = (Array.isArray(data.examples) ? data.examples : []).map((ex: any) => ({
+    target: typeof ex?.target === 'string' ? ex.target : String(ex?.target ?? ''),
+    fr: typeof ex?.fr === 'string' ? ex.fr : String(ex?.fr ?? ''),
+  }));
+  return { ...data, examples };
 }
 
 export async function getAvailableGrammarTopicCodes(languageCode: string): Promise<string[]> {
@@ -45,7 +51,7 @@ export async function getTopicsNeedingRegeneration(languageCode: string): Promis
 
   return GRAMMAR_TOPICS.map((t) => t.code).filter((code) => {
     const examples = existingByCode.get(code);
-    if (!examples) return true; // manquante
+    if (!Array.isArray(examples)) return true; // manquante ou malformée
     return !examples.some((ex) => ex.target?.includes('**') || ex.fr?.includes('**'));
   });
 }

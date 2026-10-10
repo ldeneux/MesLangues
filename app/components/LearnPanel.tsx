@@ -76,7 +76,7 @@ export default function LearnPanel({
               l'onglet "Packs" pour continuer.
             </p>
           )}
-          {phrases.length > 0 && subTab === 'audio' && <PhraseDeck phrases={phrases} profileId={profileId} />}
+          {phrases.length > 0 && subTab === 'audio' && <PhraseDeck phrases={phrases} profileId={profileId} languageCode={lang} />}
           {phrases.length > 0 && subTab === 'exercise' && (
             <ExercisePanel phrases={phrases} profileId={profileId} bcp47={bcp47} />
           )}

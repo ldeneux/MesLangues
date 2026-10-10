@@ -1798,3 +1798,37 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 .history-delete { margin-left: auto; color: #a3402f; }
 
 .history-confirm { display: inline-flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-left: auto; }
+
+/* --- Japonais : kana, clavier, furigana --- */
+.conv-mini-btn.active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+.kana-grid { display: grid; gap: 0.5rem; margin-top: 0.75rem; max-width: 520px; }
+.kana-cell {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 0.5rem 0.25rem; border: 1px solid var(--line); border-radius: 10px;
+  background: white; cursor: pointer;
+}
+.kana-cell:hover { border-color: var(--ink-soft); }
+.kana-glyph { font-size: 1.8rem; line-height: 1.2; }
+.kana-romaji { font-size: 0.75rem; color: var(--ink-soft); }
+.kana-quiz-glyph { font-size: 4rem; text-align: center; margin: 0.75rem 0; }
+.kana-quiz-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; margin-top: 0.75rem; }
+.quiz-option.kana-correct { background: #d8ecd0; border-color: #2f6b4f; }
+.quiz-option.kana-wrong { background: #f3d6d0; border-color: #a3402f; }
+
+.ja-input-bar { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.5rem 0; }
+.ja-palette { border: 1px solid var(--line); border-radius: 12px; padding: 0.75rem; background: white; margin-bottom: 0.75rem; }
+.ja-palette-tabs { display: flex; gap: 0.4rem; margin-bottom: 0.5rem; }
+.ja-palette-grid { display: flex; flex-wrap: wrap; gap: 0.35rem; max-height: 240px; overflow-y: auto; }
+.ja-palette-col { display: flex; flex-direction: column; gap: 2px; }
+.ja-key {
+  width: 34px; height: 34px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--paper); font-size: 1.1rem; cursor: pointer;
+}
+.ja-key:hover { border-color: var(--ink-soft); }
+.ja-key-empty { border: none; background: transparent; cursor: default; }
+.ja-key-wide { width: auto; padding: 0 0.7rem; font-size: 0.85rem; }
+.ja-palette-extra { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.5rem; }
+
+.ja-ruby ruby { ruby-position: over; }
+.ja-ruby rt { font-size: 0.55em; color: var(--ink-soft); }

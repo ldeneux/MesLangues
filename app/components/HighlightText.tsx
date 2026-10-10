@@ -1,5 +1,6 @@
 export default function HighlightText({ text }: { text: string }) {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  const safe = typeof text === 'string' ? text : text == null ? '' : String(text);
+  const parts = safe.split(/(\*\*[^*]+\*\*)/g);
   return (
     <>
       {parts.map((part, i) =>

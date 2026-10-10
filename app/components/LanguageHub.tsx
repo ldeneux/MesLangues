@@ -14,6 +14,8 @@ import GrammarPanel from './GrammarPanel';
 import ConjugationPanel from './ConjugationPanel';
 import GamesPanel from './GamesPanel';
 import WritingPanel from './WritingPanel';
+import KanaPanel from './KanaPanel';
+import ErrorBoundary from './ErrorBoundary';
 
 export default function LanguageHub() {
   const { profile, loading } = useProfile();
@@ -21,16 +23,23 @@ export default function LanguageHub() {
   const [level, setLevel] = useState<LevelCode>('A1');
   const [tab, setTab] = useState<Tab>('today');
 
+  function handleLangChange(l: LangCode) {
+    setLang(l);
+    if (l !== 'ja' && tab === 'kana') setTab('today'); // l'onglet Kana n'existe qu'en japonais
+  }
+
   if (loading) return <p className="eyebrow-free">Chargement…</p>;
   if (!profile) return <ProfileGate />;
 
   return (
     <>
-      <TopBar lang={lang} level={level} onLangChange={setLang} onLevelChange={setLevel} />
+      <TopBar lang={lang} level={level} onLangChange={handleLangChange} onLevelChange={setLevel} />
       <div className="hub-layout">
-        <Sidebar tab={tab} onTabChange={setTab} />
+        <Sidebar tab={tab} onTabChange={setTab} showKana={lang === 'ja'} />
 
         <main className="hub-content">
+          <ErrorBoundary key={`${tab}-${lang}-${level}`} label={tab}>
+          {tab === 'kana' && lang === 'ja' && <KanaPanel />}
           {tab === 'today' && <LearnPanel profileId={profile.id} lang={lang} level={level} />}
           {tab === 'revision' && <RevisionPanel languageCode={lang} levelCode={level} />}
           {tab === 'packs' && <PacksPanel languageCode={lang} levelCode={level} />}
@@ -39,6 +48,7 @@ export default function LanguageHub() {
           {tab === 'conjugation' && <ConjugationPanel languageCode={lang} />}
           {tab === 'writing' && <WritingPanel profileId={profile.id} languageCode={lang} levelCode={level} />}
           {tab === 'games' && <GamesPanel profileId={profile.id} lang={lang} level={level} />}
+        </ErrorBoundary>
         </main>
       </div>
     </>

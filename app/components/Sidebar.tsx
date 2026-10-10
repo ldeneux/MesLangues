@@ -1,17 +1,24 @@
 'use client';
 
-export type Tab = 'today' | 'revision' | 'packs' | 'vocabulary' | 'grammar' | 'conjugation' | 'writing' | 'games';
+export type Tab = 'kana' | 'today' | 'revision' | 'packs' | 'vocabulary' | 'grammar' | 'conjugation' | 'writing' | 'games';
 
 export default function Sidebar({
   tab,
   onTabChange,
+  showKana = false,
 }: {
   tab: Tab;
   onTabChange: (t: Tab) => void;
+  showKana?: boolean;
 }) {
   return (
     <aside className="sidebar">
       <nav className="sidebar-section sidebar-nav">
+        {showKana && (
+          <button className={`sidebar-item${tab === 'kana' ? ' active' : ''}`} onClick={() => onTabChange('kana')}>
+            あ Kana
+          </button>
+        )}
         <button className={`sidebar-item${tab === 'today' ? ' active' : ''}`} onClick={() => onTabChange('today')}>
           🗣️ Phrases du jour
         </button>

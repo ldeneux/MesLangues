@@ -28,7 +28,7 @@ export default function GrammarPanel({ profileId, languageCode }: { profileId: s
   useEffect(() => {
     load(selected);
     resetQuiz();
-    if (topic || selected) getGrammarQuizHistory(profileId, languageCode, selected).then(setHistory);
+    getGrammarQuizHistory(profileId, languageCode, selected).then(setHistory).catch(() => setHistory([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [languageCode, selected]);
 
@@ -57,8 +57,13 @@ export default function GrammarPanel({ profileId, languageCode }: { profileId: s
     setQuizOpen(true);
     setQuizScore(null);
     setAnswers({});
-    const q = await getGrammarQuizQuestions(languageCode, selected);
-    setQuestions(q);
+    try {
+      const q = await getGrammarQuizQuestions(languageCode, selected);
+      setQuestions(q);
+    } catch (e: any) {
+      setError(e?.message ?? 'Erreur de chargement du quiz.');
+      setQuestions([]);
+    }
   }
 
   async function submitQuiz() {
@@ -66,7 +71,7 @@ export default function GrammarPanel({ profileId, languageCode }: { profileId: s
     const correct = questions.filter((q) => answers[q.id] === q.correct_index).length;
     setQuizScore({ correct, total: questions.length });
     await saveGrammarQuizResult(profileId, languageCode, selected, correct, questions.length);
-    getGrammarQuizHistory(profileId, languageCode, selected).then(setHistory);
+    getGrammarQuizHistory(profileId, languageCode, selected).then(setHistory).catch(() => {});
   }
 
   return (
@@ -99,7 +104,7 @@ export default function GrammarPanel({ profileId, languageCode }: { profileId: s
           <p style={{ lineHeight: 1.6 }}>{topic.explanation_fr}</p>
 
           <div className="grammar-examples">
-            {topic.examples.map((ex, i) => (
+            {(Array.isArray(topic.examples) ? topic.examples : []).map((ex, i) => (
               <div key={i} className="grammar-example-row">
                 <div className="revision-target">
                   <HighlightText text={ex.target} />
@@ -130,7 +135,7 @@ export default function GrammarPanel({ profileId, languageCode }: { profileId: s
                     <div key={q.id} className="quiz-question">
                       <div className="quiz-question-text">{q.question}</div>
                       <div className="quiz-options">
-                        {q.options.map((opt, i) => (
+                        {(Array.isArray(q.options) ? q.options : []).map((opt, i) => (
                           <button
                             key={i}
                             className={`quiz-option${answers[q.id] === i ? ' selected' : ''}`}
