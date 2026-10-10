@@ -12,6 +12,7 @@ import {
   grammarTopicsFor,
   GRAMMAR_QUIZ_TARGET_PER_TOPIC,
 } from './constants';
+import { kanjiForLevel } from './kanjiLists';
 
 // ---------------------------------------------------------
 // Inventaire du contenu (tableau langue x niveau x catégorie)
@@ -25,6 +26,7 @@ export type InventoryRow = {
   vocabulary: LevelCell;
   listening: LevelCell;
   writing: LevelCell;
+  kanji?: LevelCell; // japonais uniquement
 };
 
 export type LangWideRow = {
@@ -39,63 +41,68 @@ export type Inventory = {
   langWide: LangWideRow[];
 };
 
-async function countBy(table: string): Promise<Map<string, number>> {
-  const { data } = await supabaseAdmin.from(table).select('language_code, level_code');
-  const map = new Map<string, number>();
-  for (const row of (data ?? []) as any[]) {
-    const key = `${row.language_code}::${row.level_code}`;
-    map.set(key, (map.get(key) ?? 0) + 1);
-  }
-  return map;
+// Comptage EXACT côté base (head count). On ne lit plus les lignes : Supabase plafonne chaque lecture à
+// 1000 lignes, ce qui faussait les totaux (les langues « en fin de table » apparaissaient à zéro).
+async function countRows(table: string, filters: Record<string, string> = {}): Promise<number> {
+  let query = supabaseAdmin.from(table).select('*', { count: 'exact', head: true });
+  for (const [column, value] of Object.entries(filters)) query = query.eq(column, value);
+  const { count, error } = await query;
+  if (error) throw new Error(`${table} : ${error.message}`);
+  return count ?? 0;
 }
 
-export async function getInventory(): Promise<Inventory> {
-  const [phraseCounts, vocabCounts, listeningCounts, writingCounts] = await Promise.all([
-    countBy('phrases'),
-    countBy('vocabulary_words'),
-    countBy('listening_articles'),
-    countBy('writing_prompts'),
-  ]);
+const INVENTORY_TABLES = ['phrases', 'vocabulary_words', 'listening_articles', 'writing_prompts'] as const;
 
+export async function getInventory(): Promise<Inventory> {
   const rows: InventoryRow[] = [];
+
   for (const lang of LANGS) {
-    for (const level of LEVELS) {
-      const key = `${lang.code}::${level.code}`;
+    const counts = await Promise.all(
+      LEVELS.flatMap((level) => INVENTORY_TABLES.map((t) => countRows(t, { language_code: lang.code, level_code: level.code })))
+    );
+    // Kanji : japonais uniquement (la table n'existe qu'après la migration 015 → 0 sinon)
+    const kanjiCounts =
+      lang.code === 'ja' ? await Promise.all(LEVELS.map((l) => countRows('kanji', { level_code: l.code }).catch(() => 0))) : null;
+
+    LEVELS.forEach((level, li) => {
+      const base = li * INVENTORY_TABLES.length;
       rows.push({
         languageCode: lang.code,
         levelCode: level.code,
-        phrases: { ready: phraseCounts.get(key) ?? 0, target: LEVEL_CUMULATIVE_TARGET[level.code] },
-        vocabulary: { ready: vocabCounts.get(key) ?? 0, target: LEVEL_CUMULATIVE_TARGET[level.code] },
-        listening: { ready: listeningCounts.get(key) ?? 0, target: LISTENING_PACK_SIZE },
-        writing: { ready: writingCounts.get(key) ?? 0, target: WRITING_PROMPTS_PER_LEVEL },
+        phrases: { ready: counts[base], target: LEVEL_CUMULATIVE_TARGET[level.code] },
+        vocabulary: { ready: counts[base + 1], target: LEVEL_CUMULATIVE_TARGET[level.code] },
+        listening: { ready: counts[base + 2], target: LISTENING_PACK_SIZE },
+        writing: { ready: counts[base + 3], target: WRITING_PROMPTS_PER_LEVEL },
+        ...(kanjiCounts ? { kanji: { ready: kanjiCounts[li], target: kanjiForLevel(level.code).length } } : {}),
       });
-    }
+    });
   }
 
   // Grammaire/Conjugaison : transverses, par langue uniquement (pas de
   // niveau — un même verbe/une même fiche sert à tous les niveaux).
-  const { data: grammarTopicRows } = await supabaseAdmin.from('grammar_topics').select('language_code');
-  const { data: grammarQuestionRows } = await supabaseAdmin.from('grammar_questions').select('language_code');
-  const { data: conjugationRows } = await supabaseAdmin.from('conjugation_verbs').select('language_code');
-
-  const countByLang = (rows: { language_code: string }[] | null) => {
-    const map = new Map<string, number>();
-    for (const r of rows ?? []) map.set(r.language_code, (map.get(r.language_code) ?? 0) + 1);
-    return map;
-  };
-  const topicsByLang = countByLang(grammarTopicRows);
-  const questionsByLang = countByLang(grammarQuestionRows);
-  const verbsByLang = countByLang(conjugationRows);
-
-  const langWide: LangWideRow[] = LANGS.map((lang) => ({
-    languageCode: lang.code,
-    grammarTopics: { ready: topicsByLang.get(lang.code) ?? 0, target: grammarTopicsFor(lang.code).length },
-    grammarQuiz: {
-      ready: questionsByLang.get(lang.code) ?? 0,
-      target: grammarTopicsFor(lang.code).length * GRAMMAR_QUIZ_TARGET_PER_TOPIC,
-    },
-    conjugation: { ready: verbsByLang.get(lang.code) ?? 0, target: CONJUGATION_TARGET },
-  }));
+  const langWide: LangWideRow[] = await Promise.all(
+    LANGS.map(async (lang) => {
+      const [topics, questions, verbs] = await Promise.all([
+        countRows('grammar_topics', { language_code: lang.code }),
+        countRows('grammar_questions', { language_code: lang.code }),
+        // japonais : seuls les verbes au nouveau format (avec formes calculées) comptent
+        lang.code === 'ja'
+          ? supabaseAdmin
+              .from('conjugation_verbs')
+              .select('*', { count: 'exact', head: true })
+              .eq('language_code', 'ja')
+              .not('ja_data', 'is', null)
+              .then((r) => r.count ?? 0)
+          : countRows('conjugation_verbs', { language_code: lang.code }),
+      ]);
+      return {
+        languageCode: lang.code,
+        grammarTopics: { ready: topics, target: grammarTopicsFor(lang.code).length },
+        grammarQuiz: { ready: questions, target: grammarTopicsFor(lang.code).length * GRAMMAR_QUIZ_TARGET_PER_TOPIC },
+        conjugation: { ready: verbs, target: CONJUGATION_TARGET },
+      };
+    })
+  );
 
   return { rows, langWide };
 }
@@ -104,6 +111,9 @@ export async function getInventory(): Promise<Inventory> {
 // Volumétrie (taille base + stockage), avec répartition par niveau
 // ---------------------------------------------------------
 export type StorageStats = {
+  languageCode: string; // 'all' ou un code de langue
+  dbLanguageBytes: number; // somme estimée pour la langue (ou pour toutes)
+  storageLanguageBytes: number;
   dbUsedBytes: number;
   dbQuotaBytes: number;
   storageUsedBytes: number;
@@ -140,9 +150,18 @@ const TABLE_LEVEL_SCOPE: Record<string, 'level' | 'language'> = {
   exercise_progress: 'language',
   listening_results: 'language',
   grammar_results: 'language',
+  kanji: 'level',
+  kanji_progress: 'language',
+  ja_readings: 'language',
 };
 
-export async function getStorageStats(): Promise<StorageStats> {
+// Tables propres au japonais (pas de colonne language_code pour kanji / ja_readings)
+const JA_ONLY = new Set(['kanji', 'kanji_progress', 'ja_readings']);
+// Tables « langue » qui ont une colonne language_code : on peut les attribuer exactement à une langue
+const LANG_COL_TABLES = new Set(['grammar_topics', 'grammar_questions', 'conjugation_verbs']);
+
+export async function getStorageStats(languageCode: string = 'all'): Promise<StorageStats> {
+  const filterLang = languageCode !== 'all' ? languageCode : null;
   const [dbSizeRes, storageSizeRes, tableSizesRes, storageByPrefixRes] = await Promise.all([
     supabaseAdmin.rpc('get_db_size_bytes'),
     supabaseAdmin.rpc('get_storage_size_bytes'),
@@ -166,46 +185,82 @@ export async function getStorageStats(): Promise<StorageStats> {
   const storageUsedBytes = typeof storageSizeData === 'number' ? storageSizeData : 0;
 
   // --- Stockage (audio) par niveau : EXACT, via les préfixes de chemin
-  // réels ("it/A1", "it/conjugation"...).
+  // réels ("ja/A1", "ja/conjugation"...), filtré sur la langue choisie.
   const storageByLevel = new Map<string, number>();
   for (const row of (storageByPrefix ?? []) as { path_prefix: string; total_bytes: number }[]) {
-    const [, second] = row.path_prefix.split('/');
+    const [first, second] = row.path_prefix.split('/');
+    if (filterLang && first !== filterLang) continue;
     const levelCode = LEVELS.some((l) => l.code === second) ? second : null;
     if (levelCode) storageByLevel.set(levelCode, (storageByLevel.get(levelCode) ?? 0) + Number(row.total_bytes));
   }
 
-  // --- Taille DB par niveau : ESTIMÉE (poids = lignes par niveau / total
-  // de la table x taille réelle de la table). Tables "language" réparties
-  // à parts égales sur les 4 niveaux.
-  const dbByLevel = new Map<string, number>(LEVELS.map((l) => [l.code, 0]));
-
-  for (const t of (tableSizes ?? []) as { table_name: string; total_bytes: number }[]) {
-    const scope = TABLE_LEVEL_SCOPE[t.table_name];
-    if (!scope) continue;
-
-    if (scope === 'language') {
-      const share = Number(t.total_bytes) / LEVELS.length;
-      for (const l of LEVELS) dbByLevel.set(l.code, (dbByLevel.get(l.code) ?? 0) + share);
-      continue;
-    }
-
-    const { data: rows } = await supabaseAdmin.from(t.table_name).select('level_code');
-    const counts = new Map<string, number>();
-    for (const r of (rows ?? []) as { level_code: string }[]) counts.set(r.level_code, (counts.get(r.level_code) ?? 0) + 1);
-    const total = Array.from(counts.values()).reduce((a, b) => a + b, 0);
-    if (total === 0) continue;
-    for (const [levelCode, count] of Array.from(counts)) {
-      const share = (count / total) * Number(t.total_bytes);
-      dbByLevel.set(levelCode, (dbByLevel.get(levelCode) ?? 0) + share);
-    }
+  // --- Taille DB par niveau : ESTIMÉE. Poids = lignes (de la langue / du niveau) ÷ lignes totales de la
+  // table × taille réelle de la table. Les comptages sont exacts (head count), pas de limite de 1000 lignes.
+  // Tables sans niveau : réparties à parts égales sur les 4 niveaux.
+  // Tables sans colonne langue (progression, résultats, questions d'écoute…) : attribuées à la langue
+  // au prorata de son poids en contenu (phrases + vocabulaire + articles).
+  let langContentShare = 1;
+  if (filterLang) {
+    const contentTables = ['phrases', 'vocabulary_words', 'listening_articles'];
+    const [mine, all] = await Promise.all([
+      Promise.all(contentTables.map((t) => countRows(t, { language_code: filterLang }))),
+      Promise.all(contentTables.map((t) => countRows(t))),
+    ]);
+    const sumMine = mine.reduce((a, b) => a + b, 0);
+    const sumAll = all.reduce((a, b) => a + b, 0);
+    langContentShare = sumAll > 0 ? sumMine / sumAll : 0;
   }
 
+  const contributions = await Promise.all(
+    ((tableSizes ?? []) as { table_name: string; total_bytes: number }[]).map(async (t) => {
+      const result = new Map<string, number>();
+      const scope = TABLE_LEVEL_SCOPE[t.table_name];
+      const bytes = Number(t.total_bytes);
+      if (!scope) return result;
+      const jaOnly = JA_ONLY.has(t.table_name);
+      if (filterLang && jaOnly && filterLang !== 'ja') return result;
+
+      if (scope === 'language') {
+        let share = 1;
+        if (filterLang && !jaOnly) {
+          if (LANG_COL_TABLES.has(t.table_name)) {
+            const total = await countRows(t.table_name);
+            share = total > 0 ? (await countRows(t.table_name, { language_code: filterLang })) / total : 0;
+          } else {
+            share = langContentShare;
+          }
+        }
+        for (const l of LEVELS) result.set(l.code, (bytes * share) / LEVELS.length);
+        return result;
+      }
+
+      const total = await countRows(t.table_name);
+      if (total === 0) return result;
+      const counts = await Promise.all(
+        LEVELS.map((l) =>
+          countRows(t.table_name, filterLang && !jaOnly ? { language_code: filterLang, level_code: l.code } : { level_code: l.code })
+        )
+      );
+      LEVELS.forEach((l, i) => result.set(l.code, (counts[i] / total) * bytes));
+      return result;
+    })
+  );
+
+  const dbByLevel = new Map<string, number>(LEVELS.map((l) => [l.code, 0]));
+  for (const c of contributions) for (const [lvl, v] of Array.from(c)) dbByLevel.set(lvl, (dbByLevel.get(lvl) ?? 0) + v);
+
+  const dbLevels = LEVELS.map((l) => ({ level: l.code, bytes: Math.round(dbByLevel.get(l.code) ?? 0) }));
+  const storageLevels = LEVELS.map((l) => ({ level: l.code, bytes: storageByLevel.get(l.code) ?? 0 }));
+
   return {
+    languageCode,
+    dbLanguageBytes: dbLevels.reduce((a, b) => a + b.bytes, 0),
+    storageLanguageBytes: storageLevels.reduce((a, b) => a + b.bytes, 0),
     dbUsedBytes,
     dbQuotaBytes: DB_QUOTA_BYTES,
     storageUsedBytes,
     storageQuotaBytes: STORAGE_QUOTA_BYTES,
-    dbByLevel: LEVELS.map((l) => ({ level: l.code, bytes: Math.round(dbByLevel.get(l.code) ?? 0) })),
-    storageByLevel: LEVELS.map((l) => ({ level: l.code, bytes: storageByLevel.get(l.code) ?? 0 })),
+    dbByLevel: dbLevels,
+    storageByLevel: storageLevels,
   };
 }

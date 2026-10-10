@@ -21,16 +21,41 @@ function CellBadge({ ready, target }: { ready: number; target: number }) {
 export default function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [inventory, setInventory] = useState<Inventory | null>(null);
   const [storage, setStorage] = useState<StorageStats | null>(null);
+  const [storageLoading, setStorageLoading] = useState(false);
   const [error, setError] = useState('');
+  const [filterLang, setFilterLang] = useState<string>('all'); // 'all' ou un code de langue
 
   useEffect(() => {
-    Promise.all([getInventory(), getStorageStats()])
-      .then(([inv, st]) => {
-        setInventory(inv);
-        setStorage(st);
-      })
-      .catch((e: any) => setError(e?.message ?? 'Erreur pendant le chargement de la volumétrie.'));
+    getInventory()
+      .then(setInventory)
+      .catch((e: any) => setError(e?.message ?? "Erreur pendant le chargement de l'inventaire."));
   }, []);
+
+  // La volumétrie est recalculée à chaque changement de langue
+  useEffect(() => {
+    let cancelled = false;
+    setStorageLoading(true);
+    getStorageStats(filterLang)
+      .then((st) => {
+        if (!cancelled) {
+          setStorage(st);
+          setError('');
+        }
+      })
+      .catch((e: any) => {
+        if (!cancelled) setError(e?.message ?? 'Erreur pendant le chargement de la volumétrie.');
+      })
+      .finally(() => {
+        if (!cancelled) setStorageLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [filterLang]);
+
+  const shownLangs = filterLang === 'all' ? LANGS : LANGS.filter((l) => l.code === filterLang);
+  const showKanjiColumn = shownLangs.some((l) => l.code === 'ja');
+  const filterLabel = filterLang === 'all' ? 'toutes les langues' : LANGS.find((l) => l.code === filterLang)?.label ?? filterLang;
 
   const maxDbBar = storage ? Math.max(1, ...storage.dbByLevel.map((l) => l.bytes)) : 1;
   const maxStorageBar = storage ? Math.max(1, ...storage.storageByLevel.map((l) => l.bytes)) : 1;
@@ -43,6 +68,20 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
           <button className="conv-mini-btn" onClick={onClose}>
             Fermer ✕
           </button>
+        </div>
+
+        <div className="cascade-row" style={{ marginBottom: '1rem' }}>
+          <label className="eyebrow-free" style={{ marginBottom: 0 }} htmlFor="settings-lang">
+            Afficher les volumes pour :
+          </label>
+          <select id="settings-lang" className="cascade-select" value={filterLang} onChange={(e) => setFilterLang(e.target.value)}>
+            <option value="all">Toutes les langues</option>
+            {LANGS.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         {error && <p className="conv-warning">{error}</p>}
@@ -61,10 +100,11 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
                     <th>Vocabulaire</th>
                     <th>Écoute</th>
                     <th>Écriture</th>
+                    {showKanjiColumn && <th>Kanji</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {LANGS.map((lang) => {
+                  {shownLangs.map((lang) => {
                     const langRows = inventory.rows.filter((r) => r.languageCode === lang.code);
                     return langRows.map((row, i) => (
                       <tr key={`${lang.code}-${row.levelCode}`}>
@@ -95,6 +135,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
                         <td>
                           <CellBadge {...row.writing} />
                         </td>
+                        {showKanjiColumn && <td>{row.kanji ? <CellBadge {...row.kanji} /> : <span className="eyebrow-free">—</span>}</td>}
                       </tr>
                     ));
                   })}
@@ -116,7 +157,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {inventory.langWide.map((row) => {
+                  {inventory.langWide.filter((r) => filterLang === 'all' || r.languageCode === filterLang).map((row) => {
                     const lang = LANGS.find((l) => l.code === row.languageCode)!;
                     return (
                       <tr key={row.languageCode}>
@@ -149,7 +190,10 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
               Base de données — {formatMB(storage.dbUsedBytes)} Mo / {formatMB(storage.dbQuotaBytes)} Mo utilisés (
               {formatMB(storage.dbQuotaBytes - storage.dbUsedBytes)} Mo restants)
             </div>
-            <p className="eyebrow-free">Répartition par niveau estimée (au prorata du nombre de lignes par table).</p>
+            <p className="eyebrow-free">
+              Répartition par niveau estimée (au prorata du nombre de lignes par table) — {filterLabel} : ≈{' '}
+              {formatMB(storage.dbLanguageBytes)} Mo{storageLoading ? ' (mise à jour…)' : ''}.
+            </p>
             <div className="storage-bar-row">
               {storage.dbByLevel.map((l) => (
                 <div key={l.level} className="storage-bar-col">
@@ -170,7 +214,11 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
               Stockage audio/fichiers — {formatMB(storage.storageUsedBytes)} Mo / {formatMB(storage.storageQuotaBytes)}{' '}
               Mo utilisés ({formatMB(storage.storageQuotaBytes - storage.storageUsedBytes)} Mo restants)
             </div>
-            <p className="eyebrow-free">Répartition par niveau exacte (basée sur les chemins réels des fichiers).</p>
+            <p className="eyebrow-free">
+              Répartition par niveau exacte (basée sur les chemins réels des fichiers) — {filterLabel} :{' '}
+              {formatMB(storage.storageLanguageBytes)} Mo{storageLoading ? ' (mise à jour…)' : ''}. Les audios de conjugaison et de
+              réécoute hors niveau ne figurent pas dans les barres.
+            </p>
             <div className="storage-bar-row">
               {storage.storageByLevel.map((l) => (
                 <div key={l.level} className="storage-bar-col">
