@@ -41,21 +41,48 @@ export type Inventory = {
   langWide: LangWideRow[];
 };
 
-// Comptage EXACT côté base (head count). On ne lit plus les lignes : Supabase plafonne chaque lecture à
-// 1000 lignes, ce qui faussait les totaux (les langues « en fin de table » apparaissaient à zéro).
+// Comptage EXACT côté base (head count) : on ne lit pas les lignes, donc pas de limite de 1000 lignes.
 // Réessais automatiques : une requête de comptage peut échouer ponctuellement sous charge.
-async function countRows(table: string, filters: Record<string, string> = {}): Promise<number> {
+async function headCount(table: string, apply: (q: any) => any = (q) => q): Promise<number> {
   let lastError = '';
   for (let attempt = 0; attempt < 3; attempt++) {
-    let query = supabaseAdmin.from(table).select('*', { count: 'exact', head: true });
-    for (const [column, value] of Object.entries(filters)) query = query.eq(column, value);
-    const { count, error, status } = await query;
+    const { count, error, status } = await apply(supabaseAdmin.from(table).select('*', { count: 'exact', head: true }));
     if (!error) return count ?? 0;
     // Une requête HEAD n'a pas de corps de réponse : le message peut être vide, on ajoute le code HTTP et les détails.
     lastError = [error.message, error.code, error.details, error.hint, status ? `HTTP ${status}` : ''].filter(Boolean).join(' | ');
+    // 4xx = requête invalide (colonne inconnue…) : inutile de réessayer
+    if (status && status >= 400 && status < 500) break;
     await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
   }
   throw new Error(`Comptage impossible sur "${table}" (${lastError || 'erreur inconnue'})`);
+}
+
+async function countRows(table: string, filters: Record<string, string> = {}): Promise<number> {
+  return headCount(table, (q) => {
+    for (const [column, value] of Object.entries(filters)) q = q.eq(column, value);
+    return q;
+  });
+}
+
+// La table `phrases` n'a PAS de colonnes langue/niveau : elles sont portées par le pack (packs.language_code / level_code).
+// On retrouve donc les packs correspondants, puis on compte les phrases de ces packs.
+async function countPhrases(filters: Record<string, string> = {}): Promise<number> {
+  let query = supabaseAdmin.from('packs').select('id');
+  for (const [column, value] of Object.entries(filters)) query = query.eq(column, value);
+  const { data, error } = await query;
+  if (error) throw new Error(`packs : ${error.message}`);
+  const ids = (data ?? []).map((p: any) => p.id as string);
+  let total = 0;
+  for (let i = 0; i < ids.length; i += 40) {
+    const chunk = ids.slice(i, i + 40);
+    total += await headCount('phrases', (q) => q.in('pack_id', chunk));
+  }
+  return total;
+}
+
+// Compte les lignes d'une table « par niveau », avec la bonne méthode selon la table
+function countLevelTable(table: string, filters: Record<string, string> = {}): Promise<number> {
+  return table === 'phrases' ? countPhrases(filters) : countRows(table, filters);
 }
 
 // Exécute des tâches avec au plus `limit` requêtes simultanées (évite de saturer l'API de la base)
@@ -83,7 +110,7 @@ async function buildInventory(): Promise<Inventory> {
 
   for (const lang of LANGS) {
     const counts = await runLimited(
-      LEVELS.flatMap((level) => INVENTORY_TABLES.map((t) => () => countRows(t, { language_code: lang.code, level_code: level.code })))
+      LEVELS.flatMap((level) => INVENTORY_TABLES.map((t) => () => countLevelTable(t, { language_code: lang.code, level_code: level.code })))
     );
     // Kanji : japonais uniquement (la table n'existe qu'après la migration 015 → 0 sinon)
     const kanjiCounts =
@@ -238,8 +265,8 @@ async function buildStorageStats(languageCode: string): Promise<StorageStats> {
   let langContentShare = 1;
   if (filterLang) {
     const contentTables = ['phrases', 'vocabulary_words', 'listening_articles'];
-    const mine = await runLimited(contentTables.map((t) => () => countRows(t, { language_code: filterLang })));
-    const all = await runLimited(contentTables.map((t) => () => countRows(t)));
+    const mine = await runLimited(contentTables.map((t) => () => countLevelTable(t, { language_code: filterLang })));
+    const all = await runLimited(contentTables.map((t) => () => countLevelTable(t)));
     const sumMine = mine.reduce((a, b) => a + b, 0);
     const sumAll = all.reduce((a, b) => a + b, 0);
     langContentShare = sumAll > 0 ? sumMine / sumAll : 0;
@@ -270,14 +297,13 @@ async function buildStorageStats(languageCode: string): Promise<StorageStats> {
         return result;
       }
 
-      const total = await countRows(t.table_name);
+      // Dénominateur = lignes de TOUTES les langues et de TOUS les niveaux ; numérateur = niveau (et langue choisie)
+      const allCounts = await runLimited(LEVELS.map((l) => () => countLevelTable(t.table_name, { level_code: l.code })));
+      const total = allCounts.reduce((a, b) => a + b, 0);
       if (total === 0) return result;
-      const counts = await runLimited(
-        LEVELS.map(
-          (l) => () =>
-            countRows(t.table_name, filterLang && !jaOnly ? { language_code: filterLang, level_code: l.code } : { level_code: l.code })
-        )
-      );
+      const counts = filterLang && !jaOnly
+        ? await runLimited(LEVELS.map((l) => () => countLevelTable(t.table_name, { language_code: filterLang, level_code: l.code })))
+        : allCounts;
       LEVELS.forEach((l, i) => result.set(l.code, (counts[i] / total) * bytes));
       return result;
       })()
