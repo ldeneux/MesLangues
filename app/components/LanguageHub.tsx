@@ -15,6 +15,7 @@ import ConjugationPanel from './ConjugationPanel';
 import GamesPanel from './GamesPanel';
 import WritingPanel from './WritingPanel';
 import KanaPanel from './KanaPanel';
+import KanjiPanel from './KanjiPanel';
 import ErrorBoundary from './ErrorBoundary';
 
 export default function LanguageHub() {
@@ -25,7 +26,7 @@ export default function LanguageHub() {
 
   function handleLangChange(l: LangCode) {
     setLang(l);
-    if (l !== 'ja' && tab === 'kana') setTab('today'); // l'onglet Kana n'existe qu'en japonais
+    if (l !== 'ja' && (tab === 'kana' || tab === 'kanji')) setTab('today'); // Kana et Kanji n'existent qu'en japonais
   }
 
   if (loading) return <p className="eyebrow-free">Chargement…</p>;
@@ -35,11 +36,12 @@ export default function LanguageHub() {
     <>
       <TopBar lang={lang} level={level} onLangChange={handleLangChange} onLevelChange={setLevel} />
       <div className="hub-layout">
-        <Sidebar tab={tab} onTabChange={setTab} showKana={lang === 'ja'} />
+        <Sidebar tab={tab} onTabChange={setTab} showKana={lang === 'ja'} showKanji={lang === 'ja'} />
 
         <main className="hub-content">
           <ErrorBoundary key={`${tab}-${lang}-${level}`} label={tab}>
           {tab === 'kana' && lang === 'ja' && <KanaPanel />}
+          {tab === 'kanji' && lang === 'ja' && <KanjiPanel profileId={profile.id} levelCode={level} />}
           {tab === 'today' && <LearnPanel profileId={profile.id} lang={lang} level={level} />}
           {tab === 'revision' && <RevisionPanel languageCode={lang} levelCode={level} />}
           {tab === 'packs' && <PacksPanel languageCode={lang} levelCode={level} />}

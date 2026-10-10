@@ -8,6 +8,7 @@ import GrammarConjugationDownload from './GrammarConjugationDownload';
 import VocabularyDownload from './VocabularyDownload';
 import ListeningDownload from './ListeningDownload';
 import WritingDownload from './WritingDownload';
+import KanjiDownload from './KanjiDownload';
 
 export default function PacksPanel({ languageCode, levelCode }: { languageCode: string; levelCode: string }) {
   const [packs, setPacks] = useState<PackInfo[] | null>(null);
@@ -165,6 +166,7 @@ export default function PacksPanel({ languageCode, levelCode }: { languageCode: 
 
       <VocabularyDownload languageCode={languageCode} levelCode={levelCode} />
       <ListeningDownload languageCode={languageCode} levelCode={levelCode} />
+      {languageCode === 'ja' && <KanjiDownload levelCode={levelCode} />}
       <WritingDownload languageCode={languageCode} levelCode={levelCode} />
       <GrammarConjugationDownload languageCode={languageCode} />
     </div>

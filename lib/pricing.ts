@@ -124,3 +124,16 @@ export function estimateListeningPackCost(articleCount: number): CostEstimate {
   const usd = geminiCost + ttsCost;
   return { usd, eur: usd * USD_TO_EUR };
 }
+
+// --- Fiches kanji (texte seul, 15 kanji par appel) ---
+const KANJI_CHUNK_SIZE = 15;
+const KANJI_INPUT_TOKENS_PER_CHUNK = 600;
+const KANJI_OUTPUT_TOKENS_PER_KANJI = 170;
+
+export function estimateKanjiCost(kanjiCount: number): CostEstimate {
+  const chunks = Math.ceil(kanjiCount / KANJI_CHUNK_SIZE);
+  const usd =
+    ((chunks * KANJI_INPUT_TOKENS_PER_CHUNK) / 1e6) * GEMINI_INPUT_PRICE_PER_M +
+    ((kanjiCount * KANJI_OUTPUT_TOKENS_PER_KANJI) / 1e6) * GEMINI_OUTPUT_PRICE_PER_M;
+  return { usd, eur: usd * USD_TO_EUR };
+}

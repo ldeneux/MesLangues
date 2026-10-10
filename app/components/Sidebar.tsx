@@ -1,15 +1,17 @@
 'use client';
 
-export type Tab = 'kana' | 'today' | 'revision' | 'packs' | 'vocabulary' | 'grammar' | 'conjugation' | 'writing' | 'games';
+export type Tab = 'kana' | 'kanji' | 'today' | 'revision' | 'packs' | 'vocabulary' | 'grammar' | 'conjugation' | 'writing' | 'games';
 
 export default function Sidebar({
   tab,
   onTabChange,
   showKana = false,
+  showKanji = false,
 }: {
   tab: Tab;
   onTabChange: (t: Tab) => void;
   showKana?: boolean;
+  showKanji?: boolean;
 }) {
   return (
     <aside className="sidebar">
@@ -17,6 +19,11 @@ export default function Sidebar({
         {showKana && (
           <button className={`sidebar-item${tab === 'kana' ? ' active' : ''}`} onClick={() => onTabChange('kana')}>
             あ Kana
+          </button>
+        )}
+        {showKanji && (
+          <button className={`sidebar-item${tab === 'kanji' ? ' active' : ''}`} onClick={() => onTabChange('kanji')}>
+            漢 Kanji
           </button>
         )}
         <button className={`sidebar-item${tab === 'today' ? ' active' : ''}`} onClick={() => onTabChange('today')}>
