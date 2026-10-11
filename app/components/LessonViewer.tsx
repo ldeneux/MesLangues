@@ -9,6 +9,7 @@ import { splitEnding } from '../../lib/conjugationHighlight';
 import { kanaToRomaji } from '../../lib/japanese';
 import { conjugateJapaneseVerb } from '../../lib/japaneseVerbs';
 import { speak } from '../../lib/speech';
+import { emojiSrc } from '../../lib/emoji';
 import HighlightText from './HighlightText';
 import RubyHighlight from './RubyHighlight';
 import JapaneseRuby from './JapaneseRuby';
@@ -180,6 +181,7 @@ export default function LessonViewer({
         >
           {playingKey === key ? '❚❚' : '▶'}
         </button>
+        {emojiSrc(w.emoji) && <img className="lesson-emoji" src={emojiSrc(w.emoji) as string} alt="" aria-hidden="true" width={44} height={44} loading="lazy" />}
         <div className="lesson-word-body">
           <div className="lesson-word-text" lang={isJa ? 'ja' : undefined}>
             {isJa && furigana && rd ? <JapaneseRuby ruby={rd.ruby} /> : w.text}

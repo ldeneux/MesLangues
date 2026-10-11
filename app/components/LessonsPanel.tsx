@@ -7,11 +7,12 @@ import {
   buildLessonPlan,
   deleteLessonPlan,
   addVerbAudioStep,
+  mapEmojiStep,
   type LessonsOverview,
   type RankStepResult,
 } from '../../lib/lessons';
 import { LEVELS, LANGS, THEMES } from '../../lib/constants';
-import { estimateRankingCost, estimateVerbAudioCost } from '../../lib/pricing';
+import { estimateRankingCost, estimateVerbAudioCost, estimateEmojiCost } from '../../lib/pricing';
 import LessonViewer from './LessonViewer';
 import PronunciationLesson from './PronunciationLesson';
 
@@ -39,6 +40,8 @@ export default function LessonsPanel({
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmAudio, setConfirmAudio] = useState(false);
   const [audioRun, setAudioRun] = useState<{ remaining: number; total: number } | null>(null);
+  const [confirmEmoji, setConfirmEmoji] = useState(false);
+  const [emojiRun, setEmojiRun] = useState<{ remaining: number; total: number } | null>(null);
 
   const level = LEVELS.find((l) => l.code === levelCode);
   const lang = LANGS.find((l) => l.code === languageCode);
@@ -63,6 +66,7 @@ export default function LessonsPanel({
     setConfirmRank(false);
     setConfirmReset(false);
     setConfirmAudio(false);
+    setConfirmEmoji(false);
     refresh();
   }, [refresh]);
 
@@ -150,6 +154,83 @@ export default function LessonsPanel({
               {missing} verbes n'ont pas encore l'audio de leur infinitif (≈ {est.eur.toFixed(3)} €). En attendant, la voix du navigateur prend le relais.
             </p>
             <button className="primary" onClick={() => setConfirmAudio(true)}>Ajouter l'audio des verbes</button>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  async function runEmoji() {
+    if (!overview) return;
+    setConfirmEmoji(false);
+    setError('');
+    const total = overview.emoji.pending;
+    setEmojiRun({ remaining: total, total });
+    try {
+      for (let guard = 0; guard < 60; guard++) {
+        const r = await mapEmojiStep(languageCode, levelCode);
+        if (!r.ok) {
+          setError((r as { error: string }).error);
+          break;
+        }
+        const remaining = (r as { data: { remaining: number } }).data.remaining;
+        setEmojiRun({ remaining, total });
+        if (remaining === 0) break;
+      }
+    } catch (e: any) {
+      setError(e?.message ?? 'La recherche des images a été interrompue.');
+    } finally {
+      setEmojiRun(null);
+      await refresh();
+    }
+  }
+
+  // Bloc « images des noms » : affiché tant qu'il reste des noms à illustrer (ou si la migration manque)
+  function renderEmojiBlock() {
+    const em = overview?.emoji;
+    if (!overview || !em) return null;
+    if (!em.ready) {
+      return (
+        <div className="phrase-card lesson-setup">
+          <div className="lesson-setup-title">Images des noms</div>
+          <p className="conv-warning" style={{ marginBottom: 0 }}>
+            La colonne des images n'existe pas encore : exécute la migration 022 dans le SQL Editor de Supabase.
+          </p>
+        </div>
+      );
+    }
+    if (em.nouns === 0 || (em.pending === 0 && !emojiRun)) return null;
+    const est = estimateEmojiCost(em.pending);
+    const pct = emojiRun && emojiRun.total > 0 ? Math.round(((emojiRun.total - emojiRun.remaining) / emojiRun.total) * 100) : 0;
+    return (
+      <div className="phrase-card lesson-setup">
+        <div className="lesson-setup-title">Images des noms</div>
+        {emojiRun ? (
+          <div className="pack-progress">
+            <div className="pack-progress-label">
+              {emojiRun.total - emojiRun.remaining} / {emojiRun.total} noms traités
+            </div>
+            <div className="pack-progress-track">
+              <div className="pack-progress-fill" style={{ width: `${pct}%` }} />
+            </div>
+          </div>
+        ) : confirmEmoji ? (
+          <div className="pack-confirm-modal">
+            <p style={{ marginTop: 0 }}>
+              Gemini va choisir un emoji pour {em.pending} noms. Coût estimé : <strong>au plus {est.eur.toFixed(2)} €</strong> ({est.usd.toFixed(2)} $), et moins si
+              des mots sont déjà illustrés dans une autre langue. Les noms sans emoji convenable resteront sans image.
+            </p>
+            <div className="conv-bubble-actions">
+              <button className="primary" onClick={runEmoji}>Chercher les images</button>
+              <button className="conv-mini-btn" onClick={() => setConfirmEmoji(false)}>Annuler</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="eyebrow-free">
+              {em.withImage} / {em.nouns} noms ont une image. {em.pending} restent à traiter (≈ {est.eur.toFixed(2)} € au plus).
+            </p>
+            <button className="primary" onClick={() => setConfirmEmoji(true)}>Ajouter les images des noms</button>
           </>
         )}
       </div>
@@ -257,6 +338,7 @@ export default function LessonsPanel({
         </div>
 
         {setup!.verbs > 0 && renderVerbAudioBlock()}
+        {renderEmojiBlock()}
 
         {setup!.total === 0 ? (
           <p className="conv-warning" style={{ marginTop: '1rem' }}>
@@ -344,6 +426,7 @@ export default function LessonsPanel({
       )}
 
       {renderVerbAudioBlock()}
+      {renderEmojiBlock()}
 
       <div className="lesson-tiles">
         <button className="lesson-tile" style={{ ['--lesson-color' as any]: color }} onClick={() => setOpenNumber(0)}>
@@ -369,7 +452,13 @@ export default function LessonsPanel({
         })}
       </div>
 
-      <div style={{ marginTop: '1.5rem' }}>
+      {overview && overview.emoji.withImage > 0 && (
+        <p className="eyebrow-free" style={{ marginTop: '1.5rem', marginBottom: 0 }}>
+          Images des noms : Microsoft Fluent Emoji (licence MIT).
+        </p>
+      )}
+
+      <div style={{ marginTop: '1rem' }}>
         {confirmReset ? (
           <div className="pack-confirm-modal">
             <p style={{ marginTop: 0 }}>

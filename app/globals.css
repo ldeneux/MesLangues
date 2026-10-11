@@ -2019,3 +2019,5 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 .lesson-conj-verb-title { font-weight: 700; font-size: 1.05rem; margin-bottom: 0.4rem; }
 .lesson-conj-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.6rem 1.2rem; }
 .lesson-conj-line { font-size: 0.95rem; line-height: 1.55; }
+
+.lesson-emoji { flex: 0 0 auto; width: 44px; height: 44px; object-fit: contain; }

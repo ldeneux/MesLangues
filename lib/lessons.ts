@@ -7,6 +7,8 @@ import { getGrammarTopic, type GrammarTopic } from './grammar';
 import type { ConjugationVerb } from './conjugation';
 import { planLessons, dedupeWords, grammarExampleIndex, CONJUGATION_RECAP_EVERY, type PlanWord, type PlannedLesson, type ReviewItem } from './lessonPlan';
 import { synthesizeAndStore } from './tts';
+import { emojiToHex, isAvailableEmoji } from './emoji';
+import { normalizeForCompare } from './textUtils';
 import type { KanjiItem } from './kanji';
 
 // ---------------------------------------------------------
@@ -17,7 +19,7 @@ import type { KanjiItem } from './kanji';
 // ---------------------------------------------------------
 export type Result<T> = { ok: true; data: T } | { ok: false; error: string };
 
-const MIGRATION_HINT = "exécute les migrations 020 et 021 dans le SQL Editor de Supabase.";
+const MIGRATION_HINT = "exécute les migrations 020, 021 et 022 dans le SQL Editor de Supabase.";
 
 function explain(message: string): string {
   if (message.includes('usage_score') || message.includes('kanji_chars')) return `Une colonne des leçons n'existe pas encore (usage_score ou kanji_chars) — ${MIGRATION_HINT}`;
@@ -32,6 +34,7 @@ export type LessonWord = {
   audio_url: string | null;
   word_type: string;
   theme_code: string;
+  emoji: string | null; // emoji qui illustre le mot (noms), null si aucun
 };
 
 export type LessonSetup = {
@@ -57,6 +60,14 @@ export type LessonsOverview = {
   setup: LessonSetup;
   lessons: LessonSummary[];
   verbAudioMissing: number; // verbes de la langue sans audio de l'infinitif
+  emoji: EmojiStatus;
+};
+
+export type EmojiStatus = {
+  ready: boolean; // false : la migration 022 n'a pas été exécutée
+  nouns: number; // noms du niveau (lignes de la base)
+  pending: number; // noms pas encore traités
+  withImage: number; // noms qui ont une image
 };
 
 type WordRow = { id: string; theme_code: string; word_type: string; target_text: string; usage_score: number | null };
@@ -145,7 +156,8 @@ export async function getLessonsOverview(profileId: string, languageCode: string
     }));
 
     const verbAudioMissing = await countVerbsWithoutAudio(languageCode);
-    return { ok: true, data: { setup, lessons, verbAudioMissing } };
+    const emoji = await emojiStatus(languageCode, levelCode);
+    return { ok: true, data: { setup, lessons, verbAudioMissing, emoji } };
   } catch (e: any) {
     return { ok: false, error: explain(e?.message ?? 'Erreur de chargement des leçons.') };
   }
@@ -431,10 +443,25 @@ export async function getLesson(profileId: string, languageCode: string, levelCo
       ? await supabaseAdmin.from('vocabulary_words').select('id, theme_code, word_type, target_text, translation_fr, audio_url').in('id', wordIds)
       : { data: [], error: null };
     if (wErr) throw new Error(wErr.message);
+    // Emoji des noms : requête à part, pour que la leçon reste lisible même si la migration 022 n'est pas exécutée.
+    const emojiById = new Map<string, string>();
+    if (wordIds.length > 0) {
+      const { data: emRows, error: emErr } = await supabaseAdmin.from('vocabulary_words').select('id, emoji').in('id', wordIds);
+      if (!emErr) for (const r of emRows ?? []) if ((r as any).emoji) emojiById.set((r as any).id, (r as any).emoji);
+    }
+
     const wordMap = new Map<string, LessonWord>(
       (wordRows ?? []).map((w: any) => [
         w.id,
-        { id: w.id, text: w.target_text, fr: w.translation_fr, audio_url: w.audio_url, word_type: w.word_type, theme_code: w.theme_code },
+        {
+          id: w.id,
+          text: w.target_text,
+          fr: w.translation_fr,
+          audio_url: w.audio_url,
+          word_type: w.word_type,
+          theme_code: w.theme_code,
+          emoji: emojiById.get(w.id) ?? null,
+        },
       ])
     );
 
@@ -610,4 +637,156 @@ export async function addVerbAudioStep(languageCode: string): Promise<Result<{ r
   } catch (e: any) {
     return { ok: false, error: explain(e?.message ?? "Erreur pendant la génération de l'audio des verbes.") };
   }
+}
+
+// ---------------------------------------------------------
+// Images des noms : un emoji Fluent par nom (fichiers dans public/emoji, voir lib/emoji.ts)
+// ---------------------------------------------------------
+async function countNouns(languageCode: string, levelCode: string, filter?: (q: any) => any): Promise<number> {
+  let q = supabaseAdmin
+    .from('vocabulary_words')
+    .select('*', { count: 'exact', head: true })
+    .eq('language_code', languageCode)
+    .eq('level_code', levelCode)
+    .eq('word_type', 'nom');
+  if (filter) q = filter(q);
+  const { count, error } = await q;
+  if (error) throw new Error(error.message);
+  return count ?? 0;
+}
+
+async function emojiStatus(languageCode: string, levelCode: string): Promise<EmojiStatus> {
+  try {
+    const [nouns, pending, withImage] = await Promise.all([
+      countNouns(languageCode, levelCode),
+      countNouns(languageCode, levelCode, (q) => q.is('emoji', null)),
+      countNouns(languageCode, levelCode, (q) => q.not('emoji', 'is', null).neq('emoji', '')),
+    ]);
+    return { ready: true, nouns, pending, withImage };
+  } catch (e: any) {
+    if (String(e?.message ?? '').includes('emoji')) return { ready: false, nouns: 0, pending: 0, withImage: 0 };
+    throw e;
+  }
+}
+
+const EMOJI_BATCH = 60; // noms par appel Gemini
+const EMOJI_PARALLEL = 3;
+
+export type EmojiStepResult = { remaining: number; mappedThisStep: number };
+
+export async function mapEmojiStep(languageCode: string, levelCode: string): Promise<Result<EmojiStepResult>> {
+  try {
+    const { data: todo, error } = await supabaseAdmin
+      .from('vocabulary_words')
+      .select('id, target_text, translation_fr')
+      .eq('language_code', languageCode)
+      .eq('level_code', levelCode)
+      .eq('word_type', 'nom')
+      .is('emoji', null)
+      .order('id')
+      .limit(EMOJI_BATCH * EMOJI_PARALLEL * 2);
+    if (error) throw new Error(error.message);
+    if (!todo || todo.length === 0) return { ok: true, data: { remaining: 0, mappedThisStep: 0 } };
+
+    // Une même traduction française = un même emoji : on ne demande qu'une fois par traduction.
+    const groups = new Map<string, string>(); // traduction → mot exemple dans la langue apprise
+    for (const w of todo) if (!groups.has(w.translation_fr)) groups.set(w.translation_fr, w.target_text);
+    const translations = Array.from(groups.keys());
+
+    // 1) Réutiliser les emoji déjà trouvés, dans n'importe quelle langue, pour la même traduction (gratuit).
+    const known = new Map<string, string>();
+    for (let i = 0; i < translations.length; i += 40) {
+      const chunk = translations.slice(i, i + 40);
+      const { data: hits, error: hErr } = await supabaseAdmin
+        .from('vocabulary_words')
+        .select('translation_fr, emoji')
+        .in('translation_fr', chunk)
+        .not('emoji', 'is', null);
+      if (hErr) throw new Error(hErr.message);
+      for (const h of hits ?? []) {
+        const prev = known.get((h as any).translation_fr);
+        // on préfère un vrai emoji à « aucun » ('')
+        if (!prev) known.set((h as any).translation_fr, (h as any).emoji);
+      }
+    }
+
+    const results = new Map<string, string>(); // traduction → emoji ('' = aucun)
+    for (const [tr, em] of known) results.set(tr, em);
+
+    // 2) Le reste : Gemini choisit un emoji par traduction.
+    const toAsk = translations.filter((t) => !results.has(t)).slice(0, EMOJI_BATCH * EMOJI_PARALLEL);
+    const system = `Tu illustres un cours de langue pour débutants avec des emoji, comme un dictionnaire illustré.
+Pour chaque nom français de la liste numérotée (suivi du mot dans la langue apprise, pour lever les ambiguïtés), choisis UN SEUL emoji Unicode standard qui le représente clairement.
+Règles : l'emoji doit être reconnu immédiatement ; pas de drapeau, pas de variante de couleur de peau. Si aucun emoji ne convient vraiment (notion abstraite, mot ambigu, lieu très précis, nom propre), réponds null plutôt que de forcer un emoji approximatif.
+Réponds UNIQUEMENT par un tableau JSON de paires [numéro, "emoji" ou null], par exemple [[0,"🍎"],[1,null]]. Ne saute aucun numéro.`;
+
+    const batches: string[][] = [];
+    for (let i = 0; i < toAsk.length; i += EMOJI_BATCH) batches.push(toAsk.slice(i, i + EMOJI_BATCH));
+
+    await Promise.all(
+      batches.map(async (batch) => {
+        const user = batch.map((tr, i) => `${i}|${tr}|${groups.get(tr)}`).join('\n');
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(await callGemini(system, user));
+        } catch {
+          return; // lot ignoré : ses mots restent à traiter au pas suivant
+        }
+        if (!Array.isArray(parsed)) return;
+        for (const pair of parsed as unknown[]) {
+          if (!Array.isArray(pair)) continue;
+          const [idx, em] = pair as [unknown, unknown];
+          if (typeof idx !== 'number' || !Number.isInteger(idx) || idx < 0 || idx >= batch.length) continue;
+          if (em === null) results.set(batch[idx], '');
+          else if (typeof em === 'string') {
+            // emoji inconnu de notre jeu d'images → on le range parmi les « aucun »
+            results.set(batch[idx], isAvailableEmoji(em) ? emojiToCanonical(em) : '');
+          }
+        }
+      })
+    );
+
+    // Rien de nouveau : s'il ne reste que quelques noms on les range en « aucun » ; sinon erreur claire.
+    const fresh = toAsk.filter((t) => results.has(t)).length;
+    if (known.size === 0 && fresh === 0) {
+      if (todo.length <= 10) {
+        for (const w of todo) await supabaseAdmin.from('vocabulary_words').update({ emoji: '' }).eq('id', w.id);
+        return { ok: true, data: { remaining: 0, mappedThisStep: todo.length } };
+      }
+      return { ok: false, error: "Gemini n'a renvoyé aucun emoji exploitable. Réessaie dans un instant." };
+    }
+
+    // 3) Écriture : tous les noms de ce niveau ayant la même traduction reçoivent le même emoji.
+    const entries = Array.from(results.entries()).filter(([tr]) => groups.has(tr));
+    for (let i = 0; i < entries.length; i += 15) {
+      const slice = entries.slice(i, i + 15);
+      const outs = await Promise.all(
+        slice.map(([tr, em]) =>
+          supabaseAdmin
+            .from('vocabulary_words')
+            .update({ emoji: em })
+            .eq('language_code', languageCode)
+            .eq('level_code', levelCode)
+            .eq('word_type', 'nom')
+            .eq('translation_fr', tr)
+            .is('emoji', null)
+        )
+      );
+      const failed = outs.find((o) => o.error);
+      if (failed?.error) throw new Error(failed.error.message);
+    }
+
+    const remaining = await countNouns(languageCode, levelCode, (q) => q.is('emoji', null));
+    return { ok: true, data: { remaining, mappedThisStep: entries.length } };
+  } catch (e: any) {
+    return { ok: false, error: explain(e?.message ?? 'Erreur pendant la recherche des images.') };
+  }
+}
+
+// Forme enregistrée en base : l'emoji sans teinte de peau ni FE0F (ex. « 🍎 »), reconstruit depuis son nom de fichier.
+function emojiToCanonical(emoji: string): string {
+  return emojiToHex(emoji)
+    .split('-')
+    .map((h) => String.fromCodePoint(parseInt(h, 16)))
+    .join('');
 }
