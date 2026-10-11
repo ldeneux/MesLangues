@@ -15,6 +15,7 @@ import ConjugationPanel from './ConjugationPanel';
 import GamesPanel from './GamesPanel';
 import WritingPanel from './WritingPanel';
 import ConversationPanel from './ConversationPanel';
+import ExamPanel from './ExamPanel';
 import KanaPanel from './KanaPanel';
 import KanjiPanel from './KanjiPanel';
 import LessonsPanel from './LessonsPanel';
@@ -25,6 +26,7 @@ export default function LanguageHub() {
   const [lang, setLang] = useState<LangCode>('it');
   const [level, setLevel] = useState<LevelCode>('A1');
   const [tab, setTab] = useState<Tab>('today');
+  const [examLocked, setExamLocked] = useState(false); // vrai pendant une épreuve d'examen : navigation masquée
 
   function handleLangChange(l: LangCode) {
     setLang(l);
@@ -36,9 +38,9 @@ export default function LanguageHub() {
 
   return (
     <>
-      <TopBar lang={lang} level={level} onLangChange={handleLangChange} onLevelChange={setLevel} />
+      {!examLocked && <TopBar lang={lang} level={level} onLangChange={handleLangChange} onLevelChange={setLevel} />}
       <div className="hub-layout">
-        <Sidebar tab={tab} onTabChange={setTab} showKana={lang === 'ja'} showKanji={lang === 'ja'} />
+        {!examLocked && <Sidebar tab={tab} onTabChange={setTab} showKana={lang === 'ja'} showKanji={lang === 'ja'} />}
 
         <main className="hub-content">
           <ErrorBoundary key={`${tab}-${lang}-${level}`} label={tab}>
@@ -60,6 +62,9 @@ export default function LanguageHub() {
               levelCode={level}
               bcp47={LANGS.find((l) => l.code === lang)?.bcp47 ?? 'en-US'}
             />
+          )}
+          {tab === 'exam' && (
+            <ExamPanel profileId={profile.id} languageCode={lang} levelCode={level} onLockChange={setExamLocked} />
           )}
           {tab === 'games' && <GamesPanel profileId={profile.id} lang={lang} level={level} />}
         </ErrorBoundary>

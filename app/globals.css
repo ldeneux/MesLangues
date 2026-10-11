@@ -2021,3 +2021,19 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 .lesson-conj-line { font-size: 0.95rem; line-height: 1.55; }
 
 .lesson-emoji { flex: 0 0 auto; width: 44px; height: 44px; object-fit: contain; }
+
+
+/* --- Dessin des kana et mode Écrire --- */
+.kana-cell.selected { border-color: var(--ink); box-shadow: 0 0 0 2px var(--ink); }
+.kana-detail { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.kana-detail-head { display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; }
+.kana-detail-glyph { font-size: 3.2rem; line-height: 1; }
+.kana-detail-romaji { font-size: 1.3rem; font-weight: 600; color: var(--ink-soft); }
+
+.write-pad-canvas {
+  display: block; width: 100%; background: #fff; border: 1px solid var(--line); border-radius: 12px;
+  touch-action: none; user-select: none; -webkit-user-select: none; cursor: crosshair;
+}
+.write-prompt { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin: 0.25rem 0 0.25rem; }
+.write-romaji { font-size: 1.4rem; font-weight: 700; }
+.write-hint { font-size: 1.05rem; color: var(--ink-soft); }

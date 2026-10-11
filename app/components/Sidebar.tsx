@@ -1,6 +1,6 @@
 'use client';
 
-export type Tab = 'kana' | 'kanji' | 'lessons' | 'today' | 'revision' | 'packs' | 'vocabulary' | 'grammar' | 'conjugation' | 'writing' | 'conversation' | 'games';
+export type Tab = 'kana' | 'kanji' | 'lessons' | 'today' | 'revision' | 'packs' | 'vocabulary' | 'grammar' | 'conjugation' | 'writing' | 'conversation' | 'exam' | 'games';
 
 export default function Sidebar({
   tab,
@@ -55,6 +55,9 @@ export default function Sidebar({
         </button>
         <button className={`sidebar-item${tab === 'conversation' ? ' active' : ''}`} onClick={() => onTabChange('conversation')}>
           💬 Conversation
+        </button>
+        <button className={`sidebar-item${tab === 'exam' ? ' active' : ''}`} onClick={() => onTabChange('exam')}>
+          🎓 Examen
         </button>
       </nav>
     </aside>

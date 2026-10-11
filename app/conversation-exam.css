@@ -1,0 +1,88 @@
+/* Styles de la Conversation notée, du clavier virtuel et de l'Examen blanc
+   (fichier séparé de globals.css pour faciliter la fusion avec une autre version). */
+
+/* --- Conversation notée : choix de situation, compteur de coût, bannières --- */
+.conv-scenario-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.6rem 0 1rem; }
+.conv-scenario-btn {
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+.conv-scenario-btn:hover { border-color: var(--ink-soft); }
+.conv-scenario-btn.selected { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.conv-scenario-emoji { margin-right: 0.2rem; }
+.conv-objectives {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.7rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+.conv-objectives ul { margin: 0.3rem 0 0.6rem 1.1rem; padding: 0; }
+.conv-cost-note { font-size: 0.85rem; color: var(--ink-soft); margin: 0.4rem 0 1rem; }
+
+.conv-meter { margin-bottom: 0.8rem; }
+.conv-meter-head { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--ink-soft); margin-bottom: 0.3rem; flex-wrap: wrap; gap: 0.3rem; }
+.conv-meter-track { height: 8px; background: var(--line); border-radius: 999px; overflow: hidden; }
+.conv-meter-fill { height: 100%; background: #27ae60; border-radius: 999px; transition: width 0.3s; }
+.conv-meter-fill.warn { background: #f5b83d; }
+.conv-meter-fill.alert { background: #c0392b; }
+
+.conv-banner { font-size: 0.88rem; border-radius: 8px; padding: 0.6rem 0.8rem; margin: 0 0 0.8rem; }
+.conv-banner-soon { background: #fff6dd; color: #7a5a00; }
+.conv-banner-final { background: #fbeeea; color: #a3402f; }
+
+.conv-finish-row { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; margin-top: 1rem; }
+.conv-finish-row .conv-reset { margin-left: auto; }
+
+/* --- Clavier virtuel (accents, kana) et saisie de conversation --- */
+.lang-input { width: 100%; }
+.char-bar { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.5rem 0 0.25rem; align-items: center; }
+.char-key {
+  min-width: 2.2rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 1rem;
+  cursor: pointer;
+}
+.char-key:hover { border-color: var(--ink-soft); }
+.char-key:disabled { opacity: 0.4; cursor: default; }
+.conv-textarea { resize: none; margin-top: 0; }
+.conv-text-row { align-items: flex-start; }
+.conv-text-row .lang-input,
+.conv-text-row .ja-input { flex: 1; min-width: 0; }
+.conv-scenario-level { font-size: 0.75rem; opacity: 0.7; }
+
+/* --- Examen blanc --- */
+.exam-home { max-width: 760px; }
+.exam-epreuve { max-width: 760px; margin: 0 auto; }
+.exam-header {
+  display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+  position: sticky; top: 0; z-index: 5;
+  background: var(--paper); border-bottom: 1px solid var(--line);
+  padding: 0.7rem 0; margin-bottom: 1rem;
+}
+.exam-timer { font-size: 1.4rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.exam-timer-low { color: #c0392b; }
+.exam-audio { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; margin: 0.5rem 0 1rem; }
+.exam-article { background: white; border: 1px solid var(--line); border-radius: 10px; padding: 0.8rem 1rem; margin-bottom: 1rem; }
+.exam-article-text { white-space: pre-wrap; line-height: 1.6; margin: 0.4rem 0; }
+.exam-article-details { margin-bottom: 1rem; }
+.exam-finish { margin: 1.5rem 0 3rem; }
+.exam-steps { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.8rem 0 1.2rem; }
+.exam-step { padding: 0.5rem 0.8rem; border: 1px solid var(--line); border-radius: 10px; background: white; font-size: 0.9rem; }
+.exam-step.done { background: #e8f3e4; border-color: #8bc34a; }
+.exam-step.current { border-color: var(--ink); font-weight: 600; }
+.exam-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; margin: 0.8rem 0; }
+.exam-readiness { margin-bottom: 0.5rem; }
+.exam-review { margin-top: 0.6rem; }

@@ -1,5 +1,6 @@
 'use client';
 
+import '../conversation-exam.css';
 import { useEffect, useRef, useState } from 'react';
 import HighlightText from './HighlightText';
 import ConversationHistory from './ConversationHistory';
@@ -54,19 +55,23 @@ export default function ConversationPanel({
   languageLabel,
   levelCode,
   bcp47,
+  exam,
 }: {
   profileId: string;
   languageCode: string;
   languageLabel: string;
   levelCode: string;
   bcp47: string;
+  // Mode « épreuve d'examen » : situation imposée, pas d'historique ni d'abandon ; onDone reçoit la séance notée
+  // (ou null si le temps est écoulé sans séance terminée).
+  exam?: { scenarioCode: string; expired: boolean; onDone: (record: ConversationRecord | null) => void };
 }) {
   const allScenarios = scenariosForLevel(levelCode);
 
   const [phase, setPhase] = useState<Phase>('setup');
   const [mode, setMode] = useState<Mode>('audio_text');
   const [themeKind, setThemeKind] = useState<ThemeKind>('scenario');
-  const [scenarioCode, setScenarioCode] = useState(allScenarios[0]?.code ?? FREE_THEME_CODE);
+  const [scenarioCode, setScenarioCode] = useState(exam?.scenarioCode ?? allScenarios[0]?.code ?? FREE_THEME_CODE);
   const [categoryFilter, setCategoryFilter] = useState<'all' | ScenarioCategory>('all');
   const [customTheme, setCustomTheme] = useState('');
   const [status, setStatus] = useState<Status>('idle');
@@ -115,6 +120,7 @@ export default function ConversationPanel({
   }, []);
 
   async function loadHistory() {
+    if (exam) return; // pas d'historique pendant l'examen
     const r = await getConversationHistory(profileId, languageCode);
     if (r.ok) {
       setRecords(r.records);
@@ -262,9 +268,21 @@ export default function ConversationPanel({
     }
     setResult(r.record);
     setStatus('idle');
+    if (exam) {
+      exam.onDone(r.record);
+      return;
+    }
     setPhase('result');
     loadHistory();
   }
+
+  // Examen : le temps est écoulé -> on termine la séance si elle est assez avancée, sinon l'épreuve vaut 0
+  useEffect(() => {
+    if (!exam?.expired || phase === 'finishing' || phase === 'result') return;
+    if (phase === 'live' && userTurns >= MIN_TURNS_TO_FINISH) handleFinish();
+    else exam.onDone(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exam?.expired]);
 
   function toggleReveal(id: string, field: 'revealed' | 'revealedFr') {
     setTurns((prev) => prev.map((t) => (t.id === id ? { ...t, [field]: !t[field] } : t)));
@@ -305,6 +323,42 @@ export default function ConversationPanel({
 
   const micAvailable = recognitionSupported && !textOnly;
   const canListen = micAvailable && status === 'idle' && !ended && budget.level !== 'stop';
+
+  // ------------------------------------------------------------ SETUP (examen)
+  if (phase === 'setup' && exam) {
+    return (
+      <div className="conv-setup">
+        <div className="sidebar-label">Situation imposée</div>
+        {selectedScenario && (
+          <div className="conv-objectives">
+            <div className="conv-scenario-btn selected" style={{ display: 'inline-block', cursor: 'default' }}>
+              {selectedScenario.emoji} {selectedScenario.label}
+            </div>
+            <div className="sidebar-label" style={{ marginTop: '0.6rem' }}>Tes objectifs</div>
+            <ul>
+              {selectedScenario.objectives.map((o, i) => (
+                <li key={i}>{o}</li>
+              ))}
+            </ul>
+            <p className="eyebrow-free" style={{ marginBottom: 0 }}>
+              L'IA joue : {selectedScenario.aiRole}. {CONVERSATION_MAX_EXCHANGES} échanges maximum.
+            </p>
+          </div>
+        )}
+        <div className="level-row">
+          <button className={`level-btn${mode === 'audio' ? ' active' : ''}`} onClick={() => setMode('audio')}>Audio</button>
+          <button className={`level-btn${mode === 'audio_text' ? ' active' : ''}`} onClick={() => setMode('audio_text')}>Audio + texte</button>
+          <button className={`level-btn${mode === 'text' ? ' active' : ''}`} onClick={() => setMode('text')}>Texte seul</button>
+        </div>
+        <p className="conv-cost-note">
+          💶 Coût estimé ≈ {formatEur(CONVERSATION_ESTIMATED_EUR)} (plafond {formatEur(CONVERSATION_BUDGET_EUR)}). Le chrono de l'épreuve tourne déjà.
+        </p>
+        <button className="primary" onClick={handleStart}>
+          Démarrer la conversation
+        </button>
+      </div>
+    );
+  }
 
   // ------------------------------------------------------------------ SETUP
   if (phase === 'setup') {
@@ -575,9 +629,11 @@ export default function ConversationPanel({
             (après {MIN_TURNS_TO_FINISH} réponses minimum)
           </span>
         )}
-        <button className="secondary conv-reset" onClick={handleReset} disabled={finishing}>
-          Abandonner
-        </button>
+        {!exam && (
+          <button className="secondary conv-reset" onClick={handleReset} disabled={finishing}>
+            Abandonner
+          </button>
+        )}
       </div>
     </div>
   );

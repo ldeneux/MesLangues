@@ -3,6 +3,9 @@
 import { useMemo, useState } from 'react';
 import { KANA_SECTIONS, toKatakana, type KanaEntry } from '../../lib/japanese';
 import { speak } from '../../lib/speech';
+import KanjiStrokes from './KanjiStrokes';
+import KanjiDraw from './KanjiDraw';
+import WriteMode, { type WriteItem } from './WriteMode';
 
 type SectionKey = 'base' | 'daku' | 'yoon';
 type PoolKey = SectionKey | 'all';
@@ -44,7 +47,9 @@ function buildQuiz(pool: KanaEntry[], n = 10): Question[] {
 export default function KanaPanel() {
   const [kata, setKata] = useState(false);
   const [section, setSection] = useState<SectionKey>('base');
-  const [view, setView] = useState<'table' | 'quiz'>('table');
+  const [view, setView] = useState<'table' | 'quiz' | 'write'>('table');
+  const [selected, setSelected] = useState<KanaEntry | null>(null);
+  const [writePool, setWritePool] = useState<PoolKey>('base');
   const [speechOk, setSpeechOk] = useState(true);
 
   // Quiz
@@ -58,6 +63,16 @@ export default function KanaPanel() {
   const show = (h: string) => (kata ? toKatakana(h) : h);
   const current = KANA_SECTIONS.find((s) => s.key === section)!;
   const poolSize = useMemo(() => poolFor(poolKey).length, [poolKey]);
+
+  // Mode Écrire : un signe = 1 caractère, ou 2 pour une combinaison (き + ゃ)
+  const writeItems: WriteItem[] = useMemo(
+    () =>
+      poolFor(writePool).map((e) => {
+        const glyph = kata ? toKatakana(e.hira) : e.hira;
+        return { id: e.romaji, chars: Array.from(glyph), display: glyph, romaji: e.romaji, speakText: glyph };
+      }),
+    [writePool, kata]
+  );
 
   function play(text: string) {
     setSpeechOk(speak(text));
@@ -88,7 +103,7 @@ export default function KanaPanel() {
     <div>
       <p className="eyebrow-free">
         Les kana sont les 2 alphabets de base du japonais (hiragana et katakana, 46 signes chacun). Clique sur un signe
-        pour l'entendre.
+        pour l'entendre, voir l'ordre des traits et t'entraîner à l'écrire. L'onglet « Écrire » te fait dessiner les signes sans aide.
       </p>
 
       <div className="cascade-row">
@@ -104,6 +119,9 @@ export default function KanaPanel() {
         </button>
         <button className={`conv-mini-btn${view === 'quiz' ? ' active' : ''}`} onClick={() => setView('quiz')}>
           Quiz
+        </button>
+        <button className={`conv-mini-btn${view === 'write' ? ' active' : ''}`} onClick={() => setView('write')}>
+          Écrire
         </button>
       </div>
 
@@ -125,7 +143,14 @@ export default function KanaPanel() {
             {current.rows.flatMap((r, ri) =>
               r.map((e, ci) =>
                 e ? (
-                  <button key={`${ri}-${ci}`} className="kana-cell" onClick={() => play(show(e.hira))}>
+                  <button
+                    key={`${ri}-${ci}`}
+                    className={`kana-cell${selected?.romaji === e.romaji ? ' selected' : ''}`}
+                    onClick={() => {
+                      play(show(e.hira));
+                      setSelected(e);
+                    }}
+                  >
                     <span className="kana-glyph" lang="ja">
                       {show(e.hira)}
                     </span>
@@ -137,10 +162,52 @@ export default function KanaPanel() {
               )
             )}
           </div>
+          {selected && (
+            <div className="kana-detail">
+              <div className="kana-detail-head">
+                <span className="kana-detail-glyph" lang="ja">
+                  {show(selected.hira)}
+                </span>
+                <span className="kana-detail-romaji">{selected.romaji}</span>
+                <button className="secondary" onClick={() => play(show(selected.hira))}>
+                  🔊 Écouter
+                </button>
+                <button className="conv-mini-btn" onClick={() => setSelected(null)}>
+                  Fermer
+                </button>
+              </div>
+              {Array.from(show(selected.hira)).map((c, i, arr) => (
+                <div key={`${selected.romaji}-${i}`}>
+                  {arr.length > 1 && (
+                    <div className="sidebar-label" style={{ marginTop: '1rem' }}>
+                      {i === 0 ? '1er signe' : '2e signe (petit)'} : {c}
+                    </div>
+                  )}
+                  <KanjiStrokes char={c} />
+                  <KanjiDraw char={c} />
+                </div>
+              ))}
+              <p className="eyebrow-free" style={{ marginTop: '0.75rem' }}>Tracés : KanjiVG (CC BY-SA 3.0).</p>
+            </div>
+          )}
           {section === 'daku' && (
             <p className="eyebrow-free">Les deux dernières cases de la ligne « da » (ぢ, づ) se prononcent comme じ et ず et sont rares.</p>
           )}
         </div>
+      )}
+
+      {view === 'write' && (
+        <>
+          <div className="cascade-row">
+            <select className="cascade-select" value={writePool} onChange={(e) => setWritePool(e.target.value as PoolKey)}>
+              <option value="base">Base</option>
+              <option value="daku">Sons voisés</option>
+              <option value="yoon">Combinaisons (2 cases)</option>
+              <option value="all">Tout</option>
+            </select>
+          </div>
+          <WriteMode key={`${writePool}-${kata}`} items={writeItems} flagPrefix="kana" />
+        </>
       )}
 
       {view === 'quiz' && (

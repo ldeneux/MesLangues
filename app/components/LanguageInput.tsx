@@ -1,5 +1,6 @@
 'use client';
 
+import '../conversation-exam.css';
 import { useLayoutEffect, useRef, useState } from 'react';
 import JapaneseInput from './JapaneseInput';
 

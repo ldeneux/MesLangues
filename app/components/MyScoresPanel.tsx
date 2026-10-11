@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { getAllDomainScores, type AllDomainScores } from '../../lib/scores';
 import { DOMAIN_WEIGHTS, LANGS, LEVELS, type LangCode, type LevelCode } from '../../lib/constants';
 import VerticalGauge from './VerticalGauge';
+import { getLatestExamSummary } from '../../lib/exam';
 
 const BUCKET_COLORS = ['#c0392b', '#e67e22', '#f1c40f', '#8bc34a', '#27ae60'];
 const NEVER_PRACTICED_COLOR = '#22b0c9';
@@ -41,6 +42,15 @@ export default function MyScoresPanel({
 }) {
   const [scores, setScores] = useState<AllDomainScores | null>(null);
   const [error, setError] = useState('');
+  const [examSummary, setExamSummary] = useState<{ total_score: number; passed: boolean; date: string; epreuves: { label: string; score: number }[] } | null>(null);
+
+  // Dernier examen blanc (indicateur à part : il ne compte pas dans le pourcentage global)
+  useEffect(() => {
+    setExamSummary(null);
+    getLatestExamSummary(profileId, lang, level).then((r) => {
+      if (r.ok) setExamSummary(r.summary);
+    });
+  }, [profileId, lang, level]);
 
   useEffect(() => {
     setScores(null);
@@ -76,6 +86,18 @@ export default function MyScoresPanel({
           <p className="conv-warning">
             {scores.domainErrors.map((e) => `${e.domain} : ${e.message}`).join(' — ')}
           </p>
+        )}
+
+        {examSummary && (
+          <div className={examSummary.passed ? 'conv-correction exercise-success' : 'conv-correction'}>
+            <div className="conv-correction-label">
+              🎓 Dernier examen blanc : {examSummary.total_score} / 100 — {examSummary.passed ? 'réussi ✅' : 'non réussi'} (
+              {new Date(examSummary.date).toLocaleDateString('fr-FR')})
+            </div>
+            <div className="conv-correction-explanation">
+              {examSummary.epreuves.map((e) => `${e.label} : ${e.score} %`).join(' — ')}
+            </div>
+          </div>
         )}
 
         {scores && (

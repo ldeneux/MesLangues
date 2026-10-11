@@ -12,6 +12,8 @@ import { speak } from '../../lib/speech';
 import KanjiStrokes from './KanjiStrokes';
 import KanjiDraw from './KanjiDraw';
 import KanjiListenGame from './KanjiListenGame';
+import WriteMode, { type WriteItem } from './WriteMode';
+import { kanaToRomaji, toHiragana } from '../../lib/japanese';
 import { KANJI_CATEGORIES } from '../../lib/constants';
 
 type QType = 'meaning' | 'reading' | 'listen';
@@ -78,7 +80,7 @@ export default function KanjiPanel({ profileId, levelCode }: { profileId: string
   const [kanjis, setKanjis] = useState<KanjiItem[] | null>(null);
   const [progress, setProgress] = useState<KanjiProgressMap>({});
   const [error, setError] = useState('');
-  const [view, setView] = useState<'list' | 'quiz' | 'listen'>('list');
+  const [view, setView] = useState<'list' | 'quiz' | 'listen' | 'write'>('list');
   const [category, setCategory] = useState<string>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [speechOk, setSpeechOk] = useState(true);
@@ -110,6 +112,22 @@ export default function KanjiPanel({ profileId, levelCode }: { profileId: string
   const visible = useMemo(
     () => (kanjis ?? []).filter((k) => category === 'all' || k.category === category),
     [kanjis, category]
+  );
+  // Mode Écrire : audio d'une lecture du kanji (kun'yomi de préférence), sens et rōmaji en aides facultatives
+  const writeItems: WriteItem[] = useMemo(
+    () =>
+      visible.map((k) => {
+        const reading = k.kunyomi[0] ? cleanKana(k.kunyomi[0]) : k.onyomi[0] ? cleanKana(k.onyomi[0]) : '';
+        return {
+          id: k.id,
+          chars: [k.char],
+          display: k.char,
+          romaji: reading ? kanaToRomaji(toHiragana(reading)) : '',
+          speakText: reading || k.char,
+          hint: k.meaning_fr,
+        };
+      }),
+    [visible]
   );
   const availableCategories = useMemo(() => {
     const counts = new Map<string, number>();
@@ -174,6 +192,9 @@ export default function KanjiPanel({ profileId, levelCode }: { profileId: string
         </button>
         <button className={`conv-mini-btn${view === 'listen' ? ' active' : ''}`} onClick={() => setView('listen')}>
           Écoute
+        </button>
+        <button className={`conv-mini-btn${view === 'write' ? ' active' : ''}`} onClick={() => setView('write')}>
+          Écrire
         </button>
         {availableCategories.length > 0 && (
           <select
@@ -293,6 +314,10 @@ export default function KanjiPanel({ profileId, levelCode }: { profileId: string
       )}
 
       {view === 'listen' && <KanjiListenGame kanjis={visible} />}
+
+      {view === 'write' && (
+        <WriteMode key={category} items={writeItems} flagPrefix="kanji" hintLabel="Sens" hintDefault={true} />
+      )}
 
       {view === 'quiz' && (
         <div className="phrase-card phrase-card-big">
