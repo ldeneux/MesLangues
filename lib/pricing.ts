@@ -12,7 +12,7 @@ const EST_INPUT_TOKENS_PER_CHUNK = 600;
 const EST_CHARS_PER_PHRASE = 70;
 const CHUNK_SIZE = 20;
 
-const USD_TO_EUR = 0.93;
+export const USD_TO_EUR = 0.93;
 
 export type CostEstimate = {
   usd: number;
@@ -136,4 +136,9 @@ export function estimateKanjiCost(kanjiCount: number): CostEstimate {
     ((chunks * KANJI_INPUT_TOKENS_PER_CHUNK) / 1e6) * GEMINI_INPUT_PRICE_PER_M +
     ((kanjiCount * KANJI_OUTPUT_TOKENS_PER_KANJI) / 1e6) * GEMINI_OUTPUT_PRICE_PER_M;
   return { usd, eur: usd * USD_TO_EUR };
+}
+
+/** Coût réel (en dollars) d'un appel Gemini à partir des tokens mesurés. */
+export function geminiCostUsd(inputTokens: number, outputTokens: number): number {
+  return (inputTokens / 1e6) * GEMINI_INPUT_PRICE_PER_M + (outputTokens / 1e6) * GEMINI_OUTPUT_PRICE_PER_M;
 }

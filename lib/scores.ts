@@ -1,7 +1,7 @@
 'use server';
 
 import { supabaseAdmin } from './supabaseAdmin';
-import { LEVEL_CUMULATIVE_TARGET, CONJUGATION_TARGET, GRAMMAR_TOPICS, grammarTopicsFor, DOMAIN_WEIGHTS, type LevelCode } from './constants';
+import { LEVEL_CUMULATIVE_TARGET, CONJUGATION_TARGET, GRAMMAR_TOPICS, grammarTopicsFor, DOMAIN_WEIGHTS, CONVERSATION_TARGET_THEMES, CONVERSATION_MASTERY_SCORE, type LevelCode } from './constants';
 
 const MASTERY_MIN_ATTEMPTS = 1;
 const MASTERY_MIN_RATE = 0.9;
@@ -307,6 +307,49 @@ export async function getWritingDomainScore(
 }
 
 // ---------------------------------------------------------
+// Conversation : une situation (scénario / discussion libre / sujet perso) est
+// "réussie" si sa dernière séance a obtenu >= 70/100. Objectif du niveau :
+// CONVERSATION_TARGET_THEMES situations différentes réussies.
+// ---------------------------------------------------------
+export type ConversationDomainScore = {
+  themesMastered: number;
+  themesAttempted: number;
+  target: number;
+  percentOfTarget: number;
+};
+
+export async function getConversationDomainScore(
+  profileId: string,
+  languageCode: string,
+  levelCode: LevelCode
+): Promise<ConversationDomainScore> {
+  const { data, error } = await supabaseAdmin
+    .from('conversation_results')
+    .select('theme_code, score, created_at')
+    .eq('profile_id', profileId)
+    .eq('language_code', languageCode)
+    .eq('level_code', levelCode)
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(`${error.message} (migration 019 exécutée ?)`);
+
+  const latestByTheme = new Map<string, number>();
+  for (const r of data ?? []) {
+    if (!latestByTheme.has(r.theme_code)) latestByTheme.set(r.theme_code, r.score);
+  }
+  let themesMastered = 0;
+  for (const [, score] of Array.from(latestByTheme)) {
+    if (score >= CONVERSATION_MASTERY_SCORE) themesMastered++;
+  }
+
+  return {
+    themesMastered,
+    themesAttempted: latestByTheme.size,
+    target: CONVERSATION_TARGET_THEMES,
+    percentOfTarget: Math.min(100, Math.round((themesMastered / CONVERSATION_TARGET_THEMES) * 100)),
+  };
+}
+
+// ---------------------------------------------------------
 // Score global pondéré (pas une équivalence officielle CECRL — une
 // estimation "où j'en suis" pour le niveau actuellement sélectionné)
 // ---------------------------------------------------------
@@ -320,6 +363,7 @@ export type AllDomainScores = {
   listening: ListeningDomainScore;
   phrases: PhrasesDomainScore;
   writing: WritingDomainScore;
+  conversation: ConversationDomainScore;
   globalPercent: number;
   domainErrors: { domain: string; message: string }[];
 };
@@ -344,6 +388,7 @@ const ZERO_GRAMMAR: GrammarDomainScore = { topicsMastered: 0, topicsAttempted: 0
 const ZERO_LISTENING: ListeningDomainScore = { articlesMastered: 0, articlesAttempted: 0, totalArticles: 0, percentOfTarget: 0 };
 const ZERO_PHRASES: PhrasesDomainScore = { masteredCount: 0, practicedCount: 0, levelTarget: 700, percentOfTarget: 0 };
 const ZERO_WRITING: WritingDomainScore = { promptsMastered: 0, promptsAttempted: 0, totalPrompts: 0, percentOfTarget: 0 };
+const ZERO_CONVERSATION: ConversationDomainScore = { themesMastered: 0, themesAttempted: 0, target: CONVERSATION_TARGET_THEMES, percentOfTarget: 0 };
 
 /**
  * Enveloppe chaque calcul de domaine individuellement : si l'un échoue (ex.
@@ -366,13 +411,14 @@ export async function getAllDomainScores(
 ): Promise<AllDomainScores> {
   const domainErrors: { domain: string; message: string }[] = [];
 
-  const [vocabulary, conjugation, grammar, listening, phrases, writing] = await Promise.all([
+  const [vocabulary, conjugation, grammar, listening, phrases, writing, conversation] = await Promise.all([
     safe('Vocabulaire', () => getVocabularyDomainScore(profileId, languageCode, levelCode), ZERO_VOCAB, domainErrors),
     safe('Conjugaison', () => getConjugationDomainScore(profileId, languageCode), ZERO_CONJ, domainErrors),
     safe('Grammaire', () => getGrammarDomainScore(profileId, languageCode), ZERO_GRAMMAR, domainErrors),
     safe('Écoute', () => getListeningDomainScore(profileId, languageCode, levelCode), ZERO_LISTENING, domainErrors),
     safe('Phrases', () => getPhrasesDomainScore(profileId, languageCode, levelCode), ZERO_PHRASES, domainErrors),
     safe('Écriture', () => getWritingDomainScore(profileId, languageCode, levelCode), ZERO_WRITING, domainErrors),
+    safe('Conversation', () => getConversationDomainScore(profileId, languageCode, levelCode), ZERO_CONVERSATION, domainErrors),
   ]);
 
   const globalPercent = Math.round(
@@ -381,8 +427,9 @@ export async function getAllDomainScores(
       vocabulary.percentOfTarget * DOMAIN_WEIGHTS.vocabulary +
       writing.percentOfTarget * DOMAIN_WEIGHTS.writing +
       conjugation.percentOfTarget * DOMAIN_WEIGHTS.conjugation +
-      grammar.percentOfTarget * DOMAIN_WEIGHTS.grammar
+      grammar.percentOfTarget * DOMAIN_WEIGHTS.grammar +
+      conversation.percentOfTarget * DOMAIN_WEIGHTS.conversation
   );
 
-  return { vocabulary, conjugation, grammar, listening, phrases, writing, globalPercent, domainErrors };
+  return { vocabulary, conjugation, grammar, listening, phrases, writing, conversation, globalPercent, domainErrors };
 }

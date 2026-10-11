@@ -1,6 +1,6 @@
 'use client';
 
-export type Tab = 'kana' | 'kanji' | 'today' | 'revision' | 'packs' | 'vocabulary' | 'grammar' | 'conjugation' | 'writing' | 'games';
+export type Tab = 'kana' | 'kanji' | 'today' | 'revision' | 'packs' | 'vocabulary' | 'grammar' | 'conjugation' | 'writing' | 'conversation' | 'games';
 
 export default function Sidebar({
   tab,
@@ -50,8 +50,8 @@ export default function Sidebar({
         <button className={`sidebar-item${tab === 'games' ? ' active' : ''}`} onClick={() => onTabChange('games')}>
           🎮 Jeux
         </button>
-        <button className="sidebar-item sidebar-item-disabled" disabled title="Temporairement désactivé">
-          💬 Conversation <span className="tab-badge">bientôt</span>
+        <button className={`sidebar-item${tab === 'conversation' ? ' active' : ''}`} onClick={() => onTabChange('conversation')}>
+          💬 Conversation
         </button>
       </nav>
     </aside>

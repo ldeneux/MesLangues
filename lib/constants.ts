@@ -89,13 +89,19 @@ export const WRITING_TIME_BUDGET_MINUTES: Record<string, number> = {
 };
 
 export const DOMAIN_WEIGHTS = {
-  listening: 0.25,
-  phrases: 0.2,
-  vocabulary: 0.18,
-  writing: 0.15,
-  conjugation: 0.12,
+  listening: 0.22,
+  phrases: 0.18,
+  vocabulary: 0.17,
+  writing: 0.13,
+  conjugation: 0.1,
   grammar: 0.1,
+  conversation: 0.1,
 };
+
+// Conversation : nombre de situations différentes (scénarios, discussion libre…)
+// réussies (dernière note >= 70) pour considérer le domaine "acquis" au niveau.
+export const CONVERSATION_TARGET_THEMES = 6;
+export const CONVERSATION_MASTERY_SCORE = 70;
 
 export const GRAMMAR_TOPICS = [
   { code: 'articles', label: 'Articles (défini / indéfini)' },

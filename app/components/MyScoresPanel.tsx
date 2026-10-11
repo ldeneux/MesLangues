@@ -93,7 +93,8 @@ export default function MyScoresPanel({
                   pondéré écoute {Math.round(DOMAIN_WEIGHTS.listening * 100)}% / phrases{' '}
                   {Math.round(DOMAIN_WEIGHTS.phrases * 100)}% / vocabulaire {Math.round(DOMAIN_WEIGHTS.vocabulary * 100)}% /
                   écriture {Math.round(DOMAIN_WEIGHTS.writing * 100)}% / conjugaison{' '}
-                  {Math.round(DOMAIN_WEIGHTS.conjugation * 100)}% / grammaire {Math.round(DOMAIN_WEIGHTS.grammar * 100)}%.
+                  {Math.round(DOMAIN_WEIGHTS.conjugation * 100)}% / grammaire {Math.round(DOMAIN_WEIGHTS.grammar * 100)}% /
+                  conversation {Math.round(DOMAIN_WEIGHTS.conversation * 100)}%.
                 </p>
                 <p className="eyebrow-free" style={{ marginTop: '0.4rem' }}>
                   ⚠️ Ce n'est pas une équivalence officielle CECRL, juste une estimation interne à l'appli.
@@ -131,6 +132,11 @@ export default function MyScoresPanel({
                 label="Grammaire"
                 percent={scores.grammar.percentOfTarget}
                 sublabel={`${scores.grammar.topicsMastered}/${scores.grammar.totalTopics} fiches`}
+              />
+              <VerticalGauge
+                label="Conversation"
+                percent={scores.conversation.percentOfTarget}
+                sublabel={`${scores.conversation.themesMastered}/${scores.conversation.target} situations`}
               />
             </div>
 

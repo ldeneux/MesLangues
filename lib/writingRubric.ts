@@ -25,7 +25,7 @@ export const LEVEL_WEIGHTS: Record<string, Record<CriterionKey, number>> = {
 // Tolérance aux erreurs par niveau (plus haut = plus tolérant). Utilisé
 // pour plafonner "grammar"/"vocabulary" selon la densité d'erreurs — un
 // même texte est donc jugé plus sévèrement en B2 qu'en A1.
-const LEVEL_ERROR_TOLERANCE: Record<string, number> = { A1: 1.6, A2: 1.3, B1: 1.0, B2: 0.7 };
+export const LEVEL_ERROR_TOLERANCE: Record<string, number> = { A1: 1.6, A2: 1.3, B1: 1.0, B2: 0.7 };
 
 export type WritingError = {
   category:
@@ -67,7 +67,7 @@ export function adjustedRange(minWords: number, maxWords: number, languageCode: 
   return [minWords, maxWords];
 }
 
-function densityCap(
+export function densityCap(
   errors: WritingError[],
   categories: WritingError['category'][],
   wordCount: number,

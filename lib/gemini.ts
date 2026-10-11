@@ -25,15 +25,20 @@ export const BCP47: Record<string, string> = {
   de: 'de-DE',
 };
 
+export type GeminiUsage = {
+  inputTokens: number;
+  outputTokens: number; // sortie visible + tokens de réflexion (facturés comme de la sortie)
+};
+
 /**
- * Appelle l'API Gemini et retourne le texte brut de la réponse (JSON forcé
- * côté génération pour éviter d'avoir à nettoyer des balises markdown).
+ * Appelle l'API Gemini et retourne le texte brut + la consommation réelle de
+ * tokens (usageMetadata), pour pouvoir suivre le coût en direct.
  */
-export async function callGemini(
+export async function callGeminiWithUsage(
   system: string,
   user: string,
   options?: { temperature?: number; maxOutputTokens?: number }
-): Promise<string> {
+): Promise<{ text: string; usage: GeminiUsage }> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY manquant');
 
@@ -67,5 +72,21 @@ export async function callGemini(
 
   const text = candidate?.content?.parts?.[0]?.text;
   if (!text) throw new Error('Réponse Gemini sans contenu texte');
+
+  const meta = json?.usageMetadata ?? {};
+  const usage: GeminiUsage = {
+    inputTokens: Number(meta.promptTokenCount ?? 0),
+    outputTokens: Number(meta.candidatesTokenCount ?? 0) + Number(meta.thoughtsTokenCount ?? 0),
+  };
+  return { text, usage };
+}
+
+/** Version simple (texte seul), utilisée par tous les modules de génération. */
+export async function callGemini(
+  system: string,
+  user: string,
+  options?: { temperature?: number; maxOutputTokens?: number }
+): Promise<string> {
+  const { text } = await callGeminiWithUsage(system, user, options);
   return text;
 }

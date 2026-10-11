@@ -1881,3 +1881,43 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 .kanji-tile.wrong { background: #f3d6d0; border-color: #a3402f; }
 .kanji-tile.right { background: #d8ecd0; border-color: #2f6b4f; }
 .kanji-tile:disabled { cursor: default; }
+
+/* --- Conversation notée : choix de situation, compteur de coût, bannières --- */
+.conv-scenario-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.6rem 0 1rem; }
+.conv-scenario-btn {
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+.conv-scenario-btn:hover { border-color: var(--ink-soft); }
+.conv-scenario-btn.selected { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.conv-scenario-emoji { margin-right: 0.2rem; }
+.conv-objectives {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.7rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+.conv-objectives ul { margin: 0.3rem 0 0.6rem 1.1rem; padding: 0; }
+.conv-cost-note { font-size: 0.85rem; color: var(--ink-soft); margin: 0.4rem 0 1rem; }
+
+.conv-meter { margin-bottom: 0.8rem; }
+.conv-meter-head { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--ink-soft); margin-bottom: 0.3rem; flex-wrap: wrap; gap: 0.3rem; }
+.conv-meter-track { height: 8px; background: var(--line); border-radius: 999px; overflow: hidden; }
+.conv-meter-fill { height: 100%; background: #27ae60; border-radius: 999px; transition: width 0.3s; }
+.conv-meter-fill.warn { background: #f5b83d; }
+.conv-meter-fill.alert { background: #c0392b; }
+
+.conv-banner { font-size: 0.88rem; border-radius: 8px; padding: 0.6rem 0.8rem; margin: 0 0 0.8rem; }
+.conv-banner-soon { background: #fff6dd; color: #7a5a00; }
+.conv-banner-final { background: #fbeeea; color: #a3402f; }
+
+.conv-finish-row { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; margin-top: 1rem; }
+.conv-finish-row .conv-reset { margin-left: auto; }
