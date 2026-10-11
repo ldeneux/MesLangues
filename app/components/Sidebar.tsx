@@ -1,6 +1,6 @@
 'use client';
 
-export type Tab = 'kana' | 'kanji' | 'today' | 'revision' | 'packs' | 'vocabulary' | 'grammar' | 'conjugation' | 'writing' | 'conversation' | 'games';
+export type Tab = 'kana' | 'kanji' | 'lessons' | 'today' | 'revision' | 'packs' | 'vocabulary' | 'grammar' | 'conjugation' | 'writing' | 'conversation' | 'games';
 
 export default function Sidebar({
   tab,
@@ -26,6 +26,9 @@ export default function Sidebar({
             漢 Kanji
           </button>
         )}
+        <button className={`sidebar-item${tab === 'lessons' ? ' active' : ''}`} onClick={() => onTabChange('lessons')}>
+          🎓 Leçons
+        </button>
         <button className={`sidebar-item${tab === 'today' ? ' active' : ''}`} onClick={() => onTabChange('today')}>
           🗣️ Phrases du jour
         </button>

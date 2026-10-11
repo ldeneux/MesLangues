@@ -142,3 +142,18 @@ export function estimateKanjiCost(kanjiCount: number): CostEstimate {
 export function geminiCostUsd(inputTokens: number, outputTokens: number): number {
   return (inputTokens / 1e6) * GEMINI_INPUT_PRICE_PER_M + (outputTokens / 1e6) * GEMINI_OUTPUT_PRICE_PER_M;
 }
+
+
+// --- Leçons : classement des mots par utilité (Gemini, texte seulement, pas d'audio) ---
+const RANK_BATCH_WORDS = 70;
+const RANK_INPUT_TOKENS_PER_WORD = 30;
+const RANK_INPUT_TOKENS_PER_BATCH = 250; // consigne
+const RANK_OUTPUT_TOKENS_PER_WORD = 8; // « [12,87], » ; marge pour la réflexion du modèle
+
+export function estimateRankingCost(wordCount: number): CostEstimate {
+  const batches = Math.ceil(wordCount / RANK_BATCH_WORDS);
+  const inputTokens = wordCount * RANK_INPUT_TOKENS_PER_WORD + batches * RANK_INPUT_TOKENS_PER_BATCH;
+  const outputTokens = wordCount * RANK_OUTPUT_TOKENS_PER_WORD;
+  const usd = (inputTokens / 1e6) * GEMINI_INPUT_PRICE_PER_M + (outputTokens / 1e6) * GEMINI_OUTPUT_PRICE_PER_M;
+  return { usd, eur: usd * USD_TO_EUR };
+}

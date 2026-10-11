@@ -17,6 +17,7 @@ import WritingPanel from './WritingPanel';
 import ConversationPanel from './ConversationPanel';
 import KanaPanel from './KanaPanel';
 import KanjiPanel from './KanjiPanel';
+import LessonsPanel from './LessonsPanel';
 import ErrorBoundary from './ErrorBoundary';
 
 export default function LanguageHub() {
@@ -43,6 +44,7 @@ export default function LanguageHub() {
           <ErrorBoundary key={`${tab}-${lang}-${level}`} label={tab}>
           {tab === 'kana' && lang === 'ja' && <KanaPanel />}
           {tab === 'kanji' && lang === 'ja' && <KanjiPanel profileId={profile.id} levelCode={level} />}
+          {tab === 'lessons' && <LessonsPanel profileId={profile.id} languageCode={lang} levelCode={level} />}
           {tab === 'today' && <LearnPanel profileId={profile.id} lang={lang} level={level} />}
           {tab === 'revision' && <RevisionPanel languageCode={lang} levelCode={level} />}
           {tab === 'packs' && <PacksPanel languageCode={lang} levelCode={level} />}
