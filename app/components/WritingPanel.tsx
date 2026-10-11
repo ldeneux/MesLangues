@@ -13,7 +13,7 @@ import { THEMES, WRITING_TIME_BUDGET_MINUTES } from '../../lib/constants';
 import { countLength } from '../../lib/writingRubric';
 import WritingFeedback from './WritingFeedback';
 import WritingHistory from './WritingHistory';
-import JapaneseInput from './JapaneseInput';
+import LanguageInput from './LanguageInput';
 import WritingTimer, { type WritingTimerHandle } from './WritingTimer';
 
 export default function WritingPanel({
@@ -162,17 +162,7 @@ export default function WritingPanel({
             {selected.min_words}-{selected.max_words} mots attendus
           </p>
 
-          {languageCode === 'ja' ? (
-            <JapaneseInput value={text} onChange={setText} rows={6} placeholder="ここに書いてください… (écris ici, en rōmaji ou en kana)" />
-          ) : (
-            <textarea
-              className="writing-textarea"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Écris ta réponse ici…"
-              rows={6}
-            />
-          )}
+          <LanguageInput languageCode={languageCode} value={text} onChange={setText} rows={6} />
           <p className={`eyebrow-free${inRange ? '' : ' writing-count-warning'}`}>
             {lengthInfo.count} {lengthInfo.unit}
             {languageCode !== 'ja' ? ` / ${selected.min_words}-${selected.max_words}` : ''}

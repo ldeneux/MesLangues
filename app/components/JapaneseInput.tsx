@@ -16,11 +16,17 @@ export default function JapaneseInput({
   onChange,
   rows = 6,
   placeholder,
+  disabled = false,
+  onEnter,
+  compact = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   rows?: number;
   placeholder?: string;
+  disabled?: boolean;
+  onEnter?: (finalValue: string) => void; // Entrée envoie (Maj+Entrée = retour à la ligne)
+  compact?: boolean; // version courte pour la conversation
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const caretRef = useRef<number | null>(null);
@@ -46,6 +52,12 @@ export default function JapaneseInput({
     const caret = e.target.selectionStart ?? raw.length;
     caretRef.current = romajiToKana(raw.slice(0, caret), { katakana }).length;
     onChange(romajiToKana(raw, { katakana }));
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (!onEnter || e.key !== 'Enter' || e.shiftKey || (e.nativeEvent as any).isComposing) return;
+    e.preventDefault();
+    onEnter(romajiMode ? romajiToKana(value, { katakana, final: true }) : value);
   }
 
   function handleBlur() {
@@ -84,9 +96,11 @@ export default function JapaneseInput({
     <div className="ja-input">
       <textarea
         ref={ref}
-        className="writing-textarea"
+        className={compact ? 'conv-text-input conv-textarea' : 'writing-textarea'}
         value={value}
+        disabled={disabled}
         onChange={handleChange}
+        onKeyDown={handleKeyDown}
         onBlur={handleBlur}
         placeholder={placeholder}
         rows={rows}
@@ -109,7 +123,7 @@ export default function JapaneseInput({
           {paletteOpen ? 'Masquer la palette' : '⌨️ Palette de kana'}
         </button>
       </div>
-      {romajiMode && (
+      {romajiMode && !compact && (
         <p className="eyebrow-free" style={{ marginBottom: '0.5rem' }}>
           Tape par exemple <em>konnichiha</em> → こんにちは (は se tape « ha », を « wo »). « nn » donne ん, « - » donne ー en
           katakana.

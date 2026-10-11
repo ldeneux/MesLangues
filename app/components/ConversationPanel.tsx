@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import HighlightText from './HighlightText';
 import ConversationHistory from './ConversationHistory';
+import LanguageInput from './LanguageInput';
 import ConversationFeedback, { ConversationTranscript } from './ConversationFeedback';
 import {
   getConversationTurn,
@@ -15,6 +16,9 @@ import {
 } from '../../lib/conversation';
 import {
   scenariosForLevel,
+  isAboveLevel,
+  SCENARIO_CATEGORIES,
+  type ScenarioCategory,
   getScenario,
   FREE_THEME_CODE,
   CUSTOM_THEME_CODE,
@@ -29,7 +33,7 @@ import {
 } from '../../lib/conversationBudget';
 import { MIN_TURNS_TO_FINISH } from '../../lib/conversationRubric';
 
-type Mode = 'audio' | 'audio_text';
+type Mode = 'audio' | 'audio_text' | 'text';
 type Phase = 'setup' | 'live' | 'finishing' | 'result';
 type Status = 'idle' | 'ai_speaking' | 'listening' | 'thinking' | 'error';
 type ThemeKind = 'scenario' | 'free' | 'custom';
@@ -57,12 +61,13 @@ export default function ConversationPanel({
   levelCode: string;
   bcp47: string;
 }) {
-  const availableScenarios = scenariosForLevel(levelCode);
+  const allScenarios = scenariosForLevel(levelCode);
 
   const [phase, setPhase] = useState<Phase>('setup');
   const [mode, setMode] = useState<Mode>('audio_text');
   const [themeKind, setThemeKind] = useState<ThemeKind>('scenario');
-  const [scenarioCode, setScenarioCode] = useState(availableScenarios[0]?.code ?? FREE_THEME_CODE);
+  const [scenarioCode, setScenarioCode] = useState(allScenarios[0]?.code ?? FREE_THEME_CODE);
+  const [categoryFilter, setCategoryFilter] = useState<'all' | ScenarioCategory>('all');
   const [customTheme, setCustomTheme] = useState('');
   const [status, setStatus] = useState<Status>('idle');
 
@@ -87,6 +92,9 @@ export default function ConversationPanel({
   const activeScenarioCode = themeKind === 'scenario' ? scenarioCode : themeKind === 'custom' ? CUSTOM_THEME_CODE : FREE_THEME_CODE;
   const activeCustom = themeKind === 'custom' ? customTheme.trim() : '';
   const selectedScenario = themeKind === 'scenario' ? getScenario(scenarioCode) : null;
+
+  const visibleScenarios = allScenarios.filter((sc) => categoryFilter === 'all' || sc.category === categoryFilter);
+  const textOnly = mode === 'text'; // mode silencieux : ni voix de l'IA, ni micro
 
   const userTurns = turns.filter((t) => t.speaker === 'user').length;
   const budget = budgetState(spentUsd, userTurns);
@@ -181,12 +189,12 @@ export default function ConversationPanel({
       speaker: 'ai',
       text: reply.message,
       text_fr: reply.message_fr,
-      revealed: mode === 'audio_text',
+      revealed: mode !== 'audio',
       revealedFr: false,
     });
     setTurns(updated);
 
-    await speak(reply.message);
+    if (!textOnly) await speak(reply.message);
     setStatus('idle');
   }
 
@@ -295,7 +303,8 @@ export default function ConversationPanel({
     setStatus('idle');
   }
 
-  const canListen = recognitionSupported && status === 'idle' && !ended && budget.level !== 'stop';
+  const micAvailable = recognitionSupported && !textOnly;
+  const canListen = micAvailable && status === 'idle' && !ended && budget.level !== 'stop';
 
   // ------------------------------------------------------------------ SETUP
   if (phase === 'setup') {
@@ -314,7 +323,13 @@ export default function ConversationPanel({
           <button className={`level-btn${mode === 'audio_text' ? ' active' : ''}`} onClick={() => setMode('audio_text')}>
             Audio + texte
           </button>
+          <button className={`level-btn${mode === 'text' ? ' active' : ''}`} onClick={() => setMode('text')}>
+            Texte seul
+          </button>
         </div>
+        {textOnly && (
+          <p className="eyebrow-free">Mode silencieux, façon chat : pas de voix, pas de micro, tu écris tes réponses (idéal pour réviser sans bruit).</p>
+        )}
 
         <div className="sidebar-label" style={{ marginTop: '1rem' }}>De quoi veux-tu parler ?</div>
         <div className="level-row">
@@ -331,14 +346,29 @@ export default function ConversationPanel({
 
         {themeKind === 'scenario' && (
           <>
-            <div className="conv-scenario-grid">
-              {availableScenarios.map((s) => (
+            <div className="level-row" style={{ marginTop: '0.6rem' }}>
+              <button className={`conv-mini-btn${categoryFilter === 'all' ? ' active' : ''}`} onClick={() => setCategoryFilter('all')}>
+                Tous ({allScenarios.length})
+              </button>
+              {SCENARIO_CATEGORIES.map((c) => (
                 <button
-                  key={s.code}
-                  className={`conv-scenario-btn${scenarioCode === s.code ? ' selected' : ''}`}
-                  onClick={() => setScenarioCode(s.code)}
+                  key={c.code}
+                  className={`conv-mini-btn${categoryFilter === c.code ? ' active' : ''}`}
+                  onClick={() => setCategoryFilter(c.code)}
                 >
-                  <span className="conv-scenario-emoji">{s.emoji}</span> {s.label}
+                  {c.label}
+                </button>
+              ))}
+            </div>
+            <div className="conv-scenario-grid">
+              {visibleScenarios.map((sc) => (
+                <button
+                  key={sc.code}
+                  className={`conv-scenario-btn${scenarioCode === sc.code ? ' selected' : ''}`}
+                  onClick={() => setScenarioCode(sc.code)}
+                >
+                  <span className="conv-scenario-emoji">{sc.emoji}</span> {sc.label}
+                  {isAboveLevel(sc, levelCode) && <span className="conv-scenario-level"> · dès {sc.minLevel}</span>}
                 </button>
               ))}
             </div>
@@ -377,10 +407,10 @@ export default function ConversationPanel({
           faut conclure.
         </p>
 
-        {!speechSupported && (
+        {!textOnly && !speechSupported && (
           <p className="conv-warning">Ton navigateur ne gère pas la synthèse vocale : la conversation se fera en texte seulement.</p>
         )}
-        {!recognitionSupported && (
+        {!textOnly && !recognitionSupported && (
           <p className="conv-warning">
             Ton navigateur ne gère pas la reconnaissance vocale (fonctionne mieux sur Chrome) : tu pourras répondre au clavier.
           </p>
@@ -483,9 +513,11 @@ export default function ConversationPanel({
               {t.revealed ? <div>{t.text}</div> : <div className="conv-hidden-text">🔊 (écoute l'audio)</div>}
               {t.revealedFr && <div className="conv-bubble-translation">🇫🇷 {t.text_fr}</div>}
               <div className="conv-bubble-actions">
-                <button className="conv-mini-btn" onClick={() => speak(t.text).then(() => setStatus('idle'))}>
-                  🔊 Réécouter
-                </button>
+                {!textOnly && (
+                  <button className="conv-mini-btn" onClick={() => speak(t.text).then(() => setStatus('idle'))}>
+                    🔊 Réécouter
+                  </button>
+                )}
                 <button className="conv-mini-btn" onClick={() => toggleReveal(t.id, 'revealed')}>
                   {t.revealed ? 'Masquer le texte' : 'Afficher le texte'}
                 </button>
@@ -502,7 +534,7 @@ export default function ConversationPanel({
 
       {!ended && budget.level !== 'stop' && (
         <div className="conv-controls">
-          {recognitionSupported ? (
+          {micAvailable ? (
             <button
               className={`mic-btn${status === 'listening' ? ' active' : ''}`}
               onClick={status === 'listening' ? stopListening : startListening}
@@ -511,21 +543,20 @@ export default function ConversationPanel({
               {status === 'listening' ? '⏹ Stop' : '🎙️ Parler'}
             </button>
           ) : (
-            <span className="eyebrow-free">Réponds au clavier ci-dessous.</span>
+            !textOnly && <span className="eyebrow-free">Réponds au clavier ci-dessous.</span>
           )}
 
-          {(mode === 'audio_text' || !recognitionSupported) && (
+          {(mode !== 'audio' || !recognitionSupported) && (
             <div className="conv-text-row">
-              <input
-                className="conv-text-input"
-                type="text"
-                placeholder="Ta réponse…"
+              <LanguageInput
+                languageCode={languageCode}
                 value={draft}
+                onChange={setDraft}
+                rows={2}
+                compact
+                placeholder="Ta réponse… (Entrée pour envoyer)"
                 disabled={status === 'thinking' || finishing}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') submitAnswer(draft);
-                }}
+                onEnter={(v) => submitAnswer(v)}
               />
               <button className="primary" onClick={() => submitAnswer(draft)} disabled={!draft.trim() || status === 'thinking' || finishing}>
                 Envoyer
