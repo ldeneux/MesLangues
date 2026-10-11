@@ -2010,3 +2010,12 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 .lesson-recap-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem 1.5rem; }
 .lesson-recap-block .sidebar-label { margin-bottom: 0.3rem; }
 .lesson-recap-line { font-size: 0.95rem; line-height: 1.6; }
+
+.lesson-verb-head { display: flex; align-items: center; gap: 0.9rem; padding: 0.3rem 0 0.5rem; }
+.lesson-verb-name { font-size: 1.5rem; font-weight: 700; }
+
+.lesson-conj-verb { border-top: 1px solid var(--line); padding: 0.8rem 0; }
+.lesson-conj-verb:first-of-type { border-top: none; }
+.lesson-conj-verb-title { font-weight: 700; font-size: 1.05rem; margin-bottom: 0.4rem; }
+.lesson-conj-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.6rem 1.2rem; }
+.lesson-conj-line { font-size: 0.95rem; line-height: 1.55; }

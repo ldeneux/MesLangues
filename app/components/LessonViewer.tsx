@@ -3,33 +3,46 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getLesson, completeLesson, type LessonContent, type LessonWord } from '../../lib/lessons';
 import type { ConjugationVerb } from '../../lib/conjugation';
-import { THEMES } from '../../lib/constants';
+import type { KanjiItem } from '../../lib/kanji';
+import { THEMES, LANGS } from '../../lib/constants';
 import { splitEnding } from '../../lib/conjugationHighlight';
 import { kanaToRomaji } from '../../lib/japanese';
+import { conjugateJapaneseVerb } from '../../lib/japaneseVerbs';
+import { speak } from '../../lib/speech';
 import HighlightText from './HighlightText';
 import RubyHighlight from './RubyHighlight';
 import JapaneseRuby from './JapaneseRuby';
 import JapaneseConjugationDetail from './JapaneseConjugationDetail';
+import KanjiStrokes from './KanjiStrokes';
+import KanjiDraw from './KanjiDraw';
 import { usePersistentFlag } from './usePersistentFlag';
 import { useJapaneseReadings } from './useJapaneseReadings';
 
 const PRONOUNS_FR = ['je', 'tu', 'il/elle', 'nous', 'vous', 'ils/elles'];
 
-type Card =
-  | 'intro'
-  | 'review'
-  | 'nouns'
-  | 'adjectives'
-  | 'others'
-  | 'verbs'
-  | 'conjugation'
-  | 'grammar'
-  | 'phrases'
-  | 'recap';
+// Fiche de conjugaison récapitulative : présent, passé composé, futur (japonais : formes polies équivalentes).
+const RECAP_TENSES: { key: 'present' | 'passe_compose' | 'futur'; label: string }[] = [
+  { key: 'present', label: 'Présent' },
+  { key: 'passe_compose', label: 'Passé composé' },
+  { key: 'futur', label: 'Futur' },
+];
+const JA_RECAP: { id: string; label: string }[] = [
+  { id: 'dict', label: 'Dictionnaire' },
+  { id: 'masu', label: 'Présent / futur poli' },
+  { id: 'masen', label: 'Négatif poli' },
+  { id: 'mashita', label: 'Passé poli' },
+];
+
+type CardType = 'intro' | 'review' | 'nouns' | 'adjectives' | 'others' | 'verb' | 'conjrecap' | 'kanji' | 'grammar' | 'phrases' | 'recap';
+type CardDef = { type: CardType; index?: number };
 
 function themeLabel(code: string) {
   return THEMES.find((t) => t.code === code)?.label ?? code;
 }
+
+// Lecture d'un kanji ou d'un mot japonais par la voix du navigateur : on retire les marques « . » et « - » des lectures.
+const cleanKana = (s: string) => s.replace(/[.\-～~]/g, '');
+const showKun = (s: string) => s.replace(/\./g, '・');
 
 export default function LessonViewer({
   profileId,
@@ -49,6 +62,7 @@ export default function LessonViewer({
   onOpen: (n: number) => void;
 }) {
   const isJa = languageCode === 'ja';
+  const bcp47 = LANGS.find((l) => l.code === languageCode)?.bcp47 ?? 'en-US';
   const [lesson, setLesson] = useState<LessonContent | null>(null);
   const [error, setError] = useState('');
   const [step, setStep] = useState(0);
@@ -80,17 +94,19 @@ export default function LessonViewer({
   }, [profileId, languageCode, levelCode, number]);
 
   // Cartes de la leçon, dans l'ordre d'apprentissage
-  const cards: Card[] = useMemo(() => {
+  const cards: CardDef[] = useMemo(() => {
     if (!lesson) return [];
-    const c: Card[] = ['intro'];
-    if (lesson.review.length > 0) c.push('review');
-    if (lesson.nouns.length > 0) c.push('nouns');
-    if (lesson.adjectives.length > 0) c.push('adjectives');
-    if (lesson.others.length > 0) c.push('others');
-    if (lesson.verbs.length > 0) c.push('verbs', 'conjugation');
-    if (lesson.grammar) c.push('grammar');
-    if (lesson.phrases.length > 0) c.push('phrases');
-    c.push('recap');
+    const c: CardDef[] = [{ type: 'intro' }];
+    if (lesson.review.length > 0) c.push({ type: 'review' });
+    if (lesson.nouns.length > 0) c.push({ type: 'nouns' });
+    if (lesson.adjectives.length > 0) c.push({ type: 'adjectives' });
+    if (lesson.others.length > 0) c.push({ type: 'others' });
+    lesson.verbs.forEach((_, i) => c.push({ type: 'verb', index: i }));
+    if (lesson.conjugationRecap.length > 0) c.push({ type: 'conjrecap' });
+    lesson.kanji.forEach((_, i) => c.push({ type: 'kanji', index: i }));
+    if (lesson.grammar) c.push({ type: 'grammar' });
+    if (lesson.phrases.length > 0) c.push({ type: 'phrases' });
+    c.push({ type: 'recap' });
     return c;
   }, [lesson]);
 
@@ -116,6 +132,21 @@ export default function LessonViewer({
     setPlayingKey(key);
     el.onended = () => setPlayingKey((k) => (k === key ? null : k));
     el.play().catch(() => setPlayingKey(null));
+  }
+
+  // Infinitif d'un verbe : audio enregistré s'il existe, sinon voix du navigateur.
+  function playInfinitive(v: ConjugationVerb, key: string) {
+    const url = v.tense_audio?.infinitive ?? null;
+    if (url) {
+      play(url, key);
+      return;
+    }
+    const spoken = isJa ? v.ja_data?.reading || v.infinitive : v.infinitive;
+    audioRef.current?.pause();
+    if (speak(cleanKana(spoken), bcp47)) {
+      setPlayingKey(key);
+      window.setTimeout(() => setPlayingKey((k) => (k === key ? null : k)), 1500);
+    }
   }
 
   async function finish() {
@@ -211,11 +242,254 @@ export default function LessonViewer({
 
   const card = cards[Math.min(step, cards.length - 1)];
   const lastStep = cards.length - 1;
-  const verbOfTheDay = lesson.verbs[0];
-  const verbAllText = (v: ConjugationVerb) => v.infinitive;
+
+  // Mots de la leçon contenant un kanji donné (pour la carte kanji)
+  function wordsWithKanji(char: string): { text: string; fr: string }[] {
+    const all = [
+      ...lesson!.nouns.map((w) => ({ text: w.text, fr: w.fr })),
+      ...lesson!.adjectives.map((w) => ({ text: w.text, fr: w.fr })),
+      ...lesson!.others.map((w) => ({ text: w.text, fr: w.fr })),
+      ...lesson!.phrases.map((w) => ({ text: w.text, fr: w.fr })),
+      ...lesson!.verbs.map((v) => ({ text: v.infinitive, fr: v.translation_fr })),
+    ];
+    return all.filter((w) => w.text.includes(char));
+  }
+
+  function renderVerbCard(index: number) {
+    const v = lesson!.verbs[index];
+    if (!v) return null;
+    const infKey = `inf-${v.id}`;
+    const head = (
+      <div className="lesson-verb-head">
+        <button
+          className={`play-btn${playingKey === infKey ? ' playing' : ''}`}
+          onClick={() => playInfinitive(v, infKey)}
+          aria-label={`Écouter ${v.infinitive}`}
+        >
+          {playingKey === infKey ? '❚❚' : '▶'}
+        </button>
+        <div className="lesson-word-body">
+          <div className="lesson-verb-name">{verbLabel(v)}</div>
+          <div className="lesson-word-fr">{v.translation_fr}</div>
+        </div>
+      </div>
+    );
+
+    if (isJa && v.ja_data) {
+      return (
+        <>
+          <div className="lesson-card-title">
+            Verbe {index + 1} sur {lesson!.verbs.length}
+          </div>
+          {renderJaToggles()}
+          {head}
+          <JapaneseConjugationDetail verb={v} levelCode={levelCode} />
+        </>
+      );
+    }
+
+    const forms = v.tenses?.present ?? [];
+    const presentAudio = v.tense_audio?.present ?? null;
+    return (
+      <>
+        <div className="lesson-card-title">
+          Verbe {index + 1} sur {lesson!.verbs.length}
+        </div>
+        {head}
+        <div className="conjugation-tense-title-row" style={{ marginTop: '0.9rem' }}>
+          <div className="conjugation-tense-title">Présent</div>
+          <button
+            className={`play-btn${playingKey === `pres-${v.id}` ? ' playing' : ''}`}
+            onClick={() => play(presentAudio, `pres-${v.id}`)}
+            disabled={!presentAudio}
+            aria-label="Écouter la conjugaison au présent"
+          >
+            {playingKey === `pres-${v.id}` ? '❚❚' : '▶'}
+          </button>
+        </div>
+        <div className="conjugation-forms">
+          {forms.map((form, i) => {
+            const split = splitEnding(form, languageCode, 'present');
+            return (
+              <div key={i} className="conjugation-form-row">
+                <span className="conjugation-pronoun">{PRONOUNS_FR[i]}</span>
+                <span>
+                  {split ? (
+                    <>
+                      {split.stem}
+                      <mark className="highlight-mark">{split.ending}</mark>
+                    </>
+                  ) : (
+                    form
+                  )}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </>
+    );
+  }
+
+  function renderConjugationRecap() {
+    const verbs = lesson!.conjugationRecap;
+    return (
+      <>
+        <div className="lesson-card-title">Fiche de conjugaison</div>
+        <p className="eyebrow-free">
+          Les {verbs.length} verbes des 5 dernières leçons, pour tout reprendre au même endroit.
+        </p>
+        {renderJaToggles()}
+        {verbs.map((v) => {
+          if (isJa && v.ja_data) {
+            const rows = conjugateJapaneseVerb(v.infinitive, v.ja_data.reading, v.ja_data.group).filter((r) =>
+              JA_RECAP.some((x) => x.id === r.id)
+            );
+            return (
+              <div key={v.id} className="lesson-conj-verb">
+                <div className="lesson-conj-verb-title">
+                  {verbLabel(v)} <span className="lesson-word-fr">— {v.translation_fr}</span>
+                </div>
+                <div className="lesson-conj-cols">
+                  {JA_RECAP.map((spec) => {
+                    const row = rows.find((r) => r.id === spec.id);
+                    if (!row) return null;
+                    return (
+                      <div key={spec.id} className="lesson-conj-col">
+                        <div className="conjugation-tense-title">{spec.label}</div>
+                        <div className="lesson-conj-line" lang="ja">
+                          {row.written}
+                          {furigana && row.reading !== row.written && <span className="phrase-notes"> {row.reading}</span>}
+                          {romaji && <span className="phrase-notes"> {kanaToRomaji(row.reading)}</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          }
+          return (
+            <div key={v.id} className="lesson-conj-verb">
+              <div className="lesson-conj-verb-title">
+                {v.infinitive} <span className="lesson-word-fr">— {v.translation_fr}</span>
+              </div>
+              <div className="lesson-conj-cols">
+                {RECAP_TENSES.map((t) => (
+                  <div key={t.key} className="lesson-conj-col">
+                    <div className="conjugation-tense-title">{t.label}</div>
+                    {(v.tenses?.[t.key] ?? []).map((form, i) => {
+                      const split = splitEnding(form, languageCode, t.key);
+                      return (
+                        <div key={i} className="lesson-conj-line">
+                          <span className="conjugation-pronoun">{PRONOUNS_FR[i]}</span>{' '}
+                          {split ? (
+                            <>
+                              {split.stem}
+                              <mark className="highlight-mark">{split.ending}</mark>
+                            </>
+                          ) : (
+                            form
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </>
+    );
+  }
+
+  function renderKanjiCard(index: number) {
+    const k: KanjiItem | undefined = lesson!.kanji[index];
+    if (!k) return null;
+    const inLesson = wordsWithKanji(k.char);
+    return (
+      <>
+        <div className="lesson-card-title">
+          Kanji {index + 1} sur {lesson!.kanji.length}
+        </div>
+        <div className="kanji-detail-head">
+          <div className="kanji-big" lang="ja">
+            {k.char}
+          </div>
+          <div>
+            <div className="phrase-fr" style={{ fontWeight: 600, color: 'var(--ink)', fontSize: '1.2rem' }}>
+              {k.meaning_fr}
+            </div>
+          </div>
+        </div>
+
+        <KanjiStrokes char={k.char} />
+        <KanjiDraw char={k.char} />
+
+        <div className="sidebar-label" style={{ marginTop: '1rem' }}>Lectures</div>
+        <div className="kanji-readings">
+          {k.onyomi.length > 0 && (
+            <div>
+              <span className="revision-fr">On'yomi (dans les mots composés) : </span>
+              {k.onyomi.map((r) => (
+                <button key={r} className="conv-mini-btn" onClick={() => speak(cleanKana(r), 'ja-JP')}>
+                  🔊 {r}
+                </button>
+              ))}
+            </div>
+          )}
+          {k.kunyomi.length > 0 && (
+            <div>
+              <span className="revision-fr">Kun'yomi (lecture japonaise) : </span>
+              {k.kunyomi.map((r) => (
+                <button key={r} className="conv-mini-btn" onClick={() => speak(cleanKana(r), 'ja-JP')}>
+                  🔊 {showKun(r)}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {inLesson.length > 0 && (
+          <>
+            <div className="sidebar-label" style={{ marginTop: '1rem' }}>Dans les mots de cette leçon</div>
+            {inLesson.map((w, i) => {
+              const rd = readings[w.text];
+              return (
+                <div key={i} className="kanji-example">
+                  <span className="kanji-example-word" lang="ja">
+                    {furigana && rd ? <JapaneseRuby ruby={rd.ruby} /> : w.text}
+                  </span>
+                  <span className="revision-fr">{w.fr}</span>
+                </div>
+              );
+            })}
+          </>
+        )}
+
+        {k.examples.length > 0 && (
+          <>
+            <div className="sidebar-label" style={{ marginTop: '1rem' }}>Autres mots d'exemple</div>
+            {k.examples.map((e, i) => (
+              <div key={i} className="kanji-example">
+                <ruby lang="ja" className="kanji-example-word">
+                  {e.word}
+                  <rt>{e.reading}</rt>
+                </ruby>
+                <span className="revision-fr">{e.meaning_fr}</span>
+                <button className="conv-mini-btn" onClick={() => speak(cleanKana(e.reading), 'ja-JP')}>🔊</button>
+              </div>
+            ))}
+          </>
+        )}
+        <p className="eyebrow-free" style={{ marginTop: '1rem' }}>Tracés : KanjiVG (CC BY-SA 3.0).</p>
+      </>
+    );
+  }
 
   function renderCard() {
-    switch (card) {
+    switch (card.type) {
       case 'intro':
         return (
           <>
@@ -229,7 +503,9 @@ export default function LessonViewer({
               {lesson!.nouns.length > 0 && <li>{lesson!.nouns.length} noms</li>}
               {lesson!.adjectives.length > 0 && <li>{lesson!.adjectives.length} adjectifs</li>}
               {lesson!.others.length > 0 && <li>{lesson!.others.length} autres mots utiles</li>}
-              {lesson!.verbs.length > 0 && <li>{lesson!.verbs.length} verbes, dont un conjugué au présent</li>}
+              {lesson!.verbs.length > 0 && <li>{lesson!.verbs.length} verbes, chacun conjugué au présent</li>}
+              {lesson!.conjugationRecap.length > 0 && <li>Une fiche de conjugaison qui reprend les verbes des 5 dernières leçons</li>}
+              {lesson!.kanji.length > 0 && <li>{lesson!.kanji.length} kanji à écrire</li>}
               {lesson!.grammar && <li>Une règle de grammaire avec un exemple</li>}
               {lesson!.phrases.length > 0 && <li>{lesson!.phrases.length} mots et expressions à connaître</li>}
             </ul>
@@ -275,68 +551,14 @@ export default function LessonViewer({
           </>
         );
 
-      case 'verbs':
-        return (
-          <>
-            <div className="lesson-card-title">Les verbes ({lesson!.verbs.length})</div>
-            <p className="eyebrow-free">Le premier est conjugué à la carte suivante.</p>
-            {renderJaToggles()}
-            {lesson!.verbs.map((v) => renderVerbRow(v))}
-          </>
-        );
+      case 'verb':
+        return renderVerbCard(card.index ?? 0);
 
-      case 'conjugation': {
-        if (!verbOfTheDay) return null;
-        if (isJa && verbOfTheDay.ja_data) {
-          return (
-            <>
-              <div className="lesson-card-title">Le verbe du jour</div>
-              <JapaneseConjugationDetail verb={verbOfTheDay} levelCode={levelCode} />
-            </>
-          );
-        }
-        const forms = verbOfTheDay.tenses?.present ?? [];
-        const audio = verbOfTheDay.tense_audio?.present ?? null;
-        return (
-          <>
-            <div className="lesson-card-title">Le verbe du jour</div>
-            <p style={{ fontSize: '1.15rem', fontWeight: 600 }}>
-              {verbAllText(verbOfTheDay)} <span className="lesson-word-fr">— {verbOfTheDay.translation_fr}</span>
-            </p>
-            <div className="conjugation-tense-title-row">
-              <div className="conjugation-tense-title">Présent</div>
-              <button
-                className={`play-btn${playingKey === 'conj' ? ' playing' : ''}`}
-                onClick={() => play(audio, 'conj')}
-                disabled={!audio}
-                aria-label="Écouter la conjugaison au présent"
-              >
-                {playingKey === 'conj' ? '❚❚' : '▶'}
-              </button>
-            </div>
-            <div className="conjugation-forms">
-              {forms.map((form, i) => {
-                const split = splitEnding(form, languageCode, 'present');
-                return (
-                  <div key={i} className="conjugation-form-row">
-                    <span className="conjugation-pronoun">{PRONOUNS_FR[i]}</span>
-                    <span>
-                      {split ? (
-                        <>
-                          {split.stem}
-                          <mark className="highlight-mark">{split.ending}</mark>
-                        </>
-                      ) : (
-                        form
-                      )}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        );
-      }
+      case 'conjrecap':
+        return renderConjugationRecap();
+
+      case 'kanji':
+        return renderKanjiCard(card.index ?? 0);
 
       case 'grammar': {
         const g = lesson!.grammar!;
@@ -410,6 +632,17 @@ export default function LessonViewer({
                     <div key={v.id} className="lesson-recap-line">
                       <strong>{verbLabel(v)}</strong>
                       <span> — {v.translation_fr}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {lesson!.kanji.length > 0 && (
+                <div className="lesson-recap-block">
+                  <div className="sidebar-label">Kanji</div>
+                  {lesson!.kanji.map((k) => (
+                    <div key={k.id} className="lesson-recap-line">
+                      <strong lang="ja">{k.char}</strong>
+                      <span> — {k.meaning_fr}</span>
                     </div>
                   ))}
                 </div>

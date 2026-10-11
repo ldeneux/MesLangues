@@ -157,3 +157,11 @@ export function estimateRankingCost(wordCount: number): CostEstimate {
   const usd = (inputTokens / 1e6) * GEMINI_INPUT_PRICE_PER_M + (outputTokens / 1e6) * GEMINI_OUTPUT_PRICE_PER_M;
   return { usd, eur: usd * USD_TO_EUR };
 }
+
+// --- Leçons : audio de l'infinitif des verbes (Google TTS, texte très court) ---
+const VERB_AUDIO_CHARS = 9;
+
+export function estimateVerbAudioCost(verbCount: number): CostEstimate {
+  const usd = ((verbCount * VERB_AUDIO_CHARS) / 1e6) * TTS_PRICE_PER_M_CHARS;
+  return { usd, eur: usd * USD_TO_EUR };
+}

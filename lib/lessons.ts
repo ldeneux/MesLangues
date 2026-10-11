@@ -5,7 +5,9 @@ import { callGemini, LANGUAGE_NAMES } from './gemini';
 import { grammarTopicsFor, type GrammarTopicMeta } from './constants';
 import { getGrammarTopic, type GrammarTopic } from './grammar';
 import type { ConjugationVerb } from './conjugation';
-import { planLessons, grammarExampleIndex, type PlanWord, type PlannedLesson, type ReviewItem } from './lessonPlan';
+import { planLessons, dedupeWords, grammarExampleIndex, CONJUGATION_RECAP_EVERY, type PlanWord, type PlannedLesson, type ReviewItem } from './lessonPlan';
+import { synthesizeAndStore } from './tts';
+import type { KanjiItem } from './kanji';
 
 // ---------------------------------------------------------
 // Mode Leçons : plan identique pour tous les profils (table `lessons`),
@@ -15,10 +17,10 @@ import { planLessons, grammarExampleIndex, type PlanWord, type PlannedLesson, ty
 // ---------------------------------------------------------
 export type Result<T> = { ok: true; data: T } | { ok: false; error: string };
 
-const MIGRATION_HINT = "exécute la migration 020 dans le SQL Editor de Supabase.";
+const MIGRATION_HINT = "exécute les migrations 020 et 021 dans le SQL Editor de Supabase.";
 
 function explain(message: string): string {
-  if (message.includes('usage_score')) return `La colonne "usage_score" n'existe pas encore — ${MIGRATION_HINT}`;
+  if (message.includes('usage_score') || message.includes('kanji_chars')) return `Une colonne des leçons n'existe pas encore (usage_score ou kanji_chars) — ${MIGRATION_HINT}`;
   if (message.includes('lessons') || message.includes('lesson_progress')) return `Les tables de leçons n'existent pas encore — ${MIGRATION_HINT}`;
   return message;
 }
@@ -39,6 +41,7 @@ export type LessonSetup = {
   verbs: number;
   total: number; // mots de vocabulaire du niveau
   unranked: number; // mots pas encore classés par utilité
+  duplicates: number; // doublons exacts dans la base (ignorés par les leçons)
 };
 
 export type LessonSummary = {
@@ -50,7 +53,11 @@ export type LessonSummary = {
   completed_at: string | null;
 };
 
-export type LessonsOverview = { setup: LessonSetup; lessons: LessonSummary[] };
+export type LessonsOverview = {
+  setup: LessonSetup;
+  lessons: LessonSummary[];
+  verbAudioMissing: number; // verbes de la langue sans audio de l'infinitif
+};
 
 type WordRow = { id: string; theme_code: string; word_type: string; target_text: string; usage_score: number | null };
 
@@ -72,13 +79,13 @@ async function fetchAllWords(languageCode: string, levelCode: string): Promise<W
   return rows;
 }
 
-async function fetchVerbs(languageCode: string): Promise<{ id: string; frequency_rank: number }[]> {
-  let query = supabaseAdmin.from('conjugation_verbs').select('id, frequency_rank').eq('language_code', languageCode);
+async function fetchVerbs(languageCode: string): Promise<{ id: string; frequency_rank: number; infinitive: string }[]> {
+  let query = supabaseAdmin.from('conjugation_verbs').select('id, frequency_rank, infinitive').eq('language_code', languageCode);
   // Japonais : on ignore les anciens verbes au format européen (sans ja_data)
   if (languageCode === 'ja') query = query.not('ja_data', 'is', null);
   const { data, error } = await query.order('frequency_rank');
   if (error) throw new Error(error.message);
-  return (data ?? []) as { id: string; frequency_rank: number }[];
+  return (data ?? []) as { id: string; frequency_rank: number; infinitive: string }[];
 }
 
 // Fiches de grammaire utilisables à ce niveau (japonais : fiches du niveau ; autres langues : toutes).
@@ -88,14 +95,20 @@ function lessonGrammarTopics(languageCode: string, levelCode: string): GrammarTo
   return (atLevel.length > 0 ? atLevel : all).slice();
 }
 
+function toPlanWords(words: WordRow[]): PlanWord[] {
+  return words.map((w) => ({ id: w.id, theme_code: w.theme_code, word_type: w.word_type, score: w.usage_score, text: w.target_text }));
+}
+
 function countSetup(words: WordRow[], verbCount: number): LessonSetup {
+  const unique = dedupeWords(toPlanWords(words));
   return {
-    nouns: words.filter((w) => w.word_type === 'nom').length,
-    adjectives: words.filter((w) => w.word_type === 'adjectif').length,
-    fillers: words.filter((w) => w.word_type === 'adverbe' || w.word_type === 'expression').length,
+    nouns: unique.filter((w) => w.word_type === 'nom').length,
+    adjectives: unique.filter((w) => w.word_type === 'adjectif').length,
+    fillers: unique.filter((w) => w.word_type === 'adverbe' || w.word_type === 'expression').length,
     verbs: verbCount,
-    total: words.length,
+    total: unique.length,
     unranked: words.filter((w) => w.usage_score == null).length,
+    duplicates: words.length - unique.length,
   };
 }
 
@@ -131,7 +144,8 @@ export async function getLessonsOverview(profileId: string, languageCode: string
       completed_at: doneMap.get(l.id) ?? null,
     }));
 
-    return { ok: true, data: { setup, lessons } };
+    const verbAudioMissing = await countVerbsWithoutAudio(languageCode);
+    return { ok: true, data: { setup, lessons, verbAudioMissing } };
   } catch (e: any) {
     return { ok: false, error: explain(e?.message ?? 'Erreur de chargement des leçons.') };
   }
@@ -232,6 +246,30 @@ Réponds UNIQUEMENT par un tableau JSON de paires [numéro, score], par exemple 
   }
 }
 
+// Textes (mots) enseignés dans les leçons des autres niveaux de la langue : pour ne pas les répéter.
+async function textsLearnedAtOtherLevels(languageCode: string, levelCode: string): Promise<string[]> {
+  const { data: other, error } = await supabaseAdmin
+    .from('lessons')
+    .select('level_code, noun_ids, adjective_ids, other_ids, phrase_ids')
+    .eq('language_code', languageCode)
+    .neq('level_code', levelCode);
+  if (error) throw new Error(error.message);
+  if (!other || other.length === 0) return [];
+
+  const idsByLevel = new Map<string, Set<string>>();
+  for (const l of other as any[]) {
+    if (!idsByLevel.has(l.level_code)) idsByLevel.set(l.level_code, new Set());
+    const set = idsByLevel.get(l.level_code)!;
+    for (const id of [...(l.noun_ids ?? []), ...(l.adjective_ids ?? []), ...(l.other_ids ?? []), ...(l.phrase_ids ?? [])]) set.add(id);
+  }
+  const texts: string[] = [];
+  for (const [lvl, ids] of idsByLevel) {
+    const rows = await fetchAllWords(languageCode, lvl);
+    for (const r of rows) if (ids.has(r.id)) texts.push(r.target_text);
+  }
+  return texts;
+}
+
 // ---------------------------------------------------------
 // Étape 2 : créer le plan de leçons (aucun coût)
 // ---------------------------------------------------------
@@ -269,20 +307,31 @@ export async function buildLessonPlan(
     const verbs = allVerbs.filter((v) => !usedVerbs.has(v.id));
 
     const topics = lessonGrammarTopics(languageCode, levelCode);
-    const planWords: PlanWord[] = words.map((w) => ({
-      id: w.id,
-      theme_code: w.theme_code,
-      word_type: w.word_type,
-      score: w.usage_score,
-      text: w.target_text,
-    }));
+    const planWords: PlanWord[] = toPlanWords(words);
+
+    // Mots déjà appris dans les leçons d'un autre niveau de la même langue : on ne les remet pas.
+    const excludeTexts = await textsLearnedAtOtherLevels(languageCode, levelCode);
+
+    // Japonais : kanji du module Kanji (ce niveau), sauf ceux déjà enseignés à un autre niveau.
+    let kanjiAvailable: string[] = [];
+    if (languageCode === 'ja') {
+      const { data: kRows, error: kErr } = await supabaseAdmin.from('kanji').select('char, position').eq('level_code', levelCode).order('position');
+      if (kErr && !kErr.message.includes('kanji')) throw new Error(kErr.message);
+      const taughtElsewhere = new Set<string>();
+      const { data: kl, error: klErr } = await supabaseAdmin.from('lessons').select('kanji_chars').eq('language_code', 'ja').neq('level_code', levelCode);
+      if (klErr) throw new Error(klErr.message);
+      for (const l of kl ?? []) for (const c of (l as any).kanji_chars ?? []) taughtElsewhere.add(c);
+      kanjiAvailable = (kRows ?? []).map((k: any) => k.char as string).filter((c) => !taughtElsewhere.has(c));
+    }
 
     const plan = planLessons({
       languageCode,
       levelCode,
       words: planWords,
-      verbs,
+      verbs: verbs.map((v) => ({ id: v.id, frequency_rank: v.frequency_rank, text: v.infinitive })),
       grammarTopicCodes: topics.map((t) => t.code),
+      excludeTexts,
+      kanjiAvailable,
     });
     if (!plan.ok) return { ok: false, error: (plan as { error: string }).error };
     const { lessons, warnings } = plan as { ok: true; lessons: PlannedLesson[]; warnings: string[] };
@@ -303,6 +352,7 @@ export async function buildLessonPlan(
       verb_ids: l.verb_ids,
       phrase_ids: l.phrase_ids,
       review: l.review,
+      kanji_chars: l.kanji_chars,
       grammar_topic_code: l.grammar_topic_code,
     }));
     const { error: insErr } = await supabaseAdmin.from('lessons').insert(rows);
@@ -337,6 +387,8 @@ export type LessonContent = {
   others: LessonWord[];
   phrases: LessonWord[];
   verbs: ConjugationVerb[];
+  kanji: KanjiItem[]; // japonais : kanji à apprendre dans la leçon
+  conjugationRecap: ConjugationVerb[]; // toutes les 5 leçons : verbes des 5 dernières leçons
   review: { kind: 'word' | 'verb'; word?: LessonWord; verb?: ConjugationVerb }[];
   grammar: {
     code: string;
@@ -396,6 +448,49 @@ export async function getLesson(profileId: string, languageCode: string, levelCo
     if (vErr) throw new Error(vErr.message);
     const verbMap = new Map<string, ConjugationVerb>((verbRows ?? []).map((v: any) => [v.id, v as ConjugationVerb]));
 
+    // Japonais : kanji de la leçon (fiches du module Kanji)
+    let kanji: KanjiItem[] = [];
+    const kChars: string[] = Array.isArray(l.kanji_chars) ? l.kanji_chars : [];
+    if (languageCode === 'ja' && kChars.length > 0) {
+      const { data: kRows } = await supabaseAdmin
+        .from('kanji')
+        .select('id, char, level_code, position, meaning_fr, onyomi, kunyomi, examples')
+        .in('char', kChars);
+      const byChar = new Map<string, KanjiItem>(
+        (kRows ?? []).map((k: any) => [
+          k.char,
+          {
+            ...k,
+            onyomi: Array.isArray(k.onyomi) ? k.onyomi : [],
+            kunyomi: Array.isArray(k.kunyomi) ? k.kunyomi : [],
+            examples: Array.isArray(k.examples) ? k.examples : [],
+          } as KanjiItem,
+        ])
+      );
+      kanji = kChars.map((c) => byChar.get(c)).filter((k): k is KanjiItem => !!k);
+    }
+
+    // Fiche de conjugaison récapitulative : toutes les 5 leçons, les verbes des 5 dernières leçons
+    let conjugationRecap: ConjugationVerb[] = [];
+    if (number % CONJUGATION_RECAP_EVERY === 0) {
+      const { data: prev, error: pErr } = await supabaseAdmin
+        .from('lessons')
+        .select('number, verb_ids')
+        .eq('language_code', languageCode)
+        .eq('level_code', levelCode)
+        .gte('number', number - CONJUGATION_RECAP_EVERY + 1)
+        .lte('number', number)
+        .order('number');
+      if (pErr) throw new Error(pErr.message);
+      const recapIds: string[] = (prev ?? []).flatMap((p: any) => p.verb_ids ?? []);
+      if (recapIds.length > 0) {
+        const { data: rv, error: rvErr } = await supabaseAdmin.from('conjugation_verbs').select(verbColumns).in('id', recapIds);
+        if (rvErr) throw new Error(rvErr.message);
+        const rvMap = new Map<string, ConjugationVerb>((rv ?? []).map((v: any) => [v.id, v as ConjugationVerb]));
+        conjugationRecap = recapIds.map((id) => rvMap.get(id)).filter((v): v is ConjugationVerb => !!v);
+      }
+    }
+
     const pickWords = (ids: string[]) => ids.map((id) => wordMap.get(id)).filter((w): w is LessonWord => !!w);
 
     const reviewItems = review
@@ -438,6 +533,8 @@ export async function getLesson(profileId: string, languageCode: string, levelCo
         others: pickWords(l.other_ids ?? []),
         phrases: pickWords(l.phrase_ids ?? []),
         verbs: (l.verb_ids ?? []).map((id: string) => verbMap.get(id)).filter((v: ConjugationVerb | undefined): v is ConjugationVerb => !!v),
+        kanji,
+        conjugationRecap,
         review: reviewItems,
         grammar,
         done: !!prog,
@@ -460,5 +557,57 @@ export async function completeLesson(profileId: string, lessonId: string): Promi
     return { ok: true, data: true };
   } catch (e: any) {
     return { ok: false, error: explain(e?.message ?? 'Enregistrement impossible.') };
+  }
+}
+
+// ---------------------------------------------------------
+// Audio de l'infinitif des verbes (Google TTS, ≈ 9 caractères par verbe), stocké dans tense_audio.infinitive
+// ---------------------------------------------------------
+async function countVerbsWithoutAudio(languageCode: string): Promise<number> {
+  let query = supabaseAdmin.from('conjugation_verbs').select('id, tense_audio').eq('language_code', languageCode);
+  if (languageCode === 'ja') query = query.not('ja_data', 'is', null);
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return (data ?? []).filter((v: any) => !v.tense_audio?.infinitive).length;
+}
+
+const VERB_AUDIO_BATCH = 8;
+
+export async function addVerbAudioStep(languageCode: string): Promise<Result<{ remaining: number }>> {
+  try {
+    const columns = languageCode === 'ja' ? 'id, infinitive, tense_audio, ja_data' : 'id, infinitive, tense_audio';
+    let query = supabaseAdmin.from('conjugation_verbs').select(columns).eq('language_code', languageCode);
+    if (languageCode === 'ja') query = query.not('ja_data', 'is', null);
+    const { data, error } = await query.order('frequency_rank');
+    if (error) throw new Error(error.message);
+
+    const missing = ((data ?? []) as any[]).filter((v) => !v.tense_audio?.infinitive);
+    if (missing.length === 0) return { ok: true, data: { remaining: 0 } };
+
+    const batch = missing.slice(0, VERB_AUDIO_BATCH);
+    let done = 0;
+    let firstError = '';
+    for (let i = 0; i < batch.length; i += 4) {
+      const results = await Promise.allSettled(
+        batch.slice(i, i + 4).map(async (v) => {
+          // Japonais : on fait lire la prononciation en kana (évite les kanji à lectures multiples)
+          const spoken = languageCode === 'ja' ? v.ja_data?.reading || v.infinitive : v.infinitive;
+          const { audioUrl } = await synthesizeAndStore(spoken, languageCode, `${languageCode}/conjugation/${v.id}/infinitive.mp3`);
+          const { error: upErr } = await supabaseAdmin
+            .from('conjugation_verbs')
+            .update({ tense_audio: { ...(v.tense_audio ?? {}), infinitive: audioUrl } })
+            .eq('id', v.id);
+          if (upErr) throw new Error(upErr.message);
+        })
+      );
+      for (const r of results) {
+        if (r.status === 'fulfilled') done++;
+        else if (!firstError) firstError = (r.reason as Error)?.message ?? String(r.reason);
+      }
+    }
+    if (done === 0) return { ok: false, error: `Aucun audio généré : ${firstError || 'raison inconnue'}` };
+    return { ok: true, data: { remaining: missing.length - done } };
+  } catch (e: any) {
+    return { ok: false, error: explain(e?.message ?? "Erreur pendant la génération de l'audio des verbes.") };
   }
 }

@@ -17,7 +17,7 @@ export type ConjugationVerb = {
   frequency_rank: number;
   theme_code: string | null;
   tenses: Record<(typeof TENSES)[number], string[]>;
-  tense_audio: Partial<Record<(typeof TENSES)[number], string>> & { basic?: string };
+  tense_audio: Partial<Record<(typeof TENSES)[number], string>> & { basic?: string; infinitive?: string };
   ja_data?: JaVerbData | null; // japonais : groupe + lecture (les formes sont calculées par code)
 };
 

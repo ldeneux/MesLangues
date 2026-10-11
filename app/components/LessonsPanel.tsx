@@ -6,12 +6,14 @@ import {
   rankVocabularyStep,
   buildLessonPlan,
   deleteLessonPlan,
+  addVerbAudioStep,
   type LessonsOverview,
   type RankStepResult,
 } from '../../lib/lessons';
 import { LEVELS, LANGS, THEMES } from '../../lib/constants';
-import { estimateRankingCost } from '../../lib/pricing';
+import { estimateRankingCost, estimateVerbAudioCost } from '../../lib/pricing';
 import LessonViewer from './LessonViewer';
+import PronunciationLesson from './PronunciationLesson';
 
 function themeLabel(code: string) {
   return THEMES.find((t) => t.code === code)?.label ?? code;
@@ -35,6 +37,8 @@ export default function LessonsPanel({
   const [ranking, setRanking] = useState<{ remaining: number; total: number } | null>(null);
   const [building, setBuilding] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmAudio, setConfirmAudio] = useState(false);
+  const [audioRun, setAudioRun] = useState<{ remaining: number; total: number } | null>(null);
 
   const level = LEVELS.find((l) => l.code === levelCode);
   const lang = LANGS.find((l) => l.code === languageCode);
@@ -58,6 +62,7 @@ export default function LessonsPanel({
     setNotice('');
     setConfirmRank(false);
     setConfirmReset(false);
+    setConfirmAudio(false);
     refresh();
   }, [refresh]);
 
@@ -86,6 +91,71 @@ export default function LessonsPanel({
     }
   }
 
+  async function runVerbAudio() {
+    if (!overview) return;
+    setConfirmAudio(false);
+    setError('');
+    const total = overview.verbAudioMissing;
+    setAudioRun({ remaining: total, total });
+    try {
+      for (let guard = 0; guard < 40; guard++) {
+        const r = await addVerbAudioStep(languageCode);
+        if (!r.ok) {
+          setError((r as { error: string }).error);
+          break;
+        }
+        const remaining = (r as { data: { remaining: number } }).data.remaining;
+        setAudioRun({ remaining, total });
+        if (remaining === 0) break;
+      }
+    } catch (e: any) {
+      setError(e?.message ?? "La génération de l'audio a été interrompue.");
+    } finally {
+      setAudioRun(null);
+      await refresh();
+    }
+  }
+
+  // Bloc « audio de l'infinitif des verbes » (affiché tant qu'il en manque)
+  function renderVerbAudioBlock() {
+    const missing = overview?.verbAudioMissing ?? 0;
+    if (!overview || (missing === 0 && !audioRun)) return null;
+    const est = estimateVerbAudioCost(missing);
+    const pct = audioRun && audioRun.total > 0 ? Math.round(((audioRun.total - audioRun.remaining) / audioRun.total) * 100) : 0;
+    return (
+      <div className="phrase-card lesson-setup">
+        <div className="lesson-setup-title">Audio des verbes</div>
+        {audioRun ? (
+          <div className="pack-progress">
+            <div className="pack-progress-label">
+              {audioRun.total - audioRun.remaining} / {audioRun.total} verbes
+            </div>
+            <div className="pack-progress-track">
+              <div className="pack-progress-fill" style={{ width: `${pct}%` }} />
+            </div>
+          </div>
+        ) : confirmAudio ? (
+          <div className="pack-confirm-modal">
+            <p style={{ marginTop: 0 }}>
+              Générer la prononciation de l'infinitif pour {missing} verbes. Coût estimé : environ <strong>{est.eur.toFixed(3)} €</strong>, une seule fois.
+            </p>
+            <div className="conv-bubble-actions">
+              <button className="primary" onClick={runVerbAudio}>Générer l'audio</button>
+              <button className="conv-mini-btn" onClick={() => setConfirmAudio(false)}>Annuler</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="eyebrow-free">
+              {missing} verbes n'ont pas encore l'audio de leur infinitif (≈ {est.eur.toFixed(3)} €). En attendant, la voix du navigateur prend le relais.
+            </p>
+            <button className="primary" onClick={() => setConfirmAudio(true)}>Ajouter l'audio des verbes</button>
+          </>
+        )}
+      </div>
+    );
+  }
+
   async function createPlan(replace: boolean) {
     setBuilding(true);
     setError('');
@@ -111,6 +181,19 @@ export default function LessonsPanel({
     if (!r.ok) setError((r as { error: string }).error);
     setNotice('');
     await refresh();
+  }
+
+  // ---------- leçon 0 : prononciation ----------
+  if (openNumber === 0) {
+    return (
+      <PronunciationLesson
+        languageCode={languageCode}
+        onBack={() => {
+          setOpenNumber(null);
+          refresh();
+        }}
+      />
+    );
   }
 
   // ---------- leçon ouverte ----------
@@ -160,7 +243,20 @@ export default function LessonsPanel({
           <p style={{ margin: '0.4rem 0 0' }}>
             {setup!.nouns} noms · {setup!.adjectives} adjectifs · {setup!.fillers} adverbes et expressions · {setup!.verbs} verbes
           </p>
+          {setup!.duplicates > 0 && (
+            <p className="eyebrow-free" style={{ margin: '0.4rem 0 0' }}>
+              {setup!.duplicates} doublons présents dans la base seront ignorés par les leçons.
+            </p>
+          )}
         </div>
+
+        <div className="phrase-card lesson-setup">
+          <div className="lesson-setup-title">Leçon 0 : la prononciation</div>
+          <p className="eyebrow-free">Les sons et les pièges de la langue, avec de quoi écouter. Disponible tout de suite.</p>
+          <button className="primary" onClick={() => setOpenNumber(0)}>Ouvrir la leçon 0</button>
+        </div>
+
+        {setup!.verbs > 0 && renderVerbAudioBlock()}
 
         {setup!.total === 0 ? (
           <p className="conv-warning" style={{ marginTop: '1rem' }}>
@@ -247,7 +343,14 @@ export default function LessonsPanel({
         <p className="eyebrow-free">🎉 Toutes les leçons de ce niveau sont terminées.</p>
       )}
 
+      {renderVerbAudioBlock()}
+
       <div className="lesson-tiles">
+        <button className="lesson-tile" style={{ ['--lesson-color' as any]: color }} onClick={() => setOpenNumber(0)}>
+          <span className="lesson-tile-num">0</span>
+          <span className="lesson-tile-label">Leçon 0</span>
+          <span className="lesson-tile-theme">Prononciation</span>
+        </button>
         {lessons.map((l) => {
           const isNext = next?.number === l.number;
           return (

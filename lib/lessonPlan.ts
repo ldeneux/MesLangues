@@ -1,3 +1,5 @@
+import { normalizeForCompare } from './textUtils';
+
 // Planificateur de leçons — module PUR (pas de base de données, pas de 'use server').
 // Entrée : les mots et verbes déjà en base ; sortie : le plan de N leçons, identique pour tous les profils.
 
@@ -7,6 +9,8 @@ export const LESSON_VERBS = 3; // verbes par leçon
 export const LESSON_PHRASES = 3; // adverbes / expressions utiles, en plus des 20 mots
 export const LESSON_REVIEW = 6; // mots de révision, en plus des 20 mots
 export const LESSON_REVIEW_WINDOW = 3; // la révision pioche dans les 3 leçons précédentes
+export const LESSON_KANJI = 4; // kanji à apprendre par leçon (japonais)
+export const CONJUGATION_RECAP_EVERY = 5; // une fiche de conjugaison récapitulative toutes les 5 leçons
 
 // Thèmes du plus indispensable au moins indispensable pour un débutant complet.
 export const LESSON_THEME_ORDER = [
@@ -47,7 +51,7 @@ const THEME_WEIGHT: Record<string, number> = {
 };
 
 export type PlanWord = { id: string; theme_code: string; word_type: string; score: number | null; text: string };
-export type PlanVerb = { id: string; frequency_rank: number };
+export type PlanVerb = { id: string; frequency_rank: number; text?: string };
 export type ReviewItem = { k: 'w' | 'v'; id: string };
 
 export type PlannedLesson = {
@@ -59,6 +63,7 @@ export type PlannedLesson = {
   verb_ids: string[];
   phrase_ids: string[];
   review: ReviewItem[];
+  kanji_chars: string[];
   grammar_topic_code: string | null;
 };
 
@@ -100,6 +105,26 @@ function byUsage(a: PlanWord, b: PlanWord): number {
   const sb = b.score ?? 50;
   if (sb !== sa) return sb - sa;
   return a.text.localeCompare(b.text);
+}
+
+/**
+ * Retire les doublons (même mot écrit à l'identique, parfois sous deux thèmes ou deux niveaux dans la base)
+ * et les mots à ignorer (déjà appris à un autre niveau). On garde, pour chaque mot, l'exemplaire le plus utile.
+ */
+export function dedupeWords(words: PlanWord[], exclude: Set<string> = new Set()): PlanWord[] {
+  const best = new Map<string, PlanWord>();
+  for (const w of words) {
+    const key = normalizeForCompare(w.text);
+    if (!key || exclude.has(key)) continue;
+    const cur = best.get(key);
+    if (!cur) {
+      best.set(key, w);
+      continue;
+    }
+    const cmp = byUsage(w, cur);
+    if (cmp < 0 || (cmp === 0 && w.id < cur.id)) best.set(key, w);
+  }
+  return Array.from(best.values());
 }
 
 /**
@@ -179,11 +204,18 @@ export function planLessons(input: {
   words: PlanWord[];
   verbs: PlanVerb[]; // verbes encore disponibles (déjà privés de ceux utilisés aux niveaux inférieurs)
   grammarTopicCodes: string[]; // fiches de grammaire utilisables à ce niveau, dans l'ordre
+  excludeTexts?: string[]; // mots déjà appris à un autre niveau (écriture exacte)
+  kanjiAvailable?: string[]; // japonais : kanji disponibles dans le module Kanji, déjà privés de ceux d'autres niveaux
   targetCount?: number;
 }): PlanResult {
-  const { languageCode, levelCode, words, verbs, grammarTopicCodes } = input;
+  const { languageCode, levelCode, verbs, grammarTopicCodes } = input;
+  const exclude = new Set((input.excludeTexts ?? []).map(normalizeForCompare));
   const target = input.targetCount ?? LESSON_TARGET_COUNT;
   const warnings: string[] = [];
+
+  const words = dedupeWords(input.words, exclude);
+  const duplicates = input.words.length - words.length;
+  if (duplicates > 0) warnings.push(`${duplicates} doublons ou mots déjà appris à un autre niveau ont été ignorés.`);
 
   const nouns = words.filter((w) => w.word_type === 'nom');
   const adjectives = words.filter((w) => w.word_type === 'adjectif');
@@ -258,8 +290,29 @@ export function planLessons(input: {
       verb_ids,
       phrase_ids,
       review: [],
+      kanji_chars: [],
       grammar_topic_code: grammarTopicCodes.length > 0 ? grammarTopicCodes[i % grammarTopicCodes.length] : null,
     });
+  }
+
+  // Japonais : kanji à apprendre, ceux qui apparaissent dans les mots (ordre d'apparition), au plus LESSON_KANJI par leçon ;
+  // ce qui dépasse est reporté à la leçon suivante.
+  if (input.kanjiAvailable && input.kanjiAvailable.length > 0) {
+    const avail = new Set(input.kanjiAvailable);
+    const textById = new Map<string, string>();
+    for (const w of words) textById.set(w.id, w.text);
+    for (const v of verbsSorted) if (v.text) textById.set(v.id, v.text);
+    const taught = new Set<string>();
+    const pending: string[] = [];
+    for (const l of lessons) {
+      for (const id of [...l.noun_ids, ...l.adjective_ids, ...l.other_ids, ...l.verb_ids, ...l.phrase_ids]) {
+        for (const ch of textById.get(id) ?? '') {
+          if (avail.has(ch) && !taught.has(ch) && !pending.includes(ch)) pending.push(ch);
+        }
+      }
+      l.kanji_chars = pending.splice(0, LESSON_KANJI);
+      for (const ch of l.kanji_chars) taught.add(ch);
+    }
   }
 
   // Révision : 6 éléments tirés (au hasard reproductible) des 3 leçons précédentes.
