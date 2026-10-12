@@ -1,22 +1,55 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import type { ConjugationVerb } from '../../lib/conjugation';
-import { conjugateJapaneseVerb, JA_GROUP_INFO, JA_LEVEL_ORDER, type JaLevel } from '../../lib/japaneseVerbs';
+import { conjugateJapaneseVerb, JA_GROUP_INFO, JA_LEVEL_ORDER, type JaFormRow, type JaLevel } from '../../lib/japaneseVerbs';
+import { splitCommon } from '../../lib/japaneseDiff';
 import { kanaToRomaji } from '../../lib/japanese';
 import { usePersistentFlag } from './usePersistentFlag';
 import JapaneseRuby from './JapaneseRuby';
+import JapaneseConjugationGuide from './JapaneseConjugationGuide';
 
-// Partie commune entre la forme du dictionnaire et la forme conjuguée : le reste est mis en surbrillance
-function splitCommon(base: string, form: string): { stem: string; rest: string } {
-  let i = 0;
-  while (i < base.length && i < form.length && base[i] === form[i]) i++;
-  return { stem: form.slice(0, i), rest: form.slice(i) };
-}
+// À quoi sert chaque forme (en français, en une phrase)
+const USAGE: Record<string, string> = {
+  dict: 'Forme de base, celle du dictionnaire. Langage familier : présent et futur.',
+  masu: 'Langage poli : présent et futur. À employer avec des inconnus, au travail, en magasin.',
+  masen: 'Langage poli : « ne pas faire ».',
+  mashita: "Langage poli : le passé (« j'ai fait »).",
+  masendeshita: "Langage poli : « je n'ai pas fait ».",
+  mashou: 'Pour proposer : « faisons… ! ».',
+  te: 'Pour enchaîner des actions, demander (〜てください) ou dire « en train de » (〜ている).',
+  nai: 'Négation familière : « ne pas faire ».',
+  ta: "Passé familier : « j'ai fait ».",
+  tai: 'Pour dire qu’on veut faire quelque chose.',
+  nakatta: "Familier : « je n'ai pas fait ».",
+  teiru: 'Action en cours (« je suis en train de… ») ou état qui dure.',
+  tekudasai: 'Demande polie : « faites… s’il vous plaît ».',
+  naidekudasai: 'Demande polie de ne pas faire : « ne faites pas… ».',
+  pot: '« Pouvoir faire » : être capable de.',
+  vol: 'Familier : « faisons… » ou « je vais faire… ».',
+  tara: '« Si / quand je fais… ».',
+  ba: 'Condition : « si… » (plus théorique).',
+  pass: 'Passif : « être fait par… ».',
+  caus: 'Causatif : « faire faire ».',
+  imp: 'Ordre direct, brutal : à éviter en pratique.',
+  prohib: 'Interdiction : « ne fais pas ! ».',
+  causpass: '« Être obligé de faire ».',
+  sonkeigo: "Politesse envers l'autre : on honore l'action de l'interlocuteur.",
+  kenjou: 'Politesse humble : on abaisse sa propre action.',
+};
+
+// Les formes, de la plus utile à la moins utile
+const CATEGORIES: { key: string; label: string; ids: string[] | null }[] = [
+  { key: 'essential', label: '★ Les 5 formes essentielles', ids: ['dict', 'masu', 'nai', 'te', 'ta'] },
+  { key: 'polite', label: 'Le langage poli : les autres formes en ます', ids: ['masen', 'mashita', 'masendeshita', 'mashou'] },
+  { key: 'useful', label: 'Autres formes utiles', ids: ['tai', 'nakatta', 'teiru', 'tekudasai', 'naidekudasai', 'pot', 'vol'] },
+  { key: 'advanced', label: 'Formes avancées', ids: null }, // tout le reste
+];
 
 export default function JapaneseConjugationDetail({ verb, levelCode }: { verb: ConjugationVerb; levelCode: string }) {
   const data = verb.ja_data!;
   const [showAll, setShowAll] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
   const [furigana, setFurigana] = usePersistentFlag('ja-furigana', levelCode === 'A1' || levelCode === 'A2');
   const [romaji, setRomaji] = usePersistentFlag('ja-romaji');
   const [playing, setPlaying] = useState(false);
@@ -24,8 +57,20 @@ export default function JapaneseConjugationDetail({ verb, levelCode }: { verb: C
   const rows = useMemo(() => conjugateJapaneseVerb(verb.infinitive, data.reading, data.group), [verb.infinitive, data.reading, data.group]);
   const levelIdx = JA_LEVEL_ORDER.indexOf(levelCode as JaLevel);
   const limit = levelIdx >= 0 ? levelIdx : 0;
-  const visible = showAll ? rows : rows.filter((r) => JA_LEVEL_ORDER.indexOf(r.level) <= limit);
-  const hidden = rows.length - rows.filter((r) => JA_LEVEL_ORDER.indexOf(r.level) <= limit).length;
+  const inLevel = (r: JaFormRow) => JA_LEVEL_ORDER.indexOf(r.level) <= limit;
+  const visible = showAll ? rows : rows.filter(inLevel);
+  const hidden = rows.length - rows.filter(inLevel).length;
+
+  const sections = useMemo(() => {
+    const byId = new Map(visible.map((r) => [r.id, r]));
+    const listed = new Set(CATEGORIES.flatMap((c) => c.ids ?? []));
+    return CATEGORIES.map((c) => ({
+      ...c,
+      rows: (c.ids ?? visible.filter((r) => !listed.has(r.id)).map((r) => r.id))
+        .map((id) => byId.get(id))
+        .filter((r): r is JaFormRow => !!r),
+    })).filter((c) => c.rows.length > 0);
+  }, [visible]);
 
   const info = JA_GROUP_INFO[data.group];
   const audio = verb.tense_audio?.basic;
@@ -38,13 +83,23 @@ export default function JapaneseConjugationDetail({ verb, levelCode }: { verb: C
     el.play().catch(() => setPlaying(false));
   }
 
+  function colored(base: string, form: string) {
+    const { stem, rest } = splitCommon(base, form);
+    return (
+      <>
+        {stem}
+        {rest && <mark className="highlight-mark">{rest}</mark>}
+      </>
+    );
+  }
+
   return (
     <div className="phrase-card conjugation-detail">
       <div className="phrase-fr" style={{ fontWeight: 600, color: 'var(--ink)', fontSize: '1.4rem' }} lang="ja">
         <JapaneseRuby ruby={data.ruby} /> <span className="revision-fr">— {verb.translation_fr}</span>
       </div>
       <p className="eyebrow-free">
-        <strong>{info.label}.</strong> {info.tip}
+        <span className="ja-group-badge">{info.label}</span> {info.tip}
       </p>
 
       <div className="conv-bubble-actions" style={{ marginBottom: '0.75rem' }}>
@@ -64,26 +119,54 @@ export default function JapaneseConjugationDetail({ verb, levelCode }: { verb: C
         </button>
       </div>
 
-      <div className="conjugation-forms">
-        {visible.map((row) => {
-          const { stem, rest } = splitCommon(verb.infinitive, row.written);
-          return (
-            <div key={row.id} className="ja-conj-row">
-              <div className="ja-conj-label">
-                {row.label_fr}
-                <span className="ja-conj-term" lang="ja">
-                  {row.term_jp}
-                </span>
-              </div>
-              <div className="ja-conj-form" lang="ja">
-                {stem}
-                {rest && <mark className="highlight-mark">{rest}</mark>}
-                {furigana && row.reading !== row.written && <div className="ja-conj-reading">{row.reading}</div>}
-                {romaji && <div className="ja-conj-reading">{kanaToRomaji(row.reading)}</div>}
-              </div>
-            </div>
-          );
-        })}
+      <button className="ja-guide-link" onClick={() => setShowGuide((s) => !s)} aria-expanded={showGuide}>
+        📖 Comprendre la conjugaison {showGuide ? '▴' : '▾'}
+      </button>
+      {showGuide && (
+        <div className="ja-guide-box">
+          <JapaneseConjugationGuide onClose={() => setShowGuide(false)} />
+        </div>
+      )}
+
+      <p className="eyebrow-free" style={{ margin: '0.75rem 0 0.4rem' }}>
+        Le verbe garde son sens : seule la terminaison change. <mark className="highlight-mark">En couleur</mark> : la partie qui change par rapport à la forme
+        du dictionnaire.
+      </p>
+
+      <div className="ja-table-wrap">
+        <table className="ja-conj-table">
+          <thead>
+            <tr>
+              <th>Forme</th>
+              <th lang="ja">{verb.infinitive}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sections.map((sec) => (
+              <Fragment key={sec.key}>
+                <tr className="ja-conj-cat">
+                  <td colSpan={2}>{sec.label}</td>
+                </tr>
+                {sec.rows.map((row) => (
+                  <tr key={row.id}>
+                    <td className="ja-conj-formcell">
+                      <div className="ja-conj-label">{row.label_fr}</div>
+                      <div className="ja-conj-term" lang="ja">
+                        {row.term_jp}
+                      </div>
+                      {USAGE[row.id] && <div className="ja-conj-usage">{USAGE[row.id]}</div>}
+                    </td>
+                    <td className="ja-conj-valuecell" lang="ja">
+                      <div className="ja-conj-written">{colored(verb.infinitive, row.written)}</div>
+                      {furigana && row.reading !== row.written && <div className="ja-conj-reading">{colored(data.reading, row.reading)}</div>}
+                      {romaji && <div className="ja-conj-reading">{kanaToRomaji(row.reading)}</div>}
+                    </td>
+                  </tr>
+                ))}
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       {hidden > 0 && (

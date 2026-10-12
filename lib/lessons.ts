@@ -5,10 +5,9 @@ import { callGemini, LANGUAGE_NAMES } from './gemini';
 import { grammarTopicsFor, type GrammarTopicMeta } from './constants';
 import { getGrammarTopic, type GrammarTopic } from './grammar';
 import type { ConjugationVerb } from './conjugation';
-import { planLessons, dedupeWords, grammarExampleIndex, CONJUGATION_RECAP_EVERY, type PlanWord, type PlannedLesson, type ReviewItem } from './lessonPlan';
+import { planLessons, dedupeWords, wordKey, grammarExampleIndex, CONJUGATION_RECAP_EVERY, type PlanWord, type PlannedLesson, type ReviewItem } from './lessonPlan';
 import { synthesizeAndStore } from './tts';
 import { emojiToHex, isAvailableEmoji } from './emoji';
-import { normalizeForCompare } from './textUtils';
 import type { KanjiItem } from './kanji';
 
 // ---------------------------------------------------------
@@ -68,6 +67,8 @@ export type EmojiStatus = {
   nouns: number; // noms du niveau (lignes de la base)
   pending: number; // noms pas encore traités
   withImage: number; // noms qui ont une image
+  reusable: number; // noms en attente dont la traduction a déjà un emoji dans une autre langue (gratuit)
+  toSearch: number; // traductions distinctes que Gemini devra encore illustrer (payant)
 };
 
 type WordRow = { id: string; theme_code: string; word_type: string; target_text: string; usage_score: number | null };
@@ -655,6 +656,29 @@ async function countNouns(languageCode: string, levelCode: string, filter?: (q: 
   return count ?? 0;
 }
 
+// Emoji déjà trouvés, toutes langues confondues, indexés par traduction française normalisée (casse, accents, ponctuation).
+// '' = « aucun emoji ne convient » (on ne redemande pas non plus). Un vrai emoji l'emporte sur '' si les deux existent.
+async function loadKnownEmoji(): Promise<Map<string, string>> {
+  const known = new Map<string, string>();
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabaseAdmin
+      .from('vocabulary_words')
+      .select('translation_fr, emoji')
+      .not('emoji', 'is', null)
+      .order('id')
+      .range(from, from + 999);
+    if (error) throw new Error(error.message);
+    for (const r of (data ?? []) as { translation_fr: string; emoji: string }[]) {
+      const key = wordKey(r.translation_fr ?? '');
+      if (!key) continue;
+      const prev = known.get(key);
+      if (prev === undefined || (prev === '' && r.emoji !== '')) known.set(key, r.emoji);
+    }
+    if (!data || data.length < 1000) break;
+  }
+  return known;
+}
+
 async function emojiStatus(languageCode: string, levelCode: string): Promise<EmojiStatus> {
   try {
     const [nouns, pending, withImage] = await Promise.all([
@@ -662,9 +686,36 @@ async function emojiStatus(languageCode: string, levelCode: string): Promise<Emo
       countNouns(languageCode, levelCode, (q) => q.is('emoji', null)),
       countNouns(languageCode, levelCode, (q) => q.not('emoji', 'is', null).neq('emoji', '')),
     ]);
-    return { ready: true, nouns, pending, withImage };
+
+    // Parmi les noms en attente : combien se réutilisent gratuitement, combien restent à chercher ?
+    let reusable = 0;
+    let toSearch = 0;
+    if (pending > 0) {
+      const known = await loadKnownEmoji();
+      const unknownKeys = new Set<string>();
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabaseAdmin
+          .from('vocabulary_words')
+          .select('translation_fr')
+          .eq('language_code', languageCode)
+          .eq('level_code', levelCode)
+          .eq('word_type', 'nom')
+          .is('emoji', null)
+          .order('id')
+          .range(from, from + 999);
+        if (error) throw new Error(error.message);
+        for (const r of (data ?? []) as { translation_fr: string }[]) {
+          const key = wordKey(r.translation_fr ?? '');
+          if (known.has(key)) reusable++;
+          else unknownKeys.add(key);
+        }
+        if (!data || data.length < 1000) break;
+      }
+      toSearch = unknownKeys.size;
+    }
+    return { ready: true, nouns, pending, withImage, reusable, toSearch };
   } catch (e: any) {
-    if (String(e?.message ?? '').includes('emoji')) return { ready: false, nouns: 0, pending: 0, withImage: 0 };
+    if (String(e?.message ?? '').includes('emoji')) return { ready: false, nouns: 0, pending: 0, withImage: 0, reusable: 0, toSearch: 0 };
     throw e;
   }
 }
@@ -694,24 +745,16 @@ export async function mapEmojiStep(languageCode: string, levelCode: string): Pro
     const translations = Array.from(groups.keys());
 
     // 1) Réutiliser les emoji déjà trouvés, dans n'importe quelle langue, pour la même traduction (gratuit).
-    const known = new Map<string, string>();
-    for (let i = 0; i < translations.length; i += 40) {
-      const chunk = translations.slice(i, i + 40);
-      const { data: hits, error: hErr } = await supabaseAdmin
-        .from('vocabulary_words')
-        .select('translation_fr, emoji')
-        .in('translation_fr', chunk)
-        .not('emoji', 'is', null);
-      if (hErr) throw new Error(hErr.message);
-      for (const h of hits ?? []) {
-        const prev = known.get((h as any).translation_fr);
-        // on préfère un vrai emoji à « aucun » ('')
-        if (!prev) known.set((h as any).translation_fr, (h as any).emoji);
+    const knownAll = await loadKnownEmoji();
+    const results = new Map<string, string>(); // traduction → emoji ('' = aucun)
+    let reused = 0;
+    for (const tr of translations) {
+      const hit = knownAll.get(wordKey(tr));
+      if (hit !== undefined) {
+        results.set(tr, hit);
+        reused++;
       }
     }
-
-    const results = new Map<string, string>(); // traduction → emoji ('' = aucun)
-    for (const [tr, em] of known) results.set(tr, em);
 
     // 2) Le reste : Gemini choisit un emoji par traduction.
     const toAsk = translations.filter((t) => !results.has(t)).slice(0, EMOJI_BATCH * EMOJI_PARALLEL);
@@ -748,7 +791,7 @@ Réponds UNIQUEMENT par un tableau JSON de paires [numéro, "emoji" ou null], pa
 
     // Rien de nouveau : s'il ne reste que quelques noms on les range en « aucun » ; sinon erreur claire.
     const fresh = toAsk.filter((t) => results.has(t)).length;
-    if (known.size === 0 && fresh === 0) {
+    if (reused === 0 && fresh === 0) {
       if (todo.length <= 10) {
         for (const w of todo) await supabaseAdmin.from('vocabulary_words').update({ emoji: '' }).eq('id', w.id);
         return { ok: true, data: { remaining: 0, mappedThisStep: todo.length } };

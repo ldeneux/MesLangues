@@ -107,6 +107,11 @@ function byUsage(a: PlanWord, b: PlanWord): number {
   return a.text.localeCompare(b.text);
 }
 
+/** Clé de comparaison d'un mot : casse, accents et apostrophes typographiques (’ ‘ ´) ignorés. */
+export function wordKey(text: string): string {
+  return normalizeForCompare((text ?? '').replace(/[\u2019\u2018\u00B4`]/g, "'"));
+}
+
 /**
  * Retire les doublons (même mot écrit à l'identique, parfois sous deux thèmes ou deux niveaux dans la base)
  * et les mots à ignorer (déjà appris à un autre niveau). On garde, pour chaque mot, l'exemplaire le plus utile.
@@ -114,7 +119,7 @@ function byUsage(a: PlanWord, b: PlanWord): number {
 export function dedupeWords(words: PlanWord[], exclude: Set<string> = new Set()): PlanWord[] {
   const best = new Map<string, PlanWord>();
   for (const w of words) {
-    const key = normalizeForCompare(w.text);
+    const key = wordKey(w.text);
     if (!key || exclude.has(key)) continue;
     const cur = best.get(key);
     if (!cur) {
@@ -209,7 +214,7 @@ export function planLessons(input: {
   targetCount?: number;
 }): PlanResult {
   const { languageCode, levelCode, verbs, grammarTopicCodes } = input;
-  const exclude = new Set((input.excludeTexts ?? []).map(normalizeForCompare));
+  const exclude = new Set((input.excludeTexts ?? []).map(wordKey));
   const target = input.targetCount ?? LESSON_TARGET_COUNT;
   const warnings: string[] = [];
 

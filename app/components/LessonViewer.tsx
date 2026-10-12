@@ -14,6 +14,8 @@ import HighlightText from './HighlightText';
 import RubyHighlight from './RubyHighlight';
 import JapaneseRuby from './JapaneseRuby';
 import JapaneseConjugationDetail from './JapaneseConjugationDetail';
+import JapaneseConjugationGuide from './JapaneseConjugationGuide';
+import { JA_GUIDE_TITLE } from '../../lib/japaneseConjugationGuide';
 import KanjiStrokes from './KanjiStrokes';
 import KanjiDraw from './KanjiDraw';
 import { usePersistentFlag } from './usePersistentFlag';
@@ -34,7 +36,7 @@ const JA_RECAP: { id: string; label: string }[] = [
   { id: 'mashita', label: 'Passé poli' },
 ];
 
-type CardType = 'intro' | 'review' | 'nouns' | 'adjectives' | 'others' | 'verb' | 'conjrecap' | 'kanji' | 'grammar' | 'phrases' | 'recap';
+type CardType = 'intro' | 'review' | 'nouns' | 'adjectives' | 'others' | 'jaguide' | 'verb' | 'conjrecap' | 'kanji' | 'grammar' | 'phrases' | 'recap';
 type CardDef = { type: CardType; index?: number };
 
 function themeLabel(code: string) {
@@ -102,6 +104,8 @@ export default function LessonViewer({
     if (lesson.nouns.length > 0) c.push({ type: 'nouns' });
     if (lesson.adjectives.length > 0) c.push({ type: 'adjectives' });
     if (lesson.others.length > 0) c.push({ type: 'others' });
+    // Japonais, leçon 1 : on explique d'abord comment fonctionne la conjugaison, avant le premier verbe
+    if (isJa && lesson.number === 1 && lesson.verbs.length > 0) c.push({ type: 'jaguide' });
     lesson.verbs.forEach((_, i) => c.push({ type: 'verb', index: i }));
     if (lesson.conjugationRecap.length > 0) c.push({ type: 'conjrecap' });
     lesson.kanji.forEach((_, i) => c.push({ type: 'kanji', index: i }));
@@ -109,7 +113,7 @@ export default function LessonViewer({
     if (lesson.phrases.length > 0) c.push({ type: 'phrases' });
     c.push({ type: 'recap' });
     return c;
-  }, [lesson]);
+  }, [lesson, isJa]);
 
   // Japonais : lectures (furigana / rōmaji) pour tous les mots de la leçon. Déjà en cache pour la plupart.
   const jaTexts = useMemo(() => {
@@ -505,7 +509,8 @@ export default function LessonViewer({
               {lesson!.nouns.length > 0 && <li>{lesson!.nouns.length} noms</li>}
               {lesson!.adjectives.length > 0 && <li>{lesson!.adjectives.length} adjectifs</li>}
               {lesson!.others.length > 0 && <li>{lesson!.others.length} autres mots utiles</li>}
-              {lesson!.verbs.length > 0 && <li>{lesson!.verbs.length} verbes, chacun conjugué au présent</li>}
+              {isJa && lesson!.number === 1 && lesson!.verbs.length > 0 && <li>Comprendre la conjugaison japonaise (à lire une fois)</li>}
+              {lesson!.verbs.length > 0 && <li>{lesson!.verbs.length} verbes, chacun avec son tableau de formes</li>}
               {lesson!.conjugationRecap.length > 0 && <li>Une fiche de conjugaison qui reprend les verbes des 5 dernières leçons</li>}
               {lesson!.kanji.length > 0 && <li>{lesson!.kanji.length} kanji à écrire</li>}
               {lesson!.grammar && <li>Une règle de grammaire avec un exemple</li>}
@@ -550,6 +555,15 @@ export default function LessonViewer({
             <div className="lesson-card-title">Autres mots utiles ({lesson!.others.length})</div>
             {renderJaToggles()}
             {lesson!.others.map((w) => renderWordRow(w, 'o'))}
+          </>
+        );
+
+      case 'jaguide':
+        return (
+          <>
+            <div className="lesson-card-title">{JA_GUIDE_TITLE}</div>
+            <p className="eyebrow-free">À lire une fois : ça t'aidera pour tous les verbes. Tu pourras la retrouver dans l'onglet Conjugaison, au-dessus du tableau de chaque verbe.</p>
+            <JapaneseConjugationGuide />
           </>
         );
 

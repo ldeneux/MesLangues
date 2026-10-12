@@ -2037,3 +2037,39 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 .write-prompt { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin: 0.25rem 0 0.25rem; }
 .write-romaji { font-size: 1.4rem; font-weight: 700; }
 .write-hint { font-size: 1.05rem; color: var(--ink-soft); }
+
+/* --- Verbes japonais : tableau des formes et guide « Comprendre la conjugaison » --- */
+.ja-table-wrap { overflow-x: auto; margin: 0.25rem 0 0.5rem; }
+.ja-conj-table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+.ja-conj-table th {
+  text-align: left; padding: 0.6rem 0.8rem; font-weight: 700;
+  background: color-mix(in srgb, var(--ink) 8%, white); border-bottom: 2px solid var(--ink);
+}
+.ja-conj-table td { padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+.ja-conj-table tbody tr:nth-child(even):not(.ja-conj-cat) td { background: color-mix(in srgb, var(--ink) 3%, white); }
+.ja-conj-cat td {
+  background: color-mix(in srgb, var(--ink) 7%, white); font-weight: 700; font-size: 0.82rem;
+  letter-spacing: 0.02em; text-transform: none; padding: 0.4rem 0.8rem;
+}
+.ja-conj-formcell { min-width: 11rem; }
+.ja-conj-label { font-weight: 600; }
+.ja-conj-term { font-size: 0.78rem; color: var(--ink-soft); }
+.ja-conj-usage { font-size: 0.8rem; color: var(--ink-soft); margin-top: 0.15rem; line-height: 1.35; }
+.ja-conj-valuecell { text-align: left; }
+.ja-conj-written { font-size: 1.35rem; line-height: 1.3; }
+.ja-group-badge {
+  display: inline-block; font-weight: 700; padding: 0.1rem 0.55rem; border-radius: 999px; margin-right: 0.35rem;
+  background: color-mix(in srgb, var(--ink) 9%, white); color: var(--ink);
+}
+.ja-guide-link {
+  display: inline-flex; align-items: center; gap: 0.35rem; font: inherit; font-weight: 600; cursor: pointer;
+  color: var(--ink); background: none; border: none; padding: 0.25rem 0; text-decoration: underline; text-underline-offset: 3px;
+}
+.ja-guide-box { border: 1px solid var(--line); border-radius: 12px; padding: 1rem 1.1rem; margin: 0.5rem 0 0.25rem; background: white; }
+.ja-guide-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+.ja-guide-section { margin: 0 0 1.5rem; }
+.ja-guide-title { font-family: 'Fraunces', Georgia, serif; font-size: 1.15rem; margin: 0 0 0.4rem; }
+.ja-guide-p { line-height: 1.6; margin: 0.4rem 0; }
+.ja-guide-caption { font-weight: 700; font-size: 0.9rem; margin: 0.9rem 0 0.2rem; }
+.ja-guide-firstcol { font-weight: 600; }
+.ja-guide-verb { font-size: 1.15rem; font-weight: 600; }

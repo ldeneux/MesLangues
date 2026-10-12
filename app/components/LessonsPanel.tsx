@@ -200,7 +200,8 @@ export default function LessonsPanel({
       );
     }
     if (em.nouns === 0 || (em.pending === 0 && !emojiRun)) return null;
-    const est = estimateEmojiCost(em.pending);
+    const est = estimateEmojiCost(em.toSearch);
+    const free = em.toSearch === 0;
     const pct = emojiRun && emojiRun.total > 0 ? Math.round(((emojiRun.total - emojiRun.remaining) / emojiRun.total) * 100) : 0;
     return (
       <div className="phrase-card lesson-setup">
@@ -217,20 +218,29 @@ export default function LessonsPanel({
         ) : confirmEmoji ? (
           <div className="pack-confirm-modal">
             <p style={{ marginTop: 0 }}>
-              Gemini va choisir un emoji pour {em.pending} noms. Coût estimé : <strong>au plus {est.eur.toFixed(2)} €</strong> ({est.usd.toFixed(2)} $), et moins si
-              des mots sont déjà illustrés dans une autre langue. Les noms sans emoji convenable resteront sans image.
+              {em.reusable} noms reprennent gratuitement l'image trouvée dans une autre langue. Gemini va choisir un emoji pour {em.toSearch} mots
+              nouveaux : coût estimé <strong>au plus {est.eur.toFixed(2)} €</strong> ({est.usd.toFixed(2)} $). Les noms sans emoji convenable resteront
+              sans image.
             </p>
             <div className="conv-bubble-actions">
-              <button className="primary" onClick={runEmoji}>Chercher les images</button>
+              <button className="primary" onClick={runEmoji}>Lancer</button>
               <button className="conv-mini-btn" onClick={() => setConfirmEmoji(false)}>Annuler</button>
             </div>
           </div>
         ) : (
           <>
             <p className="eyebrow-free">
-              {em.withImage} / {em.nouns} noms ont une image. {em.pending} restent à traiter (≈ {est.eur.toFixed(2)} € au plus).
+              {em.withImage} / {em.nouns} noms ont une image. Les images sont partagées entre les langues : sur les {em.pending} noms restants,{' '}
+              <strong>{em.reusable}</strong> se reprennent gratuitement d'une autre langue
+              {free ? '.' : `, et ${em.toSearch} mots nouveaux sont à chercher (≈ ${est.eur.toFixed(2)} €).`}
             </p>
-            <button className="primary" onClick={() => setConfirmEmoji(true)}>Ajouter les images des noms</button>
+            {free ? (
+              <button className="primary" onClick={runEmoji}>Reprendre les images des autres langues (gratuit)</button>
+            ) : (
+              <button className="primary" onClick={() => setConfirmEmoji(true)}>
+                {em.reusable > 0 ? 'Reprendre les images et chercher les nouvelles' : 'Ajouter les images des noms'}
+              </button>
+            )}
           </>
         )}
       </div>
