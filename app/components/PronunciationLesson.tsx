@@ -6,13 +6,14 @@ import { PRONUNCIATION } from '../../lib/pronunciation';
 import { speak } from '../../lib/speech';
 
 // Leçon 0 : sons et règles de prononciation de la langue. La voix est celle du navigateur (gratuite) ; rien ne se lance seul.
-export default function PronunciationLesson({ languageCode, onBack }: { languageCode: string; onBack: () => void }) {
+export default function PronunciationLesson({ languageCode, levelCode, onBack }: { languageCode: string; levelCode: string; onBack: () => void }) {
   const lesson = PRONUNCIATION[languageCode];
   const lang = LANGS.find((l) => l.code === languageCode);
   const isJa = languageCode === 'ja';
   const [step, setStep] = useState(0);
   const [speechOk, setSpeechOk] = useState(true);
   const [playingKey, setPlayingKey] = useState<string | null>(null);
+  const [pdfBusy, setPdfBusy] = useState('');
 
   if (!lesson) {
     return (
@@ -35,6 +36,18 @@ export default function PronunciationLesson({ languageCode, onBack }: { language
     }
   }
 
+  async function makePdf() {
+    setPdfBusy('Préparation…');
+    try {
+      const { downloadPronunciationPdf } = await import('./pdf/generate');
+      await downloadPronunciationPdf({ languageCode, levelCode, furigana: false, romaji: false, onProgress: (m) => setPdfBusy(m || 'Préparation…') });
+    } catch {
+      setSpeechOk(speechOk);
+    } finally {
+      setPdfBusy('');
+    }
+  }
+
   const section = step > 0 ? lesson.sections[step - 1] : null;
 
   return (
@@ -44,6 +57,9 @@ export default function PronunciationLesson({ languageCode, onBack }: { language
         <span className="deck-progress" style={{ marginBottom: 0 }}>
           Carte {step + 1} / {total}
         </span>
+        <button className="conv-mini-btn" onClick={makePdf} disabled={!!pdfBusy}>
+          {pdfBusy ? pdfBusy : '📄 PDF'}
+        </button>
       </div>
 
       <div className="lesson-step-bar" aria-hidden="true">

@@ -165,18 +165,3 @@ export function estimateVerbAudioCost(verbCount: number): CostEstimate {
   const usd = ((verbCount * VERB_AUDIO_CHARS) / 1e6) * TTS_PRICE_PER_M_CHARS;
   return { usd, eur: usd * USD_TO_EUR };
 }
-
-// --- Leçons : images des noms (Gemini choisit un emoji par traduction ; réutilisé entre langues) ---
-const EMOJI_BATCH_WORDS = 60;
-const EMOJI_INPUT_TOKENS_PER_WORD = 28;
-const EMOJI_INPUT_TOKENS_PER_BATCH = 220; // consigne
-const EMOJI_OUTPUT_TOKENS_PER_WORD = 9; // « [12,"🍎"], » ; marge pour la réflexion du modèle
-
-/** Estimation haute : en pratique moins, car les traductions déjà illustrées dans une autre langue sont réutilisées gratuitement. */
-export function estimateEmojiCost(nounCount: number): CostEstimate {
-  const batches = Math.ceil(nounCount / EMOJI_BATCH_WORDS);
-  const inputTokens = nounCount * EMOJI_INPUT_TOKENS_PER_WORD + batches * EMOJI_INPUT_TOKENS_PER_BATCH;
-  const outputTokens = nounCount * EMOJI_OUTPUT_TOKENS_PER_WORD;
-  const usd = (inputTokens / 1e6) * GEMINI_INPUT_PRICE_PER_M + (outputTokens / 1e6) * GEMINI_OUTPUT_PRICE_PER_M;
-  return { usd, eur: usd * USD_TO_EUR };
-}

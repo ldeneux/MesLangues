@@ -7,14 +7,16 @@ import {
   buildLessonPlan,
   deleteLessonPlan,
   addVerbAudioStep,
-  mapEmojiStep,
+  fillImageNamesStep,
+  listMissingImages,
   type LessonsOverview,
   type RankStepResult,
 } from '../../lib/lessons';
 import { LEVELS, LANGS, THEMES } from '../../lib/constants';
-import { estimateRankingCost, estimateVerbAudioCost, estimateEmojiCost } from '../../lib/pricing';
+import { estimateRankingCost, estimateVerbAudioCost } from '../../lib/pricing';
 import LessonViewer from './LessonViewer';
 import PronunciationLesson from './PronunciationLesson';
+import { usePersistentFlag } from './usePersistentFlag';
 
 function themeLabel(code: string) {
   return THEMES.find((t) => t.code === code)?.label ?? code;
@@ -40,8 +42,12 @@ export default function LessonsPanel({
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmAudio, setConfirmAudio] = useState(false);
   const [audioRun, setAudioRun] = useState<{ remaining: number; total: number } | null>(null);
-  const [confirmEmoji, setConfirmEmoji] = useState(false);
-  const [emojiRun, setEmojiRun] = useState<{ remaining: number; total: number } | null>(null);
+  const [pdfFrom, setPdfFrom] = useState(1);
+  const [pdfTo, setPdfTo] = useState(10);
+  const [pdfBusy, setPdfBusy] = useState('');
+  const [furigana] = usePersistentFlag('ja-furigana', levelCode === 'A1' || levelCode === 'A2');
+  const [romaji] = usePersistentFlag('ja-romaji');
+  const [namesRun, setNamesRun] = useState<{ remaining: number; total: number } | null>(null);
 
   const level = LEVELS.find((l) => l.code === levelCode);
   const lang = LANGS.find((l) => l.code === languageCode);
@@ -66,7 +72,6 @@ export default function LessonsPanel({
     setConfirmRank(false);
     setConfirmReset(false);
     setConfirmAudio(false);
-    setConfirmEmoji(false);
     refresh();
   }, [refresh]);
 
@@ -160,91 +165,126 @@ export default function LessonsPanel({
     );
   }
 
-  async function runEmoji() {
+  // Noms d'images : calcul par code (gratuit), enregistré en base par lots
+  async function runFillNames() {
     if (!overview) return;
-    setConfirmEmoji(false);
     setError('');
-    const total = overview.emoji.pending;
-    setEmojiRun({ remaining: total, total });
+    const total = overview.images.namesPending;
+    setNamesRun({ remaining: total, total });
     try {
       for (let guard = 0; guard < 60; guard++) {
-        const r = await mapEmojiStep(languageCode, levelCode);
+        const r = await fillImageNamesStep(languageCode, levelCode);
         if (!r.ok) {
           setError((r as { error: string }).error);
           break;
         }
         const remaining = (r as { data: { remaining: number } }).data.remaining;
-        setEmojiRun({ remaining, total });
+        setNamesRun({ remaining, total });
         if (remaining === 0) break;
       }
     } catch (e: any) {
-      setError(e?.message ?? 'La recherche des images a été interrompue.');
+      setError(e?.message ?? "Le calcul des noms d'images a été interrompu.");
     } finally {
-      setEmojiRun(null);
+      setNamesRun(null);
       await refresh();
     }
   }
 
-  // Bloc « images des noms » : affiché tant qu'il reste des noms à illustrer (ou si la migration manque)
-  function renderEmojiBlock() {
-    const em = overview?.emoji;
-    if (!overview || !em) return null;
-    if (!em.ready) {
+  // Liste des images à fournir : un fichier texte « nom-du-fichier [tabulation] mot français »
+  async function downloadMissing(all: boolean) {
+    setError('');
+    try {
+      const r = await listMissingImages(all ? null : languageCode, all ? null : levelCode);
+      if (!r.ok) {
+        setError((r as { error: string }).error);
+        return;
+      }
+      const list = (r as { data: { name: string; fr: string }[] }).data;
+      const head = `# Images à fournir (${list.length}) : un fichier .webp par ligne, à déposer dans public/image_webp\n# nom du fichier (sans .webp)\tmot français\n`;
+      const blob = new Blob([head + list.map((m) => `${m.name}\t${m.fr}`).join('\n') + '\n'], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = all ? 'images_manquantes_toutes_langues.txt' : `images_manquantes_${languageCode}_${levelCode}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setError(e?.message ?? 'Impossible de préparer la liste.');
+    }
+  }
+
+  // Bloc « images des mots » : compteur d'images disponibles / manquantes
+  function renderImageBlock() {
+    const im = overview?.images;
+    if (!overview || !im) return null;
+    if (!im.ready) {
       return (
         <div className="phrase-card lesson-setup">
-          <div className="lesson-setup-title">Images des noms</div>
+          <div className="lesson-setup-title">Images des mots</div>
           <p className="conv-warning" style={{ marginBottom: 0 }}>
-            La colonne des images n'existe pas encore : exécute la migration 022 dans le SQL Editor de Supabase.
+            La colonne des images n'existe pas encore : exécute la migration 024 dans le SQL Editor de Supabase.
           </p>
         </div>
       );
     }
-    if (em.nouns === 0 || (em.pending === 0 && !emojiRun)) return null;
-    const est = estimateEmojiCost(em.toSearch);
-    const free = em.toSearch === 0;
-    const pct = emojiRun && emojiRun.total > 0 ? Math.round(((emojiRun.total - emojiRun.remaining) / emojiRun.total) * 100) : 0;
+    if (im.words === 0) return null;
+    const pct = namesRun && namesRun.total > 0 ? Math.round(((namesRun.total - namesRun.remaining) / namesRun.total) * 100) : 0;
     return (
       <div className="phrase-card lesson-setup">
-        <div className="lesson-setup-title">Images des noms</div>
-        {emojiRun ? (
+        <div className="lesson-setup-title">Images des mots</div>
+        {namesRun ? (
           <div className="pack-progress">
             <div className="pack-progress-label">
-              {emojiRun.total - emojiRun.remaining} / {emojiRun.total} noms traités
+              {namesRun.total - namesRun.remaining} / {namesRun.total} mots
             </div>
             <div className="pack-progress-track">
               <div className="pack-progress-fill" style={{ width: `${pct}%` }} />
             </div>
           </div>
-        ) : confirmEmoji ? (
-          <div className="pack-confirm-modal">
-            <p style={{ marginTop: 0 }}>
-              {em.reusable} noms reprennent gratuitement l'image trouvée dans une autre langue. Gemini va choisir un emoji pour {em.toSearch} mots
-              nouveaux : coût estimé <strong>au plus {est.eur.toFixed(2)} €</strong> ({est.usd.toFixed(2)} $). Les noms sans emoji convenable resteront
-              sans image.
-            </p>
-            <div className="conv-bubble-actions">
-              <button className="primary" onClick={runEmoji}>Lancer</button>
-              <button className="conv-mini-btn" onClick={() => setConfirmEmoji(false)}>Annuler</button>
-            </div>
-          </div>
         ) : (
           <>
             <p className="eyebrow-free">
-              {em.withImage} / {em.nouns} noms ont une image. Les images sont partagées entre les langues : sur les {em.pending} noms restants,{' '}
-              <strong>{em.reusable}</strong> se reprennent gratuitement d'une autre langue
-              {free ? '.' : `, et ${em.toSearch} mots nouveaux sont à chercher (≈ ${est.eur.toFixed(2)} €).`}
+              <strong>{im.available}</strong> images disponibles sur {im.distinct} nécessaires pour ce niveau, <strong>{im.missing}</strong> manquantes. Une image
+              correspond à un mot français : elle sert dans toutes les langues.
             </p>
-            {free ? (
-              <button className="primary" onClick={runEmoji}>Reprendre les images des autres langues (gratuit)</button>
-            ) : (
-              <button className="primary" onClick={() => setConfirmEmoji(true)}>
-                {em.reusable > 0 ? 'Reprendre les images et chercher les nouvelles' : 'Ajouter les images des noms'}
-              </button>
-            )}
+            <div className="conv-bubble-actions">
+              {im.namesPending > 0 && (
+                <button className="primary" onClick={runFillNames}>
+                  Enregistrer les noms d'images ({im.namesPending} mots, gratuit)
+                </button>
+              )}
+              {im.missing > 0 && (
+                <>
+                  <button className="conv-mini-btn" onClick={() => downloadMissing(false)}>Liste des manquantes (ce niveau)</button>
+                  <button className="conv-mini-btn" onClick={() => downloadMissing(true)}>Liste de toutes les langues</button>
+                </>
+              )}
+            </div>
+            <p className="eyebrow-free" style={{ marginTop: '0.6rem', marginBottom: 0 }}>
+              Pour ajouter des images : dépose les .webp dans public/image_webp avec le nom indiqué dans la liste (sans espace ni accent), puis pousse sur GitHub :
+              le compteur se met à jour au déploiement.
+            </p>
           </>
         )}
       </div>
     );
+  }
+
+  // PDF du cours : plusieurs leçons dans un seul fichier (fabriqué dans le navigateur)
+  async function makeCoursePdf(total: number) {
+    const from = Math.max(1, Math.min(pdfFrom, total));
+    const to = Math.max(from, Math.min(pdfTo, total));
+    setError('');
+    setPdfBusy('Préparation…');
+    try {
+      const { downloadLessonsPdf } = await import('./pdf/generate');
+      const numbers = Array.from({ length: to - from + 1 }, (_, i) => from + i);
+      await downloadLessonsPdf({ profileId, languageCode, levelCode, numbers, furigana, romaji, onProgress: (m) => setPdfBusy(m || 'Préparation…') });
+    } catch (e: any) {
+      setError(e?.message ?? "Le PDF n'a pas pu être créé.");
+    } finally {
+      setPdfBusy('');
+    }
   }
 
   async function createPlan(replace: boolean) {
@@ -279,6 +319,7 @@ export default function LessonsPanel({
     return (
       <PronunciationLesson
         languageCode={languageCode}
+        levelCode={levelCode}
         onBack={() => {
           setOpenNumber(null);
           refresh();
@@ -348,7 +389,7 @@ export default function LessonsPanel({
         </div>
 
         {setup!.verbs > 0 && renderVerbAudioBlock()}
-        {renderEmojiBlock()}
+        {renderImageBlock()}
 
         {setup!.total === 0 ? (
           <p className="conv-warning" style={{ marginTop: '1rem' }}>
@@ -436,7 +477,7 @@ export default function LessonsPanel({
       )}
 
       {renderVerbAudioBlock()}
-      {renderEmojiBlock()}
+      {renderImageBlock()}
 
       <div className="lesson-tiles">
         <button className="lesson-tile" style={{ ['--lesson-color' as any]: color }} onClick={() => setOpenNumber(0)}>
@@ -462,11 +503,24 @@ export default function LessonsPanel({
         })}
       </div>
 
-      {overview && overview.emoji.withImage > 0 && (
-        <p className="eyebrow-free" style={{ marginTop: '1.5rem', marginBottom: 0 }}>
-          Images des noms : Microsoft Fluent Emoji (licence MIT).
+      <div className="phrase-card lesson-setup">
+        <div className="lesson-setup-title">📄 PDF du cours</div>
+        <p className="eyebrow-free">
+          Un vrai PDF à imprimer ou à garder (mots avec leurs images, verbes, règles, fiches de conjugaison{languageCode === 'ja' ? ', kanji avec cases de recopie' : ''}).
+          Plus il y a de leçons, plus la préparation est longue.
         </p>
-      )}
+        <div className="conv-bubble-actions">
+          <label className="eyebrow-free" style={{ margin: 0 }}>
+            Leçons de{' '}
+            <input type="number" min={1} max={lessons.length} value={pdfFrom} onChange={(e) => setPdfFrom(Number(e.target.value) || 1)} style={{ width: '4rem' }} />{' '}
+            à{' '}
+            <input type="number" min={1} max={lessons.length} value={pdfTo} onChange={(e) => setPdfTo(Number(e.target.value) || 1)} style={{ width: '4rem' }} />
+          </label>
+          <button className="primary" onClick={() => makeCoursePdf(lessons.length)} disabled={!!pdfBusy}>
+            {pdfBusy ? pdfBusy : 'Télécharger le PDF'}
+          </button>
+        </div>
+      </div>
 
       <div style={{ marginTop: '1rem' }}>
         {confirmReset ? (

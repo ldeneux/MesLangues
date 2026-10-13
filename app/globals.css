@@ -2020,7 +2020,6 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 .lesson-conj-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.6rem 1.2rem; }
 .lesson-conj-line { font-size: 0.95rem; line-height: 1.55; }
 
-.lesson-emoji { flex: 0 0 auto; width: 44px; height: 44px; object-fit: contain; }
 
 
 /* --- Dessin des kana et mode Écrire --- */
@@ -2073,3 +2072,55 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 .ja-guide-caption { font-weight: 700; font-size: 0.9rem; margin: 0.9rem 0 0.2rem; }
 .ja-guide-firstcol { font-weight: 600; }
 .ja-guide-verb { font-size: 1.15rem; font-weight: 600; }
+
+/* --- Mots de la leçon : grille de cartes avec image --- */
+.lesson-word-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 0.75rem; }
+.lesson-word-card {
+  background: #fff; border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+  display: flex; flex-direction: column; box-shadow: 0 2px 0 var(--line);
+}
+.lesson-word-img { background: color-mix(in srgb, var(--ink) 4%, white); aspect-ratio: 16 / 10; display: flex; align-items: center; justify-content: center; }
+.lesson-word-img img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.lesson-word-card-body { display: flex; align-items: flex-start; gap: 0.55rem; padding: 0.55rem 0.65rem 0.7rem; }
+.lesson-word-card .lesson-word-text { font-size: 1.02rem; line-height: 1.25; }
+
+/* --- En-tête : langues alignées sur la page principale, niveaux en escalier au centre, icônes serrées vers le profil --- */
+.topbar-full {
+  display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 0; align-items: end;
+  padding: 0.75rem 0; flex-wrap: nowrap;
+}
+.topbar-left { padding-left: 1.25rem; display: flex; align-items: flex-end; }
+.topbar-main { display: flex; align-items: flex-end; gap: 1rem; padding: 0 1.5rem 0 2.5rem; min-width: 0; }
+.topbar-levels { flex: 1; display: flex; justify-content: center; min-width: 0; }
+.topbar-block-center { align-items: center; }
+.topbar-right { display: flex; align-items: flex-end; gap: 0.6rem; margin-left: auto; }
+.topbar-actions { display: flex; gap: 0.3rem; align-items: flex-end; }
+.topbar-actions .topbar-icon-btn { margin-right: 0; }
+
+.level-stairs { display: flex; align-items: flex-end; gap: 0.35rem; }
+.level-step {
+  width: 96px; border: none; border-radius: 11px; color: #fff; cursor: pointer; text-align: left;
+  display: flex; flex-direction: column; justify-content: flex-start; gap: 0.1rem; padding: 0.4rem 0.55rem;
+  opacity: 0.5; transform: scale(0.97); transform-origin: bottom center;
+  transition: opacity 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
+}
+.level-step.active { opacity: 1; transform: scale(1); box-shadow: 0 3px 0 rgba(0, 0, 0, 0.16); }
+.level-step:hover { opacity: 0.85; }
+.level-step-A1 { height: 52px; }
+.level-step-A2 { height: 60px; }
+.level-step-B1 { height: 68px; }
+.level-step-B2 { height: 76px; }
+.level-step-code { font-weight: 800; font-size: 1.05rem; line-height: 1.1; }
+.level-step-sub { font-size: 0.68rem; font-weight: 600; line-height: 1.15; }
+
+@media (max-width: 1100px) {
+  .level-step { width: 78px; }
+  .level-step-sub { font-size: 0.62rem; }
+}
+@media (max-width: 780px) {
+  .topbar-full { grid-template-columns: 1fr; gap: 0.6rem; padding: 0.75rem 0; }
+  .topbar-left { padding-left: 1.25rem; }
+  .topbar-main { flex-wrap: wrap; padding: 0 1.25rem; align-items: flex-end; }
+  .topbar-levels { order: 3; flex-basis: 100%; justify-content: flex-start; }
+  .topbar-right { margin-left: auto; }
+}

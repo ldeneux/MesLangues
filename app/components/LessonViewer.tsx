@@ -9,7 +9,7 @@ import { splitEnding } from '../../lib/conjugationHighlight';
 import { kanaToRomaji } from '../../lib/japanese';
 import { conjugateJapaneseVerb } from '../../lib/japaneseVerbs';
 import { speak } from '../../lib/speech';
-import { emojiSrc } from '../../lib/emoji';
+import { imageUrl } from '../../lib/imageName';
 import HighlightText from './HighlightText';
 import RubyHighlight from './RubyHighlight';
 import JapaneseRuby from './JapaneseRuby';
@@ -72,6 +72,7 @@ export default function LessonViewer({
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
   const [playingKey, setPlayingKey] = useState<string | null>(null);
+  const [pdfBusy, setPdfBusy] = useState('');
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const [furigana, setFurigana] = usePersistentFlag('ja-furigana', levelCode === 'A1' || levelCode === 'A2');
@@ -154,6 +155,20 @@ export default function LessonViewer({
     }
   }
 
+  // PDF de la leçon : fabriqué dans le navigateur (le module n'est chargé qu'au clic)
+  async function makePdf() {
+    setError('');
+    setPdfBusy('Préparation…');
+    try {
+      const { downloadLessonsPdf } = await import('./pdf/generate');
+      await downloadLessonsPdf({ profileId, languageCode, levelCode, numbers: [number], furigana, romaji, onProgress: (m) => setPdfBusy(m || 'Préparation…') });
+    } catch (e: any) {
+      setError(e?.message ?? 'Le PDF n\'a pas pu être créé.');
+    } finally {
+      setPdfBusy('');
+    }
+  }
+
   async function finish() {
     if (!lesson) return;
     setSaving(true);
@@ -172,30 +187,39 @@ export default function LessonViewer({
   }
 
   // ---------- éléments d'affichage ----------
+  // Carte d'un mot : image (si elle existe), mot, rōmaji, traduction, bouton d'écoute
   function renderWordRow(w: LessonWord, keyPrefix: string) {
     const key = `${keyPrefix}-${w.id}`;
     const rd = isJa ? readings[w.text] : undefined;
     return (
-      <div key={key} className="lesson-word-row">
-        <button
-          className={`play-btn${playingKey === key ? ' playing' : ''}`}
-          onClick={() => play(w.audio_url, key)}
-          disabled={!w.audio_url}
-          aria-label={`Écouter ${w.text}`}
-        >
-          {playingKey === key ? '❚❚' : '▶'}
-        </button>
-        {emojiSrc(w.emoji) && <img className="lesson-emoji" src={emojiSrc(w.emoji) as string} alt="" aria-hidden="true" width={44} height={44} loading="lazy" />}
-        <div className="lesson-word-body">
-          <div className="lesson-word-text" lang={isJa ? 'ja' : undefined}>
-            {isJa && furigana && rd ? <JapaneseRuby ruby={rd.ruby} /> : w.text}
+      <div key={key} className="lesson-word-card">
+        {w.image && (
+          <div className="lesson-word-img">
+            <img src={imageUrl(w.image)} alt="" loading="lazy" />
           </div>
-          {isJa && romaji && rd?.romaji && <div className="phrase-notes">{rd.romaji}</div>}
-          <div className="lesson-word-fr">{w.fr}</div>
+        )}
+        <div className="lesson-word-card-body">
+          <button
+            className={`play-btn${playingKey === key ? ' playing' : ''}`}
+            onClick={() => play(w.audio_url, key)}
+            disabled={!w.audio_url}
+            aria-label={`Écouter ${w.text}`}
+          >
+            {playingKey === key ? '❚❚' : '▶'}
+          </button>
+          <div className="lesson-word-body">
+            <div className="lesson-word-text" lang={isJa ? 'ja' : undefined}>
+              {isJa && furigana && rd ? <JapaneseRuby ruby={rd.ruby} /> : w.text}
+            </div>
+            {isJa && romaji && rd?.romaji && <div className="phrase-notes">{rd.romaji}</div>}
+            <div className="lesson-word-fr">{w.fr}</div>
+          </div>
         </div>
       </div>
     );
   }
+
+  const renderWordGrid = (items: (JSX.Element | null)[]) => <div className="lesson-word-grid">{items}</div>;
 
   function verbLabel(v: ConjugationVerb) {
     if (isJa && v.ja_data) {
@@ -211,10 +235,12 @@ export default function LessonViewer({
 
   function renderVerbRow(v: ConjugationVerb, keyPrefix = 'v') {
     return (
-      <div key={`${keyPrefix}-${v.id}`} className="lesson-word-row">
-        <div className="lesson-word-body">
-          <div className="lesson-word-text">{verbLabel(v)}</div>
-          <div className="lesson-word-fr">{v.translation_fr}</div>
+      <div key={`${keyPrefix}-${v.id}`} className="lesson-word-card">
+        <div className="lesson-word-card-body">
+          <div className="lesson-word-body">
+            <div className="lesson-word-text">{verbLabel(v)}</div>
+            <div className="lesson-word-fr">{v.translation_fr}</div>
+          </div>
         </div>
       </div>
     );
@@ -527,7 +553,7 @@ export default function LessonViewer({
             <div className="lesson-card-title">Pour commencer : on se rappelle</div>
             <p className="eyebrow-free">Des mots des leçons précédentes.</p>
             {renderJaToggles()}
-            {lesson!.review.map((r) => (r.word ? renderWordRow(r.word, 'rv') : r.verb ? renderVerbRow(r.verb, 'rv') : null))}
+            {renderWordGrid(lesson!.review.map((r) => (r.word ? renderWordRow(r.word, 'rv') : r.verb ? renderVerbRow(r.verb, 'rv') : null)))}
           </>
         );
 
@@ -536,7 +562,7 @@ export default function LessonViewer({
           <>
             <div className="lesson-card-title">Les noms ({lesson!.nouns.length})</div>
             {renderJaToggles()}
-            {lesson!.nouns.map((w) => renderWordRow(w, 'n'))}
+            {renderWordGrid(lesson!.nouns.map((w) => renderWordRow(w, 'n')))}
           </>
         );
 
@@ -545,7 +571,7 @@ export default function LessonViewer({
           <>
             <div className="lesson-card-title">Les adjectifs ({lesson!.adjectives.length})</div>
             {renderJaToggles()}
-            {lesson!.adjectives.map((w) => renderWordRow(w, 'a'))}
+            {renderWordGrid(lesson!.adjectives.map((w) => renderWordRow(w, 'a')))}
           </>
         );
 
@@ -554,7 +580,7 @@ export default function LessonViewer({
           <>
             <div className="lesson-card-title">Autres mots utiles ({lesson!.others.length})</div>
             {renderJaToggles()}
-            {lesson!.others.map((w) => renderWordRow(w, 'o'))}
+            {renderWordGrid(lesson!.others.map((w) => renderWordRow(w, 'o')))}
           </>
         );
 
@@ -616,7 +642,7 @@ export default function LessonViewer({
             <div className="lesson-card-title">À connaître aussi</div>
             <p className="eyebrow-free">Des mots et expressions très courants, utiles dès maintenant.</p>
             {renderJaToggles()}
-            {lesson!.phrases.map((w) => renderWordRow(w, 'p'))}
+            {renderWordGrid(lesson!.phrases.map((w) => renderWordRow(w, 'p')))}
           </>
         );
 
@@ -667,6 +693,11 @@ export default function LessonViewer({
             </div>
 
             {error && <p className="conv-warning">{error}</p>}
+            <div className="conv-bubble-actions" style={{ marginTop: '1rem' }}>
+              <button className="conv-mini-btn" onClick={makePdf} disabled={!!pdfBusy}>
+                {pdfBusy ? pdfBusy : '📄 Télécharger cette leçon en PDF'}
+              </button>
+            </div>
             {!done ? (
               <button className="primary" style={{ marginTop: '1rem' }} onClick={finish} disabled={saving}>
                 {saving ? 'Enregistrement…' : "J'ai terminé la leçon"}

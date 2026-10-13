@@ -1,5 +1,6 @@
 'use server';
 
+import { FUNCTIONS_SCHEMA } from './dbSchema';
 import { supabaseAdmin } from './supabaseAdmin';
 import {
   LANGS,
@@ -226,10 +227,10 @@ const LANG_COL_TABLES = new Set(['grammar_topics', 'grammar_questions', 'conjuga
 async function buildStorageStats(languageCode: string): Promise<StorageStats> {
   const filterLang = languageCode !== 'all' ? languageCode : null;
   const [dbSizeRes, storageSizeRes, tableSizesRes, storageByPrefixRes] = await Promise.all([
-    supabaseAdmin.rpc('get_db_size_bytes'),
-    supabaseAdmin.rpc('get_storage_size_bytes'),
-    supabaseAdmin.rpc('get_content_table_sizes'),
-    supabaseAdmin.rpc('get_storage_size_by_prefix'),
+    supabaseAdmin.schema(FUNCTIONS_SCHEMA).rpc('get_db_size_bytes'),
+    supabaseAdmin.schema(FUNCTIONS_SCHEMA).rpc('get_storage_size_bytes'),
+    supabaseAdmin.schema(FUNCTIONS_SCHEMA).rpc('get_content_table_sizes'),
+    supabaseAdmin.schema(FUNCTIONS_SCHEMA).rpc('get_storage_size_by_prefix'),
   ]);
 
   const firstError = [dbSizeRes, storageSizeRes, tableSizesRes, storageByPrefixRes].find((r) => r.error)?.error;

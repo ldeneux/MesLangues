@@ -36,49 +36,57 @@ export default function TopBar({
 
   return (
     <div className="topbar topbar-full">
-      <img src="/logo.png" alt="Mes langues" className="topbar-logo" width={90} height={90} />
-
-      <div className="topbar-block">
-        <div className="sidebar-label">Langue</div>
-        <div className="flag-icon-row topbar-flag-row">
-          {LANGS.map((l) => (
-            <button
-              key={l.code}
-              className={`flag-icon-btn${lang === l.code ? ' active' : ''}`}
-              onClick={() => onLangChange(l.code)}
-              aria-label={l.label}
-            >
-              <FlagIcon code={l.code} />
-            </button>
-          ))}
-        </div>
+      <div className="topbar-left">
+        <img src="/logo.png" alt="Mes langues" className="topbar-logo" width={90} height={90} />
       </div>
 
-      <div className="topbar-block">
-        <div className="sidebar-label">Niveau</div>
-        <div className="level-swatch-row topbar-level-row">
-          {LEVELS.map((lv) => (
-            <button
-              key={lv.code}
-              className={`level-swatch${level === lv.code ? ' active' : ''}`}
-              style={{ background: lv.color }}
-              onClick={() => onLevelChange(lv.code)}
-              aria-label={lv.label}
-            >
-              {lv.label}
-            </button>
-          ))}
+      <div className="topbar-main">
+        <div className="topbar-block">
+          <div className="sidebar-label">Langue</div>
+          <div className="flag-icon-row topbar-flag-row">
+            {LANGS.map((l) => (
+              <button
+                key={l.code}
+                className={`flag-icon-btn${lang === l.code ? ' active' : ''}`}
+                onClick={() => onLangChange(l.code)}
+                aria-label={l.label}
+              >
+                <FlagIcon code={l.code} />
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
 
-      <div className="topbar-spacer" />
+        {/* Niveaux : en escalier (comme le schéma du CECRL), avec leur description, centrés dans l'en-tête */}
+        <div className="topbar-levels">
+          <div className="topbar-block topbar-block-center">
+            <div className="sidebar-label">Niveau</div>
+            <div className="level-stairs">
+              {LEVELS.map((lv) => (
+                <button
+                  key={lv.code}
+                  className={`level-step level-step-${lv.code}${level === lv.code ? ' active' : ''}`}
+                  style={{ background: lv.color }}
+                  onClick={() => onLevelChange(lv.code)}
+                  aria-label={`${lv.label} : ${lv.subtitle}`}
+                >
+                  <span className="level-step-code">{lv.label}</span>
+                  <span className="level-step-sub">{lv.subtitle}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
 
-      <button className="topbar-icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Réglages" title="Réglages">
-        ⚙️
-      </button>
-      <button className="topbar-icon-btn" onClick={() => setScoresOpen(true)} aria-label="Mes scores" title="Mes scores">
-        📊
-      </button>
+        <div className="topbar-right">
+          <div className="topbar-actions">
+            <button className="topbar-icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Réglages" title="Réglages">
+              ⚙️
+            </button>
+            <button className="topbar-icon-btn" onClick={() => setScoresOpen(true)} aria-label="Mes scores" title="Mes scores">
+              📊
+            </button>
+          </div>
 
       <div className="topbar-profile-wrap">
         <button className="sidebar-profile-btn" onClick={() => setSwitching((s) => !s)}>
@@ -133,6 +141,9 @@ export default function TopBar({
             )}
           </div>
         )}
+      </div>
+
+        </div>
       </div>
 
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}

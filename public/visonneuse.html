@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Visionneuse d'images</title>
+  <style>
+    body {
+      margin: 0;
+      background: #ffffff;
+      font-family: system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+
+    .controls {
+      margin-bottom: 12px;
+    }
+
+    .viewer {
+      position: relative;
+      width: 80vw;
+      height: 80vh;
+      background: #ffffff;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+    }
+
+    .viewer img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      background: #ffffff; /* pour les transparences */
+    }
+
+    .arrow {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(0,0,0,0.05);
+      cursor: pointer;
+      font-size: 24px;
+      color: #333;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .arrow-left { left: 16px; }
+    .arrow-right { right: 16px; }
+  </style>
+</head>
+<body>
+
+  <div class="controls">
+    <input type="file" id="fileInput" accept="image/*" multiple>
+  </div>
+
+  <div class="viewer">
+    <button class="arrow arrow-left" id="prevBtn">&#10094;</button>
+    <img id="imageViewer" src="" alt="">
+    <button class="arrow arrow-right" id="nextBtn">&#10095;</button>
+  </div>
+
+  <script>
+    const input = document.getElementById("fileInput");
+    const imgEl = document.getElementById("imageViewer");
+    const prevBtn = document.getElementById("prevBtn");
+    const nextBtn = document.getElementById("nextBtn");
+
+    let files = [];
+    let index = 0;
+
+    input.addEventListener("change", () => {
+      files = Array.from(input.files);
+      index = 0;
+      showImage(0);
+    });
+
+    function showImage(i) {
+      if (!files.length) return;
+      index = (i + files.length) % files.length;
+      const file = files[index];
+      const url = URL.createObjectURL(file);
+      imgEl.src = url;
+    }
+
+    prevBtn.addEventListener("click", () => showImage(index - 1));
+    nextBtn.addEventListener("click", () => showImage(index + 1));
+  </script>
+
+</body>
+</html>
