@@ -7,7 +7,7 @@ import { getGrammarTopic, type GrammarTopic } from './grammar';
 import type { ConjugationVerb } from './conjugation';
 import { planLessons, dedupeWords, wordKey, grammarExampleIndex, CONJUGATION_RECAP_EVERY, type PlanWord, type PlannedLesson, type ReviewItem } from './lessonPlan';
 import { synthesizeAndStore } from './tts';
-import { imageSlug } from './imageName';
+import { imageFileName, imageKey, makeImageIndex, findImage } from './imageName';
 import imageManifest from './imageManifest.json';
 import type { KanjiItem } from './kanji';
 
@@ -637,12 +637,11 @@ export async function addVerbAudioStep(languageCode: string): Promise<Result<{ r
 // lib/imageName.ts). La base ne garde que le NOM de l'image ; la liste des fichiers présents (lib/imageManifest.json)
 // est régénérée à chaque déploiement par scripts/make-image-manifest.mjs.
 // ---------------------------------------------------------
-const IMAGE_SET = new Set<string>(imageManifest as string[]);
+const IMAGE_INDEX = makeImageIndex(imageManifest as string[]);
 
-/** Nom d'image du mot s'il existe un fichier, sinon null. Le nom stocké en base l'emporte ; à défaut, on le déduit de la traduction. */
+/** Fichier image du mot s'il existe (nom enregistré en base en priorité, sinon déduit de la traduction), sinon null. */
 function resolveImage(stored: string | null | undefined, translationFr: string): string | null {
-  const name = stored || imageSlug(translationFr);
-  return name && IMAGE_SET.has(name) ? name : null;
+  return findImage(IMAGE_INDEX, stored, translationFr);
 }
 
 export type ImageStatus = {
@@ -658,7 +657,7 @@ async function imageStatus(languageCode: string, levelCode: string): Promise<Ima
   try {
     let words = 0;
     let namesPending = 0;
-    const names = new Set<string>();
+    const groups = new Map<string, boolean>(); // mot français (clé) → a une image ?
     for (let from = 0; ; from += 1000) {
       const { data, error } = await supabaseAdmin
         .from('vocabulary_words')
@@ -671,14 +670,15 @@ async function imageStatus(languageCode: string, levelCode: string): Promise<Ima
       for (const r of (data ?? []) as { translation_fr: string; image: string | null }[]) {
         words++;
         if (!r.image) namesPending++;
-        const n = r.image || imageSlug(r.translation_fr);
-        if (n) names.add(n);
+        const k = imageKey(r.translation_fr);
+        if (!k) continue;
+        groups.set(k, (groups.get(k) ?? false) || resolveImage(r.image, r.translation_fr) !== null);
       }
       if (!data || data.length < 1000) break;
     }
     let available = 0;
-    for (const n of names) if (IMAGE_SET.has(n)) available++;
-    return { ready: true, words, namesPending, distinct: names.size, available, missing: names.size - available };
+    for (const ok of groups.values()) if (ok) available++;
+    return { ready: true, words, namesPending, distinct: groups.size, available, missing: groups.size - available };
   } catch (e: any) {
     if (String(e?.message ?? '').includes('image')) return { ready: false, words: 0, namesPending: 0, distinct: 0, available: 0, missing: 0 };
     throw e;
@@ -707,7 +707,7 @@ export async function fillImageNamesStep(languageCode: string, levelCode: string
         translations.slice(i, i + 15).map((tr) =>
           supabaseAdmin
             .from('vocabulary_words')
-            .update({ image: imageSlug(tr) }) // '' si le mot n'a pas de nom exploitable : traité, pas d'image
+            .update({ image: imageFileName(tr) }) // le mot français lui-même ; '' si rien d'exploitable : traité, pas d'image
             .eq('language_code', languageCode)
             .eq('level_code', levelCode)
             .eq('translation_fr', tr)
@@ -733,10 +733,11 @@ export async function fillImageNamesStep(languageCode: string, levelCode: string
 
 export type MissingImage = { name: string; fr: string };
 
-/** Images à fournir (sans fichier dans public/image_webp), sans doublon. Sans paramètres : toutes les langues et tous les niveaux. */
+/** Images à fournir (aucun fichier trouvé), une par mot français. `name` = nom de fichier à créer (sans .webp). Sans paramètres : toutes les langues et tous les niveaux. */
 export async function listMissingImages(languageCode: string | null, levelCode: string | null): Promise<Result<MissingImage[]>> {
   try {
-    const missing = new Map<string, string>();
+    const found = new Map<string, boolean>();
+    const names = new Map<string, MissingImage>();
     for (let from = 0; ; from += 1000) {
       let q = supabaseAdmin.from('vocabulary_words').select('translation_fr, image').order('id').range(from, from + 999);
       if (languageCode) q = q.eq('language_code', languageCode);
@@ -744,12 +745,15 @@ export async function listMissingImages(languageCode: string | null, levelCode: 
       const { data, error } = await q;
       if (error) throw new Error(error.message);
       for (const r of (data ?? []) as { translation_fr: string; image: string | null }[]) {
-        const n = r.image || imageSlug(r.translation_fr);
-        if (n && !IMAGE_SET.has(n) && !missing.has(n)) missing.set(n, r.translation_fr);
+        const k = imageKey(r.translation_fr);
+        if (!k) continue;
+        if (resolveImage(r.image, r.translation_fr) !== null) found.set(k, true);
+        else if (!names.has(k)) names.set(k, { name: imageFileName(r.translation_fr), fr: r.translation_fr });
       }
       if (!data || data.length < 1000) break;
     }
-    return { ok: true, data: Array.from(missing, ([name, fr]) => ({ name, fr })).sort((a, b) => a.name.localeCompare(b.name)) };
+    const list = Array.from(names.entries()).filter(([k]) => !found.get(k)).map(([, m]) => m);
+    return { ok: true, data: list.sort((a, b) => a.name.localeCompare(b.name, 'fr')) };
   } catch (e: any) {
     return { ok: false, error: explain(e?.message ?? 'Erreur pendant la recherche des images manquantes.') };
   }

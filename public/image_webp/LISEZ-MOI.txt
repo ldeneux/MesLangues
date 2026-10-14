@@ -1,0 +1,12 @@
+Images des mots (.webp) : dépose-les ici.
+
+Nom du fichier = le mot français tel qu'il est écrit, article compris. Accents, espaces, tirets et apostrophes sont autorisés :
+  un fromage.webp      l'heure.webp      avant-hier.webp      Amusez-vous bien.webp      avoir de la fièvre.webp
+
+La reconnaissance ignore la casse, les accents, les apostrophes, les tirets et les espaces en trop :
+« À plus tard » trouve « A plus tard.webp », « ça » trouve « çà ».
+Une image sert dans toutes les langues (un seul fichier par mot français). L'extension doit être .webp en minuscules.
+
+La liste des fichiers présents (lib/imageManifest.json) est régénérée automatiquement à chaque `npm run dev` et `npm run build`
+(donc à chaque déploiement). Si deux fichiers correspondent au même mot, un avertissement s'affiche au build : garde-en un seul.
+Les mots sans image se voient dans l'onglet Leçons (compteur + liste à télécharger).

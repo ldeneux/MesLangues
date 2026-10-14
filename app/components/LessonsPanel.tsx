@@ -200,8 +200,8 @@ export default function LessonsPanel({
         return;
       }
       const list = (r as { data: { name: string; fr: string }[] }).data;
-      const head = `# Images à fournir (${list.length}) : un fichier .webp par ligne, à déposer dans public/image_webp\n# nom du fichier (sans .webp)\tmot français\n`;
-      const blob = new Blob([head + list.map((m) => `${m.name}\t${m.fr}`).join('\n') + '\n'], { type: 'text/plain;charset=utf-8' });
+      const head = `# Images à fournir (${list.length}) : un fichier .webp par ligne, à nommer exactement comme le mot et à déposer dans public/image_webp\n`;
+      const blob = new Blob([head + list.map((m) => m.name).join('\n') + '\n'], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -245,7 +245,7 @@ export default function LessonsPanel({
           <>
             <p className="eyebrow-free">
               <strong>{im.available}</strong> images disponibles sur {im.distinct} nécessaires pour ce niveau, <strong>{im.missing}</strong> manquantes. Une image
-              correspond à un mot français : elle sert dans toutes les langues.
+              correspond à un mot français : elle sert dans toutes les langues, et le nom du fichier est reconnu sans tenir compte de la casse ni des accents.
             </p>
             <div className="conv-bubble-actions">
               {im.namesPending > 0 && (
@@ -261,8 +261,8 @@ export default function LessonsPanel({
               )}
             </div>
             <p className="eyebrow-free" style={{ marginTop: '0.6rem', marginBottom: 0 }}>
-              Pour ajouter des images : dépose les .webp dans public/image_webp avec le nom indiqué dans la liste (sans espace ni accent), puis pousse sur GitHub :
-              le compteur se met à jour au déploiement.
+              Pour ajouter des images : dépose les .webp dans public/image_webp, nommés comme le mot français (« un fromage.webp », accents et espaces autorisés),
+              puis pousse sur GitHub : le compteur se met à jour au déploiement.
             </p>
           </>
         )}
