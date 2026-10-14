@@ -7,8 +7,8 @@ import { getGrammarTopic, type GrammarTopic } from './grammar';
 import type { ConjugationVerb } from './conjugation';
 import { planLessons, dedupeWords, wordKey, grammarExampleIndex, CONJUGATION_RECAP_EVERY, type PlanWord, type PlannedLesson, type ReviewItem } from './lessonPlan';
 import { synthesizeAndStore } from './tts';
-import { imageFileName, imageKey, makeImageIndex, findImage } from './imageName';
-import imageManifest from './imageManifest.json';
+import { imageFileName, imageBareKey } from './imageName';
+import { resolveImage } from './imageIndex';
 import type { KanjiItem } from './kanji';
 
 // ---------------------------------------------------------
@@ -637,13 +637,6 @@ export async function addVerbAudioStep(languageCode: string): Promise<Result<{ r
 // lib/imageName.ts). La base ne garde que le NOM de l'image ; la liste des fichiers présents (lib/imageManifest.json)
 // est régénérée à chaque déploiement par scripts/make-image-manifest.mjs.
 // ---------------------------------------------------------
-const IMAGE_INDEX = makeImageIndex(imageManifest as string[]);
-
-/** Fichier image du mot s'il existe (nom enregistré en base en priorité, sinon déduit de la traduction), sinon null. */
-function resolveImage(stored: string | null | undefined, translationFr: string): string | null {
-  return findImage(IMAGE_INDEX, stored, translationFr);
-}
-
 export type ImageStatus = {
   ready: boolean; // false : la migration 024 n'a pas été exécutée
   words: number; // mots du niveau
@@ -670,7 +663,7 @@ async function imageStatus(languageCode: string, levelCode: string): Promise<Ima
       for (const r of (data ?? []) as { translation_fr: string; image: string | null }[]) {
         words++;
         if (!r.image) namesPending++;
-        const k = imageKey(r.translation_fr);
+        const k = imageBareKey(r.translation_fr);
         if (!k) continue;
         groups.set(k, (groups.get(k) ?? false) || resolveImage(r.image, r.translation_fr) !== null);
       }
@@ -745,7 +738,7 @@ export async function listMissingImages(languageCode: string | null, levelCode: 
       const { data, error } = await q;
       if (error) throw new Error(error.message);
       for (const r of (data ?? []) as { translation_fr: string; image: string | null }[]) {
-        const k = imageKey(r.translation_fr);
+        const k = imageBareKey(r.translation_fr);
         if (!k) continue;
         if (resolveImage(r.image, r.translation_fr) !== null) found.set(k, true);
         else if (!names.has(k)) names.set(k, { name: imageFileName(r.translation_fr), fr: r.translation_fr });

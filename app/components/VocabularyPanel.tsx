@@ -6,6 +6,7 @@ import { THEMES, LANGS } from '../../lib/constants';
 import VocabularyGamePanel from './VocabularyGamePanel';
 import VocabularyStatsPanel from './VocabularyStatsPanel';
 import JapaneseRuby from './JapaneseRuby';
+import { imageUrl } from '../../lib/imageName';
 import { usePersistentFlag } from './usePersistentFlag';
 import { useJapaneseReadings } from './useJapaneseReadings';
 
@@ -29,7 +30,8 @@ export default function VocabularyPanel({
 }) {
   const [subTab, setSubTab] = useState<SubTab>('list');
   const [words, setWords] = useState<VocabularyWordWithMastery[] | null>(null);
-  const [themeFilter, setThemeFilter] = useState('all');
+  // '' = pas encore choisi : on arrive sur le premier thème de la liste (page plus légère), « Tous les thèmes » reste un choix
+  const [themeChoice, setThemeChoice] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [masteredOnly, setMasteredOnly] = useState(false);
   const [error, setError] = useState('');
@@ -38,13 +40,14 @@ export default function VocabularyPanel({
   const isJa = languageCode === 'ja';
   const [furigana, setFurigana] = usePersistentFlag('ja-furigana', levelCode === 'A1' || levelCode === 'A2');
   const [romaji, setRomaji] = usePersistentFlag('ja-romaji');
-  const [visible, setVisible] = useState(40);
-  const PAGE = 40;
+  const [visible, setVisible] = useState(60);
+  const PAGE = 60;
 
   const bcp47 = LANGS.find((l) => l.code === languageCode)?.bcp47 ?? 'en-GB';
 
   useEffect(() => {
     setWords(null);
+    setThemeChoice('');
     setError('');
     getVocabularyWords(profileId, languageCode, levelCode)
       .then(setWords)
@@ -62,6 +65,7 @@ export default function VocabularyPanel({
     [words]
   );
   const availableThemes = THEMES.filter((t) => usedThemeCodes.has(t.code));
+  const themeFilter = themeChoice || availableThemes[0]?.code || 'all';
 
   const filtered = (words ?? []).filter(
     (w) =>
@@ -70,8 +74,8 @@ export default function VocabularyPanel({
       (!masteredOnly || w.mastered)
   );
 
-  // Japonais : liste paginée, lectures chargées seulement pour les mots affichés
-  const shown = isJa ? filtered.slice(0, visible) : filtered;
+  // Liste paginée (images chargées à la demande ; japonais : lectures chargées seulement pour les mots affichés)
+  const shown = filtered.slice(0, visible);
   useEffect(() => {
     setVisible(PAGE);
   }, [themeFilter, typeFilter, masteredOnly, words]);
@@ -121,7 +125,7 @@ export default function VocabularyPanel({
           {words && words.length > 0 && (
             <>
               <div className="cascade-row">
-                <select className="cascade-select" value={themeFilter} onChange={(e) => setThemeFilter(e.target.value)}>
+                <select className="cascade-select" value={themeFilter} onChange={(e) => setThemeChoice(e.target.value)}>
                   <option value="all">Tous les thèmes</option>
                   {availableThemes.map((t) => (
                     <option key={t.code} value={t.code}>
@@ -163,36 +167,43 @@ export default function VocabularyPanel({
 
               <p className="eyebrow-free">{filtered.length} mot(s)</p>
 
-              <div className="revision-grid">
+              <div className="lesson-word-grid">
                 {shown.map((w) => (
-                  <div key={w.id} className="revision-card">
-                    <button
-                      className={`play-btn${playingId === w.id ? ' playing' : ''}`}
-                      onClick={() => play(w)}
-                      disabled={!w.audio_url}
-                      aria-label="Écouter"
-                    >
-                      {playingId === w.id ? '❚❚' : '▶'}
-                    </button>
-                    <div className="revision-card-text">
-                      <div className="revision-target">
-                        {isJa && furigana && readings[w.target_text] ? (
-                          <JapaneseRuby ruby={readings[w.target_text].ruby} />
-                        ) : (
-                          <span lang={isJa ? 'ja' : undefined}>{w.target_text}</span>
+                  <div key={w.id} className="lesson-word-card">
+                    {w.image && (
+                      <div className="lesson-word-img">
+                        <img src={imageUrl(w.image)} alt="" loading="lazy" />
+                      </div>
+                    )}
+                    <div className="lesson-word-card-body">
+                      <button
+                        className={`play-btn${playingId === w.id ? ' playing' : ''}`}
+                        onClick={() => play(w)}
+                        disabled={!w.audio_url}
+                        aria-label="Écouter"
+                      >
+                        {playingId === w.id ? '❚❚' : '▶'}
+                      </button>
+                      <div className="lesson-word-body">
+                        <div className="lesson-word-text">
+                          {isJa && furigana && readings[w.target_text] ? (
+                            <JapaneseRuby ruby={readings[w.target_text].ruby} />
+                          ) : (
+                            <span lang={isJa ? 'ja' : undefined}>{w.target_text}</span>
+                          )}
+                        </div>
+                        {isJa && romaji && readings[w.target_text]?.romaji && (
+                          <div className="phrase-notes">{readings[w.target_text].romaji}</div>
                         )}
+                        <div className="lesson-word-fr">{w.translation_fr}</div>
                         {w.mastered && <span className="mastery-badge">✅ Acquis</span>}
                       </div>
-                      {isJa && romaji && readings[w.target_text]?.romaji && (
-                        <div className="phrase-notes">{readings[w.target_text].romaji}</div>
-                      )}
-                      <div className="revision-fr">{w.translation_fr}</div>
                     </div>
                   </div>
                 ))}
               </div>
 
-              {isJa && shown.length < filtered.length && (
+              {shown.length < filtered.length && (
                 <button className="secondary" style={{ marginTop: '1rem' }} onClick={() => setVisible((v) => v + PAGE)}>
                   Afficher {Math.min(PAGE, filtered.length - shown.length)} mots de plus (reste {filtered.length - shown.length})
                 </button>

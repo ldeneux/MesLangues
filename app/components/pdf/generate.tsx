@@ -21,7 +21,7 @@ export type PdfOptions = {
   onProgress?: (message: string) => void;
 };
 
-// .webp → JPEG (le moteur PDF ne lit pas le WebP), fond crème pour se fondre dans les cartes, 480 px de large au plus
+// .webp → JPEG (le moteur PDF ne lit pas le WebP), fond blanc (comme la page), 480 px de large au plus
 async function webpToJpeg(url: string, maxWidth = 480): Promise<string | null> {
   try {
     const img = new Image();
@@ -33,7 +33,7 @@ async function webpToJpeg(url: string, maxWidth = 480): Promise<string | null> {
     canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
     const c = canvas.getContext('2d');
     if (!c) return null;
-    c.fillStyle = '#f7f5ee';
+    c.fillStyle = '#ffffff';
     c.fillRect(0, 0, canvas.width, canvas.height);
     c.drawImage(img, 0, 0, canvas.width, canvas.height);
     return canvas.toDataURL('image/jpeg', 0.86);

@@ -1,5 +1,6 @@
 'use server';
 
+import { resolveImage } from './imageIndex';
 import { supabaseAdmin } from './supabaseAdmin';
 import { callGemini, LANGUAGE_NAMES } from './gemini';
 import { synthesizeAndStore } from './tts';
@@ -288,6 +289,7 @@ export type VocabularyWord = {
   target_text: string;
   translation_fr: string;
   audio_url: string | null;
+  image?: string | null; // nom du fichier image (sans extension) s'il existe dans public/image_webp
 };
 
 export type VocabularyWordWithMastery = VocabularyWord & {
@@ -404,11 +406,20 @@ export async function getVocabularyWords(
   const packIds = await getReadyVocabularyPackIds(languageCode, levelCode);
   if (packIds.length === 0) return [];
 
-  const { data: words, error } = await supabaseAdmin
+  // Le nom d'image enregistré en base est lu avec les mots ; si la colonne n'existe pas encore (migration 024), on s'en passe.
+  let res: { data: any[] | null; error: any } = await supabaseAdmin
     .from('vocabulary_words')
-    .select('id, theme_code, word_type, target_text, translation_fr, audio_url')
+    .select('id, theme_code, word_type, target_text, translation_fr, audio_url, image')
     .in('pack_id', packIds)
     .order('theme_code');
+  if (res.error && String(res.error.message ?? '').includes('image')) {
+    res = await supabaseAdmin
+      .from('vocabulary_words')
+      .select('id, theme_code, word_type, target_text, translation_fr, audio_url')
+      .in('pack_id', packIds)
+      .order('theme_code');
+  }
+  const { data: words, error } = res;
 
   if (error) throw new Error(error.message);
   if (!words || words.length === 0) return [];
@@ -426,7 +437,7 @@ export async function getVocabularyWords(
     const p = progressMap.get(w.id);
     const success = p?.success_count ?? 0;
     const fail = p?.fail_count ?? 0;
-    return { ...w, success_count: success, fail_count: fail, mastered: computeMastered(success, fail) };
+    return { ...w, image: resolveImage(w.image, w.translation_fr), success_count: success, fail_count: fail, mastered: computeMastered(success, fail) };
   });
 }
 

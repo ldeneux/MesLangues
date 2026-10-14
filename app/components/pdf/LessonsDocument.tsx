@@ -178,7 +178,7 @@ function WordCard({ w, ctx }: { w: LessonWord; ctx: PdfContext }) {
       style={{ width: '32.2%', borderWidth: 0.8, borderColor: LINE, borderRadius: 9, marginBottom: 7, backgroundColor: '#ffffff', overflow: 'hidden' }}
     >
       {src ? (
-        <View style={{ backgroundColor: TINT, height: 62, alignItems: 'center', justifyContent: 'center' }}>
+        <View style={{ backgroundColor: '#ffffff', height: 62, alignItems: 'center', justifyContent: 'center' }}>
           <Image src={src} style={{ width: '100%', height: 62, objectFit: 'contain' }} />
         </View>
       ) : null}

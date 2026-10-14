@@ -245,7 +245,7 @@ export default function LessonsPanel({
           <>
             <p className="eyebrow-free">
               <strong>{im.available}</strong> images disponibles sur {im.distinct} nécessaires pour ce niveau, <strong>{im.missing}</strong> manquantes. Une image
-              correspond à un mot français : elle sert dans toutes les langues, et le nom du fichier est reconnu sans tenir compte de la casse ni des accents.
+              correspond à un mot français : elle sert dans toutes les langues. Le nom du fichier est reconnu sans tenir compte de la casse ni des accents, et à défaut sans l'article (« la pharmacie » trouve « une pharmacie.webp »).
             </p>
             <div className="conv-bubble-actions">
               {im.namesPending > 0 && (

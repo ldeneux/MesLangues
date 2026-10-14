@@ -5,6 +5,7 @@ Nom du fichier = le mot français tel qu'il est écrit, article compris. Accents
 
 La reconnaissance ignore la casse, les accents, les apostrophes, les tirets et les espaces en trop :
 « À plus tard » trouve « A plus tard.webp », « ça » trouve « çà ».
+Si le nom exact n'existe pas, l'article est ignoré en dernier recours : « la pharmacie » trouve « une pharmacie.webp » (le nom exact reste toujours prioritaire).
 Une image sert dans toutes les langues (un seul fichier par mot français). L'extension doit être .webp en minuscules.
 
 La liste des fichiers présents (lib/imageManifest.json) est régénérée automatiquement à chaque `npm run dev` et `npm run build`
