@@ -9,11 +9,14 @@ import {
   addVerbAudioStep,
   fillImageNamesStep,
   listMissingImages,
+  getSentenceCoverage,
+  generateSentencesStep,
+  type SentenceCoverage,
   type LessonsOverview,
   type RankStepResult,
 } from '../../lib/lessons';
 import { LEVELS, LANGS, THEMES } from '../../lib/constants';
-import { estimateRankingCost, estimateVerbAudioCost } from '../../lib/pricing';
+import { estimateRankingCost, estimateVerbAudioCost, estimateLessonSentencesCost } from '../../lib/pricing';
 import LessonViewer from './LessonViewer';
 import PronunciationLesson from './PronunciationLesson';
 import { usePersistentFlag } from './usePersistentFlag';
@@ -47,6 +50,11 @@ export default function LessonsPanel({
   const [pdfBusy, setPdfBusy] = useState('');
   const [furigana] = usePersistentFlag('ja-furigana', levelCode === 'A1' || levelCode === 'A2');
   const [romaji] = usePersistentFlag('ja-romaji');
+  const [sentCov, setSentCov] = useState<SentenceCoverage | null>(null);
+  const [sentBusy, setSentBusy] = useState('');
+  const [confirmSent, setConfirmSent] = useState(false);
+  const [sentRun, setSentRun] = useState<{ done: number; total: number } | null>(null);
+  const [sentNote, setSentNote] = useState('');
   const [namesRun, setNamesRun] = useState<{ remaining: number; total: number } | null>(null);
 
   const level = LEVELS.find((l) => l.code === levelCode);
@@ -72,6 +80,9 @@ export default function LessonsPanel({
     setConfirmRank(false);
     setConfirmReset(false);
     setConfirmAudio(false);
+    setSentCov(null);
+    setConfirmSent(false);
+    setSentNote('');
     refresh();
   }, [refresh]);
 
@@ -199,9 +210,9 @@ export default function LessonsPanel({
         setError((r as { error: string }).error);
         return;
       }
-      const list = (r as { data: { name: string; fr: string }[] }).data;
+      const list = (r as { data: { name: string; fr: string; near: string | null }[] }).data;
       const head = `# Images à fournir (${list.length}) : un fichier .webp par ligne, à nommer exactement comme le mot et à déposer dans public/image_webp\n`;
-      const blob = new Blob([head + list.map((m) => m.name).join('\n') + '\n'], { type: 'text/plain;charset=utf-8' });
+      const blob = new Blob([head + list.map((m) => (m.near ? `${m.name}   # fichier proche non utilisé : « ${m.near} » (accents différents : renomme-le si c'est le bon mot)` : m.name)).join('\n') + '\n'], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -264,6 +275,122 @@ export default function LessonsPanel({
               Pour ajouter des images : dépose les .webp dans public/image_webp, nommés comme le mot français (« un fromage.webp », accents et espaces autorisés),
               puis pousse sur GitHub : le compteur se met à jour au déploiement.
             </p>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // Phrases d'exemple : couverture (calcul gratuit), puis génération des phrases manquantes (payant, après confirmation)
+  async function computeCoverage() {
+    setError('');
+    setSentNote('');
+    setSentBusy('Calcul en cours…');
+    try {
+      const r = await getSentenceCoverage(languageCode, levelCode);
+      if (r.ok) setSentCov((r as { data: SentenceCoverage }).data);
+      else setError((r as { error: string }).error);
+    } catch (e: any) {
+      setError(e?.message ?? 'Calcul impossible.');
+    } finally {
+      setSentBusy('');
+    }
+  }
+
+  async function runSentences() {
+    if (!sentCov) return;
+    setConfirmSent(false);
+    setError('');
+    setSentNote('');
+    const total = sentCov.needLessons;
+    const skip: number[] = [];
+    let done = 0;
+    let audioMissing = 0;
+    setSentRun({ done: 0, total });
+    try {
+      for (let guard = 0; guard < 80; guard++) {
+        const r = await generateSentencesStep(languageCode, levelCode, skip);
+        if (!r.ok) {
+          setError((r as { error: string }).error);
+          break;
+        }
+        const d = (r as { data: { remainingLessons: number; lessonNumber: number | null; added: number; failedLesson: number | null; audioMissing: number } }).data;
+        if (d.lessonNumber === null) break; // plus rien à compléter
+        if (d.failedLesson !== null) skip.push(d.failedLesson);
+        else done++;
+        audioMissing += d.audioMissing;
+        setSentRun({ done, total });
+      }
+      const failed = skip.length;
+      setSentNote(
+        `${done} leçon(s) complétée(s).${failed ? ` ${failed} leçon(s) n'ont pas pu être complétées (Gemini n'a pas fourni de phrases utilisables) : relance plus tard.` : ''}${audioMissing ? ` ${audioMissing} phrase(s) sans audio (synthèse vocale indisponible).` : ''}`
+      );
+    } catch (e: any) {
+      setError(e?.message ?? 'La génération a été interrompue.');
+    } finally {
+      setSentRun(null);
+      await computeCoverage();
+    }
+  }
+
+  function renderSentencesBlock() {
+    const est = sentCov ? estimateLessonSentencesCost(sentCov.needLessons, sentCov.needSentences) : null;
+    return (
+      <div className="phrase-card lesson-setup">
+        <div className="lesson-setup-title">Phrases d'exemple dans les leçons</div>
+        <p className="eyebrow-free">
+          Chaque leçon montre jusqu'à 3 phrases qui contiennent des mots de la leçon (mis en couleur). Elles viennent de tes packs de phrases : un nouveau pack
+          enrichit les leçons tout seul. Quand les packs n'en ont pas assez, on peut écrire les phrases manquantes pour la leçon.
+        </p>
+        {sentRun ? (
+          <div className="pack-progress">
+            <div className="pack-progress-label">
+              {sentRun.done} / {sentRun.total} leçons complétées
+            </div>
+            <div className="pack-progress-track">
+              <div className="pack-progress-fill" style={{ width: `${sentRun.total ? Math.round((sentRun.done / sentRun.total) * 100) : 0}%` }} />
+            </div>
+          </div>
+        ) : (
+          <>
+            {!sentCov ? (
+              <button className="primary" onClick={computeCoverage} disabled={!!sentBusy}>
+                {sentBusy || 'Voir la couverture (gratuit)'}
+              </button>
+            ) : (
+              <>
+                <p className="eyebrow-free">
+                  {sentCov.basePhrases} phrases dans tes packs. <strong>{sentCov.fullLessons} / {sentCov.lessons}</strong> leçons ont déjà 3 bonnes phrases (au moins 2 mots
+                  de la leçon) ; {sentCov.withOne} ont au moins une phrase avec un mot de la leçon.
+                  {sentCov.generated > 0 ? ` ${sentCov.generated} phrases ont déjà été écrites pour des leçons.` : ''}
+                </p>
+                {sentCov.needSentences > 0 && est ? (
+                  confirmSent ? (
+                    <div className="pack-confirm-modal">
+                      <p style={{ marginTop: 0 }}>
+                        Gemini va écrire <strong>{sentCov.needSentences} phrases</strong> pour {sentCov.needLessons} leçons, puis chaque phrase est lue par la synthèse vocale. Coût
+                        estimé : <strong>au plus {est.eur.toFixed(2)} €</strong> ({est.usd.toFixed(2)} $), une seule fois. Chaque phrase est contrôlée par le code (au moins 2 mots de la
+                        leçon) avant d'être gardée.
+                      </p>
+                      <div className="conv-bubble-actions">
+                        <button className="primary" onClick={runSentences}>Générer les phrases</button>
+                        <button className="conv-mini-btn" onClick={() => setConfirmSent(false)}>Annuler</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="conv-bubble-actions">
+                      <button className="primary" onClick={() => setConfirmSent(true)}>
+                        Générer les {sentCov.needSentences} phrases manquantes (≈ {est.eur.toFixed(2)} €)
+                      </button>
+                      <button className="conv-mini-btn" onClick={computeCoverage} disabled={!!sentBusy}>Recalculer</button>
+                    </div>
+                  )
+                ) : (
+                  <p className="eyebrow-free" style={{ marginBottom: 0 }}>✅ Toutes les leçons ont leurs 3 bonnes phrases.</p>
+                )}
+              </>
+            )}
+            {sentNote && <p className="eyebrow-free" style={{ marginTop: '0.5rem', marginBottom: 0 }}>{sentNote}</p>}
           </>
         )}
       </div>
@@ -478,6 +605,7 @@ export default function LessonsPanel({
 
       {renderVerbAudioBlock()}
       {renderImageBlock()}
+      {renderSentencesBlock()}
 
       <div className="lesson-tiles">
         <button className="lesson-tile" style={{ ['--lesson-color' as any]: color }} onClick={() => setOpenNumber(0)}>

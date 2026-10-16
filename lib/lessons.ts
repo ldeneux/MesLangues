@@ -2,14 +2,15 @@
 
 import { supabaseAdmin } from './supabaseAdmin';
 import { callGemini, LANGUAGE_NAMES } from './gemini';
-import { grammarTopicsFor, type GrammarTopicMeta } from './constants';
+import { grammarTopicsFor, THEMES, type GrammarTopicMeta } from './constants';
 import { getGrammarTopic, type GrammarTopic } from './grammar';
 import type { ConjugationVerb } from './conjugation';
 import { planLessons, dedupeWords, wordKey, grammarExampleIndex, CONJUGATION_RECAP_EVERY, type PlanWord, type PlannedLesson, type ReviewItem } from './lessonPlan';
 import { synthesizeAndStore } from './tts';
 import { imageFileName, imageBareKey } from './imageName';
-import { resolveImage } from './imageIndex';
+import { resolveImage, nearImage } from './imageIndex';
 import type { KanjiItem } from './kanji';
+import { pickSentences, countGoodSentences, validateGenerated, SENTENCES_PER_LESSON, type MatchWordSpec, type MatchSpan, type SentenceCandidate } from './lessonMatch';
 
 // ---------------------------------------------------------
 // Mode Leçons : plan identique pour tous les profils (table `lessons`),
@@ -23,6 +24,7 @@ const MIGRATION_HINT = "exécute les migrations 020, 021 et 022 dans le SQL Edit
 
 function explain(message: string): string {
   if (message.includes('usage_score') || message.includes('kanji_chars')) return `Une colonne des leçons n'existe pas encore (usage_score ou kanji_chars) — ${MIGRATION_HINT}`;
+  if (message.includes('lesson_sentences')) return `La table des phrases de leçon n'existe pas encore — exécute la migration 026 dans le SQL Editor de Supabase.`;
   if (message.includes('lessons') || message.includes('lesson_progress')) return `Les tables de leçons n'existent pas encore — ${MIGRATION_HINT}`;
   return message;
 }
@@ -382,6 +384,15 @@ export async function deleteLessonPlan(languageCode: string, levelCode: string):
 // ---------------------------------------------------------
 // Lecture d'une leçon
 // ---------------------------------------------------------
+export type LessonSentence = {
+  id: string;
+  text: string;
+  fr: string;
+  audio_url: string | null;
+  source: 'pack' | 'generated'; // phrase d'un pack ou phrase écrite pour la leçon
+  spans: MatchSpan[]; // où se trouvent les mots de la leçon dans le texte (pour les mettre en évidence)
+};
+
 export type LessonContent = {
   id: string;
   number: number;
@@ -394,6 +405,7 @@ export type LessonContent = {
   verbs: ConjugationVerb[];
   kanji: KanjiItem[]; // japonais : kanji à apprendre dans la leçon
   conjugationRecap: ConjugationVerb[]; // toutes les 5 leçons : verbes des 5 dernières leçons
+  sentences: LessonSentence[]; // jusqu'à 3 phrases qui contiennent des mots de la leçon
   review: { kind: 'word' | 'verb'; word?: LessonWord; verb?: ConjugationVerb }[];
   grammar: {
     code: string;
@@ -534,6 +546,33 @@ export async function getLesson(profileId: string, languageCode: string, levelCo
       grammar = { code: l.grammar_topic_code, label: meta?.label ?? l.grammar_topic_code, topic, exampleIndex };
     }
 
+    // Phrases d'exemple : phrases des packs + phrases générées pour la leçon, les 3 qui contiennent le plus de mots de la leçon.
+    // Choisies à l'ouverture : un nouveau pack de phrases enrichit donc les leçons sans rien recréer.
+    let sentences: LessonSentence[] = [];
+    try {
+      const nouns = pickWords(l.noun_ids ?? []);
+      const adjectives = pickWords(l.adjective_ids ?? []);
+      const others = pickWords(l.other_ids ?? []);
+      const phrasesWords = pickWords(l.phrase_ids ?? []);
+      const verbsOfLesson: ConjugationVerb[] = (l.verb_ids ?? []).map((id: string) => verbMap.get(id)).filter((v: ConjugationVerb | undefined): v is ConjugationVerb => !!v);
+      const specs = buildSpecs(nouns, adjectives, others, phrasesWords, verbsOfLesson, reviewItems);
+      const [base, generated] = await Promise.all([loadPackPhrases(languageCode, levelCode), loadGeneratedSentences([l.id])]);
+      const candidates: SentenceCandidate[] = [
+        ...generated.map((g) => ({ id: g.id, text: g.target_text, fr: g.translation_fr, audio_url: g.audio_url, source: 'generated' as const, theme: null })),
+        ...base.map((b) => ({ id: b.id, text: b.target_text, fr: b.translation_fr, audio_url: b.audio_url, source: 'pack' as const, theme: b.theme_code })),
+      ];
+      sentences = pickSentences(languageCode, specs, l.theme_code, candidates).map((p) => ({
+        id: p.id,
+        text: p.text,
+        fr: p.fr,
+        audio_url: p.audio_url,
+        source: p.source,
+        spans: p.match.spans,
+      }));
+    } catch {
+      sentences = []; // les phrases sont un bonus : une erreur ici ne doit jamais empêcher d'ouvrir la leçon
+    }
+
     const { data: prog } = await supabaseAdmin
       .from('lesson_progress')
       .select('lesson_id')
@@ -555,6 +594,7 @@ export async function getLesson(profileId: string, languageCode: string, levelCo
         verbs: (l.verb_ids ?? []).map((id: string) => verbMap.get(id)).filter((v: ConjugationVerb | undefined): v is ConjugationVerb => !!v),
         kanji,
         conjugationRecap,
+        sentences,
         review: reviewItems,
         grammar,
         done: !!prog,
@@ -562,6 +602,291 @@ export async function getLesson(profileId: string, languageCode: string, levelCo
     };
   } catch (e: any) {
     return { ok: false, error: explain(e?.message ?? 'Erreur de chargement de la leçon.') };
+  }
+}
+
+// ---------------------------------------------------------
+// Phrases d'exemple (phrases des packs + phrases générées pour la leçon)
+// ---------------------------------------------------------
+type PhraseRow = { id: string; target_text: string; translation_fr: string; audio_url: string | null; theme_code: string | null };
+type GeneratedRow = { id: string; lesson_id: string; position: number; target_text: string; translation_fr: string; audio_url: string | null };
+
+const PHRASE_CACHE_MS = 5 * 60 * 1000;
+const phraseCache = new Map<string, { at: number; rows: PhraseRow[] }>();
+
+/** Phrases des packs prêts de la langue et du niveau (mises en cache 5 minutes : une leçon ou un PDF en lit plusieurs d'affilée). */
+async function loadPackPhrases(languageCode: string, levelCode: string): Promise<PhraseRow[]> {
+  const key = `${languageCode}|${levelCode}`;
+  const hit = phraseCache.get(key);
+  if (hit && Date.now() - hit.at < PHRASE_CACHE_MS) return hit.rows;
+
+  const { data: packs, error } = await supabaseAdmin
+    .from('packs')
+    .select('id')
+    .eq('language_code', languageCode)
+    .eq('level_code', levelCode)
+    .eq('status', 'ready');
+  if (error) throw new Error(error.message);
+  const ids = (packs ?? []).map((p: any) => p.id as string);
+  const rows: PhraseRow[] = [];
+  if (ids.length > 0) {
+    for (let from = 0; ; from += 1000) {
+      const { data, error: pErr } = await supabaseAdmin
+        .from('phrases')
+        .select('id, target_text, translation_fr, audio_url, theme_code')
+        .in('pack_id', ids)
+        .order('id')
+        .range(from, from + 999);
+      if (pErr) throw new Error(pErr.message);
+      rows.push(...((data ?? []) as PhraseRow[]));
+      if (!data || data.length < 1000) break;
+    }
+  }
+  phraseCache.set(key, { at: Date.now(), rows });
+  return rows;
+}
+
+/** Phrases générées pour des leçons ; renvoie une liste vide si la migration 026 n'est pas exécutée. */
+async function loadGeneratedSentences(lessonIds: string[]): Promise<GeneratedRow[]> {
+  const out: GeneratedRow[] = [];
+  for (let i = 0; i < lessonIds.length; i += 40) {
+    const { data, error } = await supabaseAdmin
+      .from('lesson_sentences')
+      .select('id, lesson_id, position, target_text, translation_fr, audio_url')
+      .in('lesson_id', lessonIds.slice(i, i + 40))
+      .order('position');
+    if (error) return out;
+    out.push(...((data ?? []) as GeneratedRow[]));
+  }
+  return out;
+}
+
+const matchTypeOf = (wordType: string): MatchWordSpec['type'] => (wordType === 'nom' ? 'nom' : wordType === 'adjectif' ? 'adjectif' : 'autre');
+
+function verbSpec(v: { id: string; infinitive: string; ja_data?: { reading?: string; group?: string } | null }, weight: number): MatchWordSpec {
+  return { id: v.id, text: v.infinitive, type: 'verbe', weight, reading: v.ja_data?.reading, group: v.ja_data?.group };
+}
+
+/** Mots de la leçon (poids 1) et mots de révision (poids 0,5) à chercher dans les phrases. */
+function buildSpecs(
+  nouns: LessonWord[],
+  adjectives: LessonWord[],
+  others: LessonWord[],
+  phrasesWords: LessonWord[],
+  verbs: ConjugationVerb[],
+  review: LessonContent['review']
+): MatchWordSpec[] {
+  const specs: MatchWordSpec[] = [];
+  const seen = new Set<string>();
+  const add = (sp: MatchWordSpec) => {
+    if (seen.has(sp.id)) return;
+    seen.add(sp.id);
+    specs.push(sp);
+  };
+  for (const w of nouns) add({ id: w.id, text: w.text, type: 'nom', weight: 1 });
+  for (const w of adjectives) add({ id: w.id, text: w.text, type: 'adjectif', weight: 1 });
+  for (const w of others) add({ id: w.id, text: w.text, type: 'autre', weight: 1 });
+  for (const w of phrasesWords) add({ id: w.id, text: w.text, type: 'autre', weight: 1 });
+  for (const v of verbs) add(verbSpec(v, 1));
+  for (const r of review) {
+    if (r.word) add({ id: r.word.id, text: r.word.text, type: matchTypeOf(r.word.word_type), weight: 0.5 });
+    else if (r.verb) add(verbSpec(r.verb, 0.5));
+  }
+  return specs;
+}
+
+type LevelLesson = { id: string; number: number; theme: string; specs: MatchWordSpec[]; words: { id: string; text: string; fr: string }[] };
+
+/** Leçons d'un niveau avec leurs mots à chercher (une seule série de requêtes pour tout le niveau). */
+async function loadLevelLessons(languageCode: string, levelCode: string): Promise<LevelLesson[]> {
+  const { data: rows, error } = await supabaseAdmin
+    .from('lessons')
+    .select('id, number, theme_code, noun_ids, adjective_ids, other_ids, verb_ids, phrase_ids, review')
+    .eq('language_code', languageCode)
+    .eq('level_code', levelCode)
+    .order('number');
+  if (error) throw new Error(error.message);
+  if (!rows || rows.length === 0) return [];
+
+  const words = new Map<string, { text: string; type: string; fr: string }>();
+  for (let from = 0; ; from += 1000) {
+    const { data, error: wErr } = await supabaseAdmin
+      .from('vocabulary_words')
+      .select('id, target_text, word_type, translation_fr')
+      .eq('language_code', languageCode)
+      .eq('level_code', levelCode)
+      .order('id')
+      .range(from, from + 999);
+    if (wErr) throw new Error(wErr.message);
+    for (const w of (data ?? []) as any[]) words.set(w.id, { text: w.target_text, type: w.word_type, fr: w.translation_fr });
+    if (!data || data.length < 1000) break;
+  }
+  const { data: vrows, error: vErr } = await supabaseAdmin
+    .from('conjugation_verbs')
+    .select(languageCode === 'ja' ? 'id, infinitive, translation_fr, ja_data' : 'id, infinitive, translation_fr')
+    .eq('language_code', languageCode);
+  if (vErr) throw new Error(vErr.message);
+  const verbs = new Map<string, any>((vrows ?? []).map((v: any) => [v.id, v]));
+
+  return (rows as any[]).map((l) => {
+    const specs: MatchWordSpec[] = [];
+    const list: { id: string; text: string; fr: string }[] = [];
+    const seen = new Set<string>();
+    const addWord = (id: string, type: MatchWordSpec['type'], weight: number) => {
+      const w = words.get(id);
+      if (!w || seen.has(id)) return;
+      seen.add(id);
+      specs.push({ id, text: w.text, type, weight });
+      if (weight >= 1) list.push({ id, text: w.text, fr: w.fr });
+    };
+    const addVerb = (id: string, weight: number) => {
+      const v = verbs.get(id);
+      if (!v || seen.has(id)) return;
+      seen.add(id);
+      specs.push(verbSpec(v, weight));
+      if (weight >= 1) list.push({ id, text: v.infinitive, fr: v.translation_fr });
+    };
+    for (const id of l.noun_ids ?? []) addWord(id, 'nom', 1);
+    for (const id of l.adjective_ids ?? []) addWord(id, 'adjectif', 1);
+    for (const id of [...(l.other_ids ?? []), ...(l.phrase_ids ?? [])]) addWord(id, 'autre', 1);
+    for (const id of l.verb_ids ?? []) addVerb(id, 1);
+    for (const r of (l.review ?? []) as ReviewItem[]) {
+      if (r.k === 'w') addWord(r.id, matchTypeOf(words.get(r.id)?.type ?? ''), 0.5);
+      else addVerb(r.id, 0.5);
+    }
+    return { id: l.id, number: l.number, theme: l.theme_code, specs, words: list };
+  });
+}
+
+export type SentenceCoverage = {
+  lessons: number;
+  basePhrases: number; // phrases des packs prêts
+  generated: number; // phrases déjà générées pour les leçons
+  fullLessons: number; // leçons qui ont déjà 3 bonnes phrases (au moins 2 mots de la leçon)
+  withOne: number; // leçons qui ont au moins une phrase avec un mot de la leçon
+  needLessons: number; // leçons à compléter
+  needSentences: number; // phrases à générer pour que chaque leçon en ait 3 bonnes
+};
+
+async function levelNeeds(languageCode: string, levelCode: string) {
+  const [lessons, base] = await Promise.all([loadLevelLessons(languageCode, levelCode), loadPackPhrases(languageCode, levelCode)]);
+  const generated = await loadGeneratedSentences(lessons.map((l) => l.id));
+  const byLesson = new Map<string, GeneratedRow[]>();
+  for (const g of generated) byLesson.set(g.lesson_id, [...(byLesson.get(g.lesson_id) ?? []), g]);
+  const rows = lessons.map((l) => {
+    const gen = byLesson.get(l.id) ?? [];
+    const cands = [...gen.map((g) => ({ text: g.target_text })), ...base.map((b) => ({ text: b.target_text }))];
+    const good = countGoodSentences(languageCode, l.specs, cands);
+    return { lesson: l, gen, good, need: Math.max(0, SENTENCES_PER_LESSON - good) };
+  });
+  return { rows, base, generatedCount: generated.length };
+}
+
+/** Combien de leçons ont déjà 3 bonnes phrases avec les packs actuels, et combien de phrases il faudrait générer (calcul gratuit). */
+export async function getSentenceCoverage(languageCode: string, levelCode: string): Promise<Result<SentenceCoverage>> {
+  try {
+    const { rows, base, generatedCount } = await levelNeeds(languageCode, levelCode);
+    let withOne = 0;
+    for (const r of rows) {
+      const cands = [...r.gen.map((g) => ({ id: g.id, text: g.target_text, fr: '', audio_url: null, source: 'generated' as const })), ...base.map((b) => ({ id: b.id, text: b.target_text, fr: '', audio_url: null, source: 'pack' as const }))];
+      if (pickSentences(languageCode, r.lesson.specs, r.lesson.theme, cands, 1).length > 0) withOne++;
+    }
+    return {
+      ok: true,
+      data: {
+        lessons: rows.length,
+        basePhrases: base.length,
+        generated: generatedCount,
+        fullLessons: rows.filter((r) => r.need === 0).length,
+        withOne,
+        needLessons: rows.filter((r) => r.need > 0).length,
+        needSentences: rows.reduce((sum, r) => sum + r.need, 0),
+      },
+    };
+  } catch (e: any) {
+    return { ok: false, error: explain(e?.message ?? 'Erreur pendant le calcul de la couverture des phrases.') };
+  }
+}
+
+export type SentenceStepResult = {
+  remainingLessons: number; // leçons encore à compléter (hors celles qui ont échoué)
+  lessonNumber: number | null; // leçon traitée à ce pas
+  added: number; // phrases ajoutées à ce pas
+  failedLesson: number | null; // leçon que Gemini n'a pas su compléter (à ignorer ensuite)
+  audioMissing: number; // phrases ajoutées sans audio (échec de la synthèse vocale)
+};
+
+/** Génère les phrases manquantes de la prochaine leçon incomplète (une leçon par pas). Coût : voir estimateLessonSentencesCost. */
+export async function generateSentencesStep(languageCode: string, levelCode: string, skip: number[]): Promise<Result<SentenceStepResult>> {
+  try {
+    const { rows } = await levelNeeds(languageCode, levelCode);
+    const todo = rows.filter((r) => r.need > 0 && !skip.includes(r.lesson.number));
+    if (todo.length === 0) return { ok: true, data: { remainingLessons: 0, lessonNumber: null, added: 0, failedLesson: null, audioMissing: 0 } };
+
+    const target = todo[0];
+    const { lesson, gen } = target;
+    const mainSpecs = lesson.specs.filter((sp) => sp.weight >= 1);
+    const langName = LANGUAGE_NAMES[languageCode] ?? languageCode;
+    const themeLabel = THEMES.find((t) => t.code === lesson.theme)?.label ?? lesson.theme;
+    const existing = gen.map((g) => g.target_text);
+    const accepted: { target: string; fr: string }[] = [];
+
+    const system = `Tu écris des phrases d'exemple pour un cours de ${langName} (niveau ${levelCode} du CECRL) destiné à des francophones débutants.
+Règles : phrases naturelles et courtes (${languageCode === 'ja' ? '10 à 25 signes' : '5 à 9 mots'}), utiles dans la vie quotidienne, au niveau ${levelCode}.
+Chaque phrase doit contenir AU MOINS 2 des mots de la liste (forme du dictionnaire ou accordée : pluriel, féminin, verbe conjugué), si possible 3.
+Les phrases doivent être différentes les unes des autres.${languageCode === 'ja' ? '\nÉcris en japonais naturel avec kanji et kana, sans rōmaji ni furigana.' : ''}
+Réponds UNIQUEMENT par un tableau JSON : [{"target":"phrase en ${langName}","fr":"traduction française"}].`;
+    const wordList = lesson.words.map((w) => `- ${w.text} = ${w.fr}`).join('\n');
+
+    for (let attempt = 0; attempt < 2 && accepted.length < target.need; attempt++) {
+      const missing = target.need - accepted.length;
+      const avoid = [...existing, ...accepted.map((a) => a.target)];
+      const user = `Thème de la leçon : ${themeLabel}\nMots de la leçon :\n${wordList}\n${avoid.length ? `Phrases déjà écrites (à ne pas répéter) :\n${avoid.map((x) => `- ${x}`).join('\n')}\n` : ''}Écris ${missing + (attempt === 0 ? 1 : 2)} phrases.`;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(await callGemini(system, user));
+      } catch {
+        continue;
+      }
+      if (!Array.isArray(parsed)) continue;
+      for (const item of parsed as any[]) {
+        const text = typeof item?.target === 'string' ? item.target.trim() : '';
+        const fr = typeof item?.fr === 'string' ? item.fr.trim() : '';
+        if (!text || !fr || avoid.includes(text) || accepted.some((a) => a.target === text)) continue;
+        if (!validateGenerated(languageCode, mainSpecs, text)) continue; // contrôle par le code : au moins 2 mots de la leçon
+        accepted.push({ target: text, fr });
+        if (accepted.length >= target.need) break;
+      }
+    }
+
+    if (accepted.length === 0) {
+      return { ok: true, data: { remainingLessons: todo.length - 1, lessonNumber: lesson.number, added: 0, failedLesson: lesson.number, audioMissing: 0 } };
+    }
+
+    let position = gen.reduce((m, g) => Math.max(m, g.position), 0);
+    let audioMissing = 0;
+    const toInsert: { lesson_id: string; position: number; target_text: string; translation_fr: string; audio_url: string | null }[] = [];
+    for (const a of accepted) {
+      position++;
+      let audioUrl: string | null = null;
+      try {
+        const out = await synthesizeAndStore(a.target, languageCode, `${languageCode}/lessons/${lesson.id}/s${position}.mp3`);
+        audioUrl = out.audioUrl;
+      } catch {
+        audioMissing++;
+      }
+      toInsert.push({ lesson_id: lesson.id, position, target_text: a.target, translation_fr: a.fr, audio_url: audioUrl });
+    }
+    const { error: insErr } = await supabaseAdmin.from('lesson_sentences').insert(toInsert);
+    if (insErr) throw new Error(insErr.message);
+
+    const stillNeeded = accepted.length < target.need; // Gemini n'a pas tout fourni : la leçon reste incomplète
+    return {
+      ok: true,
+      data: { remainingLessons: todo.length - 1 + (stillNeeded ? 0 : 0), lessonNumber: lesson.number, added: accepted.length, failedLesson: stillNeeded ? lesson.number : null, audioMissing },
+    };
+  } catch (e: any) {
+    return { ok: false, error: explain(e?.message ?? 'Erreur pendant la génération des phrases.') };
   }
 }
 
@@ -724,7 +1049,7 @@ export async function fillImageNamesStep(languageCode: string, levelCode: string
   }
 }
 
-export type MissingImage = { name: string; fr: string };
+export type MissingImage = { name: string; fr: string; near: string | null }; // near : fichier existant aux accents différents (non utilisé)
 
 /** Images à fournir (aucun fichier trouvé), une par mot français. `name` = nom de fichier à créer (sans .webp). Sans paramètres : toutes les langues et tous les niveaux. */
 export async function listMissingImages(languageCode: string | null, levelCode: string | null): Promise<Result<MissingImage[]>> {
@@ -741,7 +1066,7 @@ export async function listMissingImages(languageCode: string | null, levelCode: 
         const k = imageBareKey(r.translation_fr);
         if (!k) continue;
         if (resolveImage(r.image, r.translation_fr) !== null) found.set(k, true);
-        else if (!names.has(k)) names.set(k, { name: imageFileName(r.translation_fr), fr: r.translation_fr });
+        else if (!names.has(k)) names.set(k, { name: imageFileName(r.translation_fr), fr: r.translation_fr, near: nearImage(r.translation_fr) });
       }
       if (!data || data.length < 1000) break;
     }

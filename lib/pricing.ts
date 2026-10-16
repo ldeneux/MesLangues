@@ -165,3 +165,16 @@ export function estimateVerbAudioCost(verbCount: number): CostEstimate {
   const usd = ((verbCount * VERB_AUDIO_CHARS) / 1e6) * TTS_PRICE_PER_M_CHARS;
   return { usd, eur: usd * USD_TO_EUR };
 }
+
+// --- Leçons : phrases d'exemple générées (Gemini : une requête par leçon incomplète ; Google TTS : l'audio de chaque phrase) ---
+const SENTENCE_INPUT_TOKENS_PER_LESSON = 500; // consigne + liste des mots de la leçon
+const SENTENCE_OUTPUT_TOKENS_PER_SENTENCE = 90; // phrase + traduction + JSON ; marge pour la réflexion du modèle et les phrases refusées
+const SENTENCE_CHARS_PER_SENTENCE = 55; // caractères lus par la synthèse vocale
+
+export function estimateLessonSentencesCost(lessonCount: number, sentenceCount: number): CostEstimate {
+  const usd =
+    ((lessonCount * SENTENCE_INPUT_TOKENS_PER_LESSON) / 1e6) * GEMINI_INPUT_PRICE_PER_M +
+    ((sentenceCount * SENTENCE_OUTPUT_TOKENS_PER_SENTENCE) / 1e6) * GEMINI_OUTPUT_PRICE_PER_M +
+    ((sentenceCount * SENTENCE_CHARS_PER_SENTENCE) / 1e6) * TTS_PRICE_PER_M_CHARS;
+  return { usd, eur: usd * USD_TO_EUR };
+}

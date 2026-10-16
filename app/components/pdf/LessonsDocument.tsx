@@ -8,6 +8,7 @@ import { parseRuby } from '../../../lib/japanese';
 import { conjugateJapaneseVerb, JA_GROUP_INFO, JA_LEVEL_ORDER, type JaFormRow, type JaLevel } from '../../../lib/japaneseVerbs';
 import { JA_FORM_CATEGORIES } from '../../../lib/japaneseFormInfo';
 import { splitCommon } from '../../../lib/japaneseDiff';
+import { markSpans } from '../../../lib/lessonMatch';
 import { JA_GUIDE, JA_GUIDE_TITLE } from '../../../lib/japaneseConjugationGuide';
 import { PRONUNCIATION } from '../../../lib/pronunciation';
 import { THEMES } from '../../../lib/constants';
@@ -556,6 +557,19 @@ function Guide({ ctx }: { ctx: PdfContext }) {
   );
 }
 
+// ---------- phrases d'exemple (les mots de la leçon en couleur) ----------
+function SentenceBlock({ s, ctx }: { s: LessonContent['sentences'][number]; ctx: PdfContext }) {
+  const isJa = ctx.languageCode === 'ja';
+  const rd = isJa && ctx.furigana ? ctx.readings[s.text] : undefined;
+  return (
+    <View wrap={false} style={{ borderWidth: 0.8, borderColor: LINE, borderRadius: 9, padding: 8, marginBottom: 6, backgroundColor: '#ffffff' }}>
+      {rd ? <RubyText ruby={rd.ruby} size={12} /> : <Hl text={markSpans(s.text, s.spans)} ja={isJa} style={{ fontSize: 12, lineHeight: 1.35 }} />}
+      {isJa && ctx.romaji && ctx.readings[s.text]?.romaji ? <Text style={{ fontSize: 8, color: SOFT, marginTop: 2 }}>{ctx.readings[s.text].romaji}</Text> : null}
+      <Text style={{ fontFamily: ff(s.fr), fontSize: 9.5, color: SOFT, marginTop: 3 }}>{s.fr}</Text>
+    </View>
+  );
+}
+
 // ---------- page « À retenir » ----------
 function Recap({ lesson, ctx }: { lesson: LessonContent; ctx: PdfContext }) {
   const block = (label: string, items: { text: string; fr: string }[], ja?: boolean) =>
@@ -671,6 +685,12 @@ function LessonPage({ lesson, ctx, includeGuide }: { lesson: LessonContent; ctx:
           <SectionTitle color={color} ahead={130}>La règle du jour</SectionTitle>
           <GrammarBlock lesson={lesson} ctx={ctx} />
         </View>
+      ) : null}
+
+      {(lesson.sentences ?? []).length > 0 ? (
+        <Section title="Les mots en phrases" color={color} sub="les mots de la leçon sont en couleur">
+          {lesson.sentences.map((s) => <SentenceBlock key={s.id} s={s} ctx={ctx} />)}
+        </Section>
       ) : null}
 
       {lesson.phrases.length > 0 ? (

@@ -1,6 +1,6 @@
 # Déplacer les tables de MesLangues dans le schéma « langues »
 
-**Ce qui est déplacé** : uniquement les 33 tables de cette application (liste dans `025_schema_langues.sql`).
+**Ce qui est déplacé** : uniquement les 34 tables de cette application (liste dans `025_schema_langues.sql`).
 **Ce qui n'est pas touché** : les tables des autres applications de la même base, les utilisateurs (Auth), le stockage des
 audios, et les 4 fonctions de statistiques (elles restent dans « public »).
 **Aucune donnée n'est copiée, vidée ou supprimée** : c'est un changement de rattachement (`ALTER TABLE … SET SCHEMA`).
@@ -16,7 +16,7 @@ audios, et les 4 fonctions de statistiques (elles restent dans « public »).
    liste « table d'une autre application (non touchée) ».
 3. Choisir un moment où personne n'utilise l'appli.
 4. Lancer `supabase/migrations/025_schema_langues.sql` en entier. Il affiche `OK <table> (n lignes)` pour chaque table et
-   « Terminé : 33 table(s) déplacée(s) ». Au moindre doute il s'annule tout seul et la base reste comme avant.
+   « Terminé : 34 table(s) déplacée(s) ». Au moindre doute il s'annule tout seul et la base reste comme avant.
 5. Dans **Vercel → Settings → Environment Variables**, ajouter `NEXT_PUBLIC_DB_SCHEMA` = `langues` (Production, Preview).
 6. **Redéployer** (la variable est lue à la construction de l'appli). Tant que ce n'est pas fait, l'appli cherche encore
    dans « public ».

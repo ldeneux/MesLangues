@@ -33,6 +33,7 @@ with t(tbl) as (values
       ('conversation_results'),
       ('lessons'),
       ('lesson_progress'),
+      ('lesson_sentences'),
       ('exam_sessions')
 )
 select

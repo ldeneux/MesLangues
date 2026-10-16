@@ -18,6 +18,7 @@ import JapaneseConjugationGuide from './JapaneseConjugationGuide';
 import { JA_GUIDE_TITLE } from '../../lib/japaneseConjugationGuide';
 import KanjiStrokes from './KanjiStrokes';
 import KanjiDraw from './KanjiDraw';
+import { markSpans } from '../../lib/lessonMatch';
 import { usePersistentFlag } from './usePersistentFlag';
 import { useJapaneseReadings } from './useJapaneseReadings';
 
@@ -36,7 +37,7 @@ const JA_RECAP: { id: string; label: string }[] = [
   { id: 'mashita', label: 'Passé poli' },
 ];
 
-type CardType = 'intro' | 'review' | 'nouns' | 'adjectives' | 'others' | 'jaguide' | 'verb' | 'conjrecap' | 'kanji' | 'grammar' | 'phrases' | 'recap';
+type CardType = 'intro' | 'review' | 'nouns' | 'adjectives' | 'others' | 'jaguide' | 'verb' | 'conjrecap' | 'kanji' | 'grammar' | 'sentences' | 'phrases' | 'recap';
 type CardDef = { type: CardType; index?: number };
 
 function themeLabel(code: string) {
@@ -111,6 +112,7 @@ export default function LessonViewer({
     if (lesson.conjugationRecap.length > 0) c.push({ type: 'conjrecap' });
     lesson.kanji.forEach((_, i) => c.push({ type: 'kanji', index: i }));
     if (lesson.grammar) c.push({ type: 'grammar' });
+    if (lesson.sentences.length > 0) c.push({ type: 'sentences' });
     if (lesson.phrases.length > 0) c.push({ type: 'phrases' });
     c.push({ type: 'recap' });
     return c;
@@ -126,7 +128,7 @@ export default function LessonViewer({
       ...lesson.phrases,
       ...lesson.review.filter((r) => r.word).map((r) => r.word as LessonWord),
     ];
-    return Array.from(new Set(words.map((w) => w.text)));
+    return Array.from(new Set([...words.map((w) => w.text), ...lesson.sentences.map((s) => s.text)]));
   }, [lesson, isJa]);
   const { readings, error: readingError, loading: readingLoading } = useJapaneseReadings(jaTexts, isJa && (furigana || romaji));
 
@@ -540,6 +542,7 @@ export default function LessonViewer({
               {lesson!.conjugationRecap.length > 0 && <li>Une fiche de conjugaison qui reprend les verbes des 5 dernières leçons</li>}
               {lesson!.kanji.length > 0 && <li>{lesson!.kanji.length} kanji à écrire</li>}
               {lesson!.grammar && <li>Une règle de grammaire avec un exemple</li>}
+              {lesson!.sentences.length > 0 && <li>{lesson!.sentences.length} phrases qui reprennent les mots de la leçon</li>}
               {lesson!.phrases.length > 0 && <li>{lesson!.phrases.length} mots et expressions à connaître</li>}
             </ul>
             <p className="eyebrow-free">Ici on apprend, on ne teste pas. Clique sur ▶ pour écouter un mot, quand tu veux.</p>
@@ -635,6 +638,38 @@ export default function LessonViewer({
           </>
         );
       }
+
+      case 'sentences':
+        return (
+          <>
+            <div className="lesson-card-title">Les mots en phrases</div>
+            <p className="eyebrow-free">Les mots de la leçon sont en couleur.</p>
+            {renderJaToggles()}
+            {lesson!.sentences.map((s) => {
+              const key = `sent-${s.id}`;
+              const rd = isJa ? readings[s.text] : undefined;
+              return (
+                <div key={key} className="lesson-word-row">
+                  <button
+                    className={`play-btn${playingKey === key ? ' playing' : ''}`}
+                    onClick={() => play(s.audio_url, key)}
+                    disabled={!s.audio_url}
+                    aria-label="Écouter la phrase"
+                  >
+                    {playingKey === key ? '❚❚' : '▶'}
+                  </button>
+                  <div className="lesson-word-body">
+                    <div className="lesson-sentence-text" lang={isJa ? 'ja' : undefined}>
+                      {isJa && furigana && rd ? <JapaneseRuby ruby={rd.ruby} /> : <HighlightText text={markSpans(s.text, s.spans)} />}
+                    </div>
+                    {isJa && romaji && rd?.romaji && <div className="phrase-notes">{rd.romaji}</div>}
+                    <div className="lesson-word-fr">{s.fr}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        );
 
       case 'phrases':
         return (

@@ -10,7 +10,7 @@ declare
   n_after bigint;
   moved int := 0;
 begin
-  foreach tbl in array array['languages', 'levels', 'phrase_sets', 'phrases', 'user_profiles', 'user_language_settings', 'user_phrase_progress', 'level_tests', 'level_test_questions', 'user_test_results', 'packs', 'listening_articles', 'listening_questions', 'listening_results', 'grammar_topics', 'conjugation_verbs', 'vocabulary_words', 'vocabulary_progress', 'conjugation_progress', 'vocabulary_packs', 'listening_packs', 'exercise_progress', 'grammar_questions', 'grammar_results', 'writing_prompts', 'writing_results', 'ja_readings', 'kanji', 'kanji_progress', 'conversation_results', 'lessons', 'lesson_progress', 'exam_sessions'] loop
+  foreach tbl in array array['languages', 'levels', 'phrase_sets', 'phrases', 'user_profiles', 'user_language_settings', 'user_phrase_progress', 'level_tests', 'level_test_questions', 'user_test_results', 'packs', 'listening_articles', 'listening_questions', 'listening_results', 'grammar_topics', 'conjugation_verbs', 'vocabulary_words', 'vocabulary_progress', 'conjugation_progress', 'vocabulary_packs', 'listening_packs', 'exercise_progress', 'grammar_questions', 'grammar_results', 'writing_prompts', 'writing_results', 'ja_readings', 'kanji', 'kanji_progress', 'conversation_results', 'lessons', 'lesson_progress','lesson_sentences', 'exam_sessions'] loop
     if to_regclass(format('langues.%I', tbl)) is null then continue; end if;
     if to_regclass(format('public.%I', tbl)) is not null then
       raise exception 'public.% existe déjà : impossible de remettre langues.% sans écraser. ANNULATION ANNULÉE (rien n''a bougé).', tbl, tbl;

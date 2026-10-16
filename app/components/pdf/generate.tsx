@@ -106,7 +106,7 @@ export async function downloadLessonsPdf(o: PdfOptions & { numbers: number[] }):
           ...l.others,
           ...l.phrases,
           ...l.review.filter((r) => r.word).map((r) => r.word!),
-        ]).map((w) => w.text)
+        ]).map((w) => w.text).concat(lessons.flatMap((l) => (l.sentences ?? []).map((s) => s.text)))
       )
     );
     const readings: Record<string, JaReading> = {};

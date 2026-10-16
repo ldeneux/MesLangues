@@ -3,8 +3,9 @@ Images des mots (.webp) : dépose-les ici.
 Nom du fichier = le mot français tel qu'il est écrit, article compris. Accents, espaces, tirets et apostrophes sont autorisés :
   un fromage.webp      l'heure.webp      avant-hier.webp      Amusez-vous bien.webp      avoir de la fièvre.webp
 
-La reconnaissance ignore la casse, les accents, les apostrophes, les tirets et les espaces en trop :
-« À plus tard » trouve « A plus tard.webp », « ça » trouve « çà ».
+La reconnaissance ignore la casse, les apostrophes, les tirets et les espaces en trop. LES ACCENTS COMPTENT :
+« salé » ne trouve pas « sale.webp » (c'est un autre mot). Seule exception : l'accent d'une majuscule initiale
+(« À plus tard » trouve « A plus tard.webp »). Un fichier aux accents différents est signalé dans la liste des manquantes.
 Si le nom exact n'existe pas, l'article est ignoré en dernier recours : « la pharmacie » trouve « une pharmacie.webp » (le nom exact reste toujours prioritaire).
 Une image sert dans toutes les langues (un seul fichier par mot français). L'extension doit être .webp en minuscules.
 

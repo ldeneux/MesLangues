@@ -2,12 +2,11 @@
 // Lancé automatiquement avant `npm run dev` et `npm run build` (voir package.json) : il suffit de déposer les .webp
 // dans public/image_webp et de pousser sur GitHub, la liste se met à jour au déploiement.
 // Le nom du fichier = le mot français tel qu'il est écrit (« un fromage.webp ») ; la comparaison ignore casse, accents,
-// apostrophes, tirets et espaces en trop (même clé que lib/imageName.ts).
+// apostrophes, tirets et espaces en trop ; les ACCENTS comptent (même clé que lib/imageName.ts).
 import fs from 'node:fs';
 import path from 'node:path';
 
-const key = (t) =>
-  t.toLowerCase().replace(/œ/g, 'oe').replace(/æ/g, 'ae').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+const key = (t) => t.normalize('NFC').toLowerCase().replace(/œ/g, 'oe').replace(/æ/g, 'ae').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
 const dir = path.join(process.cwd(), 'public', 'image_webp');
 const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => /\.webp$/i.test(f)) : [];

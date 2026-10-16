@@ -3,7 +3,7 @@
 --
 -- SANS RISQUE POUR LES DONNÉES : « ALTER TABLE … SET SCHEMA » ne copie, ne vide et ne supprime rien. C'est un simple
 -- changement de rattachement : lignes, index, clés étrangères, séquences et règles RLS suivent la table.
--- La migration ne touche QU'AUX 33 tables de cette application (liste ci-dessous). Les tables des autres
+-- La migration ne touche QU'AUX 34 tables de cette application (liste ci-dessous). Les tables des autres
 -- applications de la base ne sont ni lues ni déplacées.
 --
 -- Protections :
@@ -66,6 +66,7 @@ begin
       ('conversation_results', array['id', 'profile_id', 'language_code', 'level_code']),
       ('lessons', array['id', 'language_code', 'level_code', 'number']),
       ('lesson_progress', array['profile_id', 'lesson_id', 'completed_at']),
+      ('lesson_sentences', array['id', 'lesson_id', 'position', 'target_text']),
       ('exam_sessions', array['id', 'profile_id', 'language_code', 'level_code'])
     ) as t(tbl, req)
   loop

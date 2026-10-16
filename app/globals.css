@@ -2124,3 +2124,5 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
   .topbar-levels { order: 3; flex-basis: 100%; justify-content: flex-start; }
   .topbar-right { margin-left: auto; }
 }
+
+.lesson-sentence-text { font-size: 1.1rem; line-height: 1.45; font-weight: 500; }
