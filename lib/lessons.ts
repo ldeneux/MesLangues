@@ -2,7 +2,7 @@
 
 import { supabaseAdmin } from './supabaseAdmin';
 import { callGemini, LANGUAGE_NAMES } from './gemini';
-import { grammarTopicsFor, THEMES, type GrammarTopicMeta } from './constants';
+import { grammarTopicsFor, vocabThemeLabel, type GrammarTopicMeta } from './constants';
 import { getGrammarTopic, type GrammarTopic } from './grammar';
 import type { ConjugationVerb } from './conjugation';
 import { planLessons, dedupeWords, wordKey, grammarExampleIndex, CONJUGATION_RECAP_EVERY, type PlanWord, type PlannedLesson, type ReviewItem } from './lessonPlan';
@@ -827,7 +827,7 @@ export async function generateSentencesStep(languageCode: string, levelCode: str
     const { lesson, gen } = target;
     const mainSpecs = lesson.specs.filter((sp) => sp.weight >= 1);
     const langName = LANGUAGE_NAMES[languageCode] ?? languageCode;
-    const themeLabel = THEMES.find((t) => t.code === lesson.theme)?.label ?? lesson.theme;
+    const themeLabel = vocabThemeLabel(lesson.theme);
     const existing = gen.map((g) => g.target_text);
     const accepted: { target: string; fr: string }[] = [];
 

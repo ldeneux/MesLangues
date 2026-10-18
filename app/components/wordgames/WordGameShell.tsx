@@ -3,7 +3,7 @@
 import './wordgames.css';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { getVocabularyWords, recordGameResult, type VocabularyWordWithMastery } from '../../../lib/vocabulary';
-import { THEMES, type LangCode, type LevelCode } from '../../../lib/constants';
+import { VOCAB_THEMES, type LangCode, type LevelCode } from '../../../lib/constants';
 
 export type WordGameCtx = {
   pool: VocabularyWordWithMastery[]; // mots retenus par les filtres thème + maîtrise
@@ -42,7 +42,7 @@ export default function WordGameShell({
 
   const themes = useMemo(() => {
     const present = new Set((words ?? []).map((w) => w.theme_code));
-    return THEMES.filter((t) => present.has(t.code));
+    return VOCAB_THEMES.filter((t) => present.has(t.code));
   }, [words]);
 
   const pool = useMemo(

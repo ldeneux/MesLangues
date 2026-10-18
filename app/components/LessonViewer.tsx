@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { getLesson, completeLesson, type LessonContent, type LessonWord } from '../../lib/lessons';
 import type { ConjugationVerb } from '../../lib/conjugation';
 import type { KanjiItem } from '../../lib/kanji';
-import { THEMES, LANGS } from '../../lib/constants';
+import { vocabThemeLabel, LANGS } from '../../lib/constants';
 import { splitEnding } from '../../lib/conjugationHighlight';
 import { kanaToRomaji } from '../../lib/japanese';
 import { conjugateJapaneseVerb } from '../../lib/japaneseVerbs';
@@ -15,6 +15,7 @@ import RubyHighlight from './RubyHighlight';
 import JapaneseRuby from './JapaneseRuby';
 import JapaneseConjugationDetail from './JapaneseConjugationDetail';
 import JapaneseConjugationGuide from './JapaneseConjugationGuide';
+import LessonExercises, { type ExerciseItem } from './LessonExercises';
 import { JA_GUIDE_TITLE } from '../../lib/japaneseConjugationGuide';
 import KanjiStrokes from './KanjiStrokes';
 import KanjiDraw from './KanjiDraw';
@@ -37,11 +38,11 @@ const JA_RECAP: { id: string; label: string }[] = [
   { id: 'mashita', label: 'Passé poli' },
 ];
 
-type CardType = 'intro' | 'review' | 'nouns' | 'adjectives' | 'others' | 'jaguide' | 'verb' | 'conjrecap' | 'kanji' | 'grammar' | 'sentences' | 'phrases' | 'recap';
+type CardType = 'intro' | 'review' | 'nouns' | 'adjectives' | 'others' | 'jaguide' | 'verb' | 'conjrecap' | 'kanji' | 'grammar' | 'sentences' | 'phrases' | 'exercises' | 'recap';
 type CardDef = { type: CardType; index?: number };
 
 function themeLabel(code: string) {
-  return THEMES.find((t) => t.code === code)?.label ?? code;
+  return vocabThemeLabel(code);
 }
 
 // Lecture d'un kanji ou d'un mot japonais par la voix du navigateur : on retire les marques « . » et « - » des lectures.
@@ -98,6 +99,24 @@ export default function LessonViewer({
     };
   }, [profileId, languageCode, levelCode, number]);
 
+  // Mots de la leçon pour les exercices de fin de leçon (mots + verbes, sans doublon)
+  const exerciseItems: ExerciseItem[] = useMemo(() => {
+    if (!lesson) return [];
+    const out: ExerciseItem[] = [];
+    const seen = new Set<string>();
+    for (const w of [...lesson.nouns, ...lesson.adjectives, ...lesson.others, ...lesson.phrases]) {
+      if (seen.has(w.id) || !w.text || !w.fr) continue;
+      seen.add(w.id);
+      out.push({ id: w.id, source: 'word', text: w.text, fr: w.fr, audio: w.audio_url, image: w.image });
+    }
+    for (const v of lesson.verbs) {
+      if (seen.has(v.id) || !v.infinitive || !v.translation_fr) continue;
+      seen.add(v.id);
+      out.push({ id: v.id, source: 'verb', text: v.infinitive, fr: v.translation_fr, audio: v.tense_audio?.infinitive ?? null, image: null });
+    }
+    return out;
+  }, [lesson]);
+
   // Cartes de la leçon, dans l'ordre d'apprentissage
   const cards: CardDef[] = useMemo(() => {
     if (!lesson) return [];
@@ -114,9 +133,10 @@ export default function LessonViewer({
     if (lesson.grammar) c.push({ type: 'grammar' });
     if (lesson.sentences.length > 0) c.push({ type: 'sentences' });
     if (lesson.phrases.length > 0) c.push({ type: 'phrases' });
+    if (exerciseItems.length >= 4) c.push({ type: 'exercises' });
     c.push({ type: 'recap' });
     return c;
-  }, [lesson, isJa]);
+  }, [lesson, isJa, exerciseItems]);
 
   // Japonais : lectures (furigana / rōmaji) pour tous les mots de la leçon. Déjà en cache pour la plupart.
   const jaTexts = useMemo(() => {
@@ -678,6 +698,20 @@ export default function LessonViewer({
             <p className="eyebrow-free">Des mots et expressions très courants, utiles dès maintenant.</p>
             {renderJaToggles()}
             {renderWordGrid(lesson!.phrases.map((w) => renderWordRow(w, 'p')))}
+          </>
+        );
+
+      case 'exercises':
+        return (
+          <>
+            {renderJaToggles()}
+            <LessonExercises
+              key={lesson!.id}
+              profileId={profileId}
+              isJa={isJa}
+              items={exerciseItems}
+              render={(t) => (isJa && furigana && readings[t] ? <JapaneseRuby ruby={readings[t].ruby} /> : t)}
+            />
           </>
         );
 

@@ -15,14 +15,14 @@ import {
   type LessonsOverview,
   type RankStepResult,
 } from '../../lib/lessons';
-import { LEVELS, LANGS, THEMES } from '../../lib/constants';
+import { LEVELS, LANGS, vocabThemeLabel } from '../../lib/constants';
 import { estimateRankingCost, estimateVerbAudioCost, estimateLessonSentencesCost } from '../../lib/pricing';
 import LessonViewer from './LessonViewer';
 import PronunciationLesson from './PronunciationLesson';
 import { usePersistentFlag } from './usePersistentFlag';
 
 function themeLabel(code: string) {
-  return THEMES.find((t) => t.code === code)?.label ?? code;
+  return vocabThemeLabel(code);
 }
 
 export default function LessonsPanel({
@@ -561,7 +561,7 @@ export default function LessonsPanel({
 
             <div className="phrase-card lesson-setup">
               <div className="lesson-setup-title">2. Créer le plan de leçons</div>
-              <p className="eyebrow-free">Gratuit : on organise les mots déjà téléchargés en leçons (40 au maximum).</p>
+              <p className="eyebrow-free">Gratuit : on organise les mots déjà téléchargés en leçons (61 au maximum : 40 sur les thèmes principaux, puis une leçon par thème supplémentaire).</p>
               <button className="primary" onClick={() => createPlan(false)} disabled={!rankedOk || building || !!ranking}>
                 {building ? 'Création…' : 'Créer les leçons'}
               </button>

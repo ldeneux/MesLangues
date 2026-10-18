@@ -4,7 +4,7 @@ import { resolveImage } from './imageIndex';
 import { supabaseAdmin } from './supabaseAdmin';
 import { callGemini, LANGUAGE_NAMES } from './gemini';
 import { synthesizeAndStore } from './tts';
-import { THEMES, packThemeQuotas, VOCAB_PACK_SIZE, LEVELS } from './constants';
+import { VOCAB_THEMES, packThemeQuotas, VOCAB_PACK_SIZE, LEVELS } from './constants';
 
 const CHUNK_SIZE = 15;
 const MASTERY_MIN_ATTEMPTS = 1;
@@ -66,13 +66,23 @@ export async function createVocabularyPack(languageCode: string, levelCode: stri
 
 export type VocabularyStepResult = {
   done: boolean;
+  exhausted?: boolean; // true : tous les thèmes non écartés ont été essayés, plus aucun thème à proposer
+  themeCode?: string;
   themeLabel?: string;
   generatedThisStep: number;
   generatedTotal: number;
   targetTotal: number;
 };
 
-export async function runVocabularyPackStep(packId: string): Promise<VocabularyStepResult> {
+/**
+ * Un pas de génération (≈ 15 mots). Choix du thème :
+ *  1) d'abord les 15 thèmes principaux, selon leurs quotas (comme avant) ;
+ *  2) quand les thèmes principaux sont pleins ou écartés et que le pack n'est pas complet, on complète avec TOUS les
+ *     thèmes (principaux + réserve), en commençant par celui qui a le moins de mots dans ce pack.
+ * `skipThemes` : thèmes que le client a déjà essayés plusieurs fois sans obtenir de mot nouveau (à ne plus proposer
+ * pendant cette génération). Quand tous les thèmes sont écartés, on renvoie `exhausted: true`.
+ */
+export async function runVocabularyPackStep(packId: string, skipThemes: string[] = []): Promise<VocabularyStepResult> {
   const { data: pack, error: packError } = await supabaseAdmin
     .from('vocabulary_packs')
     .select('*')
@@ -81,52 +91,68 @@ export async function runVocabularyPackStep(packId: string): Promise<VocabularyS
 
   if (packError || !pack) throw new Error(packError?.message ?? 'Pack de vocabulaire introuvable');
 
-  const quotas = packThemeQuotas(pack.target_count);
+  const skip = new Set(skipThemes);
 
-  let targetTheme: { code: string; label: string; count: number; existing: number } | null = null;
-  for (const q of quotas) {
-    const { count } = await supabaseAdmin
-      .from('vocabulary_words')
-      .select('id', { count: 'exact', head: true })
-      .eq('pack_id', packId)
-      .eq('theme_code', q.code);
+  // Mots déjà présents dans ce pack, par thème (une seule lecture).
+  const packWords = await fetchAllRows<{ theme_code: string }>((from, to) =>
+    supabaseAdmin.from('vocabulary_words').select('theme_code').eq('pack_id', packId).order('id').range(from, to)
+  );
+  const countByTheme = new Map<string, number>();
+  for (const w of packWords) countByTheme.set(w.theme_code, (countByTheme.get(w.theme_code) ?? 0) + 1);
+  const packTotal = packWords.length;
 
-    if ((count ?? 0) < q.count) {
-      targetTheme = { ...q, existing: count ?? 0 };
+  if (packTotal >= pack.target_count) {
+    await supabaseAdmin
+      .from('vocabulary_packs')
+      .update({ status: 'ready', completed_at: new Date().toISOString(), generated_count: packTotal })
+      .eq('id', packId);
+    return { done: true, generatedThisStep: 0, generatedTotal: packTotal, targetTotal: pack.target_count };
+  }
+
+  let targetTheme: { code: string; label: string; room: number } | null = null;
+
+  // Phase 1 : quotas des thèmes principaux.
+  for (const q of packThemeQuotas(pack.target_count)) {
+    if (skip.has(q.code)) continue;
+    const have = countByTheme.get(q.code) ?? 0;
+    if (have < q.count) {
+      targetTheme = { code: q.code, label: q.label, room: q.count - have };
       break;
     }
   }
 
+  // Phase 2 : complément sur tous les thèmes (principaux + réserve), le moins fourni dans ce pack d'abord.
   if (!targetTheme) {
-    const { count: actualTotal } = await supabaseAdmin
-      .from('vocabulary_words')
-      .select('id', { count: 'exact', head: true })
-      .eq('pack_id', packId);
-    await supabaseAdmin
-      .from('vocabulary_packs')
-      .update({ status: 'ready', completed_at: new Date().toISOString(), generated_count: actualTotal ?? pack.target_count })
-      .eq('id', packId);
-    return {
-      done: true,
-      generatedThisStep: 0,
-      generatedTotal: actualTotal ?? pack.target_count,
-      targetTotal: pack.target_count,
-    };
+    const candidates = VOCAB_THEMES.filter((t) => !skip.has(t.code))
+      .map((t) => ({ ...t, have: countByTheme.get(t.code) ?? 0 }))
+      .sort((a, b) => a.have - b.have); // tri stable : à égalité, ordre de la liste
+    if (candidates.length > 0) {
+      targetTheme = { code: candidates[0].code, label: candidates[0].label, room: pack.target_count - packTotal };
+    }
+  }
+
+  if (!targetTheme) {
+    // Tous les thèmes ont été essayés sans résultat : le pack reste incomplet.
+    await supabaseAdmin.from('vocabulary_packs').update({ generated_count: packTotal }).eq('id', packId);
+    return { done: false, exhausted: true, generatedThisStep: 0, generatedTotal: packTotal, targetTotal: pack.target_count };
   }
 
   if (pack.status !== 'generating') {
     await supabaseAdmin.from('vocabulary_packs').update({ status: 'generating' }).eq('id', packId);
   }
 
-  const chunkCount = Math.min(CHUNK_SIZE, targetTheme.count - targetTheme.existing);
+  const chunkCount = Math.min(CHUNK_SIZE, targetTheme.room);
   const langName = LANGUAGE_NAMES[pack.language_code] ?? pack.language_code;
 
   const theme = targetTheme;
 
-  // Anti-doublon sur TOUTE la langue : un nouveau mot ne doit exister ni à ce niveau, ni aux niveaux inférieurs
-  // (A2 : ni en A2 ni en A1 ; B1 : ni en B1, A2, A1…), ni dans aucun autre pack, tous thèmes confondus.
+  // Anti-doublon : un nouveau mot ne doit exister ni à ce niveau, ni aux niveaux INFÉRIEURS (A2 : ni en A2 ni en A1 ;
+  // B1 : ni en B1, A2, A1…), tous packs et thèmes confondus. Un mot déjà présent à un niveau SUPÉRIEUR n'est PAS un
+  // doublon (A1 peut recevoir un mot qui existe déjà en B1). On ne charge donc que les niveaux <= au niveau du pack.
   // La liste donnée à Gemini ne sert qu'à lui éviter de proposer des mots refusés ; le vrai verrou est le filtre
-  // en code plus bas (même définition d'un doublon que le bouton « Nettoyer les doublons »).
+  // en code plus bas.
+  const levelOrder: string[] = LEVELS.map((l) => l.code);
+  const allowedLevels = levelOrder.slice(0, levelOrder.indexOf(pack.level_code) + 1); // ce niveau + niveaux inférieurs UNIQUEMENT
   const languageWords = await fetchAllRows<{
     target_text: string;
     translation_fr: string;
@@ -138,11 +164,11 @@ export async function runVocabularyPackStep(packId: string): Promise<VocabularyS
       .from('vocabulary_words')
       .select('target_text, translation_fr, level_code, theme_code, created_at')
       .eq('language_code', pack.language_code)
+      .in('level_code', allowedLevels)
       .order('id')
       .range(from, to)
   );
 
-  const levelOrder: string[] = LEVELS.map((l) => l.code);
   const maxLevelIdx = levelOrder.indexOf(pack.level_code);
   const byRecent = (a: { created_at: string }, b: { created_at: string }) => (a.created_at < b.created_at ? 1 : -1);
 
@@ -215,10 +241,14 @@ Chaque objet :
     throw new Error('Format de vocabulaire inattendu reçu de Gemini');
   }
 
-  // Filet de sécurité anti-doublon côté code (le vrai verrou) : on écarte tout mot déjà présent dans la langue
-  // (même mot + même traduction à l'article près, tous niveaux, tous packs), et tout mot déjà présent à ce niveau
-  // (même texte), ainsi que les répétitions à l'intérieur du lot reçu.
-  const knownPairs = new Set(languageWords.map((w) => vocabPairKey(w.target_text, w.translation_fr)));
+  // Filet de sécurité anti-doublon côté code (le vrai verrou) : on écarte tout mot déjà présent à ce niveau ou aux
+  // niveaux inférieurs (même mot + même traduction à l'article près, tous packs), et tout mot déjà présent à ce niveau
+  // (même texte), ainsi que les répétitions à l'intérieur du lot reçu. Les niveaux supérieurs sont ignorés.
+  const knownPairs = new Set(
+    languageWords
+      .filter((w) => levelOrder.indexOf(w.level_code) <= maxLevelIdx)
+      .map((w) => vocabPairKey(w.target_text, w.translation_fr))
+  );
   const seenNormalized = new Set(
     languageWords.filter((w) => w.level_code === pack.level_code).map((w) => normalizeForCompare(w.target_text))
   );
@@ -256,7 +286,7 @@ Chaque objet :
 
   if (rows.length === 0) {
     // Tout était doublon cette fois — pas d'avancée, le client rappellera.
-    return { done: false, generatedThisStep: 0, generatedTotal: pack.generated_count, targetTotal: pack.target_count };
+    return { done: false, themeCode: targetTheme.code, themeLabel: targetTheme.label, generatedThisStep: 0, generatedTotal: packTotal, targetTotal: pack.target_count };
   }
 
   const { data: inserted, error: insertError } = await supabaseAdmin
@@ -297,6 +327,7 @@ Chaque objet :
 
   return {
     done: false,
+    themeCode: targetTheme.code,
     themeLabel: targetTheme.label,
     generatedThisStep: inserted?.length ?? 0,
     generatedTotal: totalGenerated ?? 0,

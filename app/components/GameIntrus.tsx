@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getVocabularyWords, type VocabularyWordWithMastery } from '../../lib/vocabulary';
-import { THEMES, type LangCode, type LevelCode } from '../../lib/constants';
+import { vocabThemeLabel, type LangCode, type LevelCode } from '../../lib/constants';
 
 type Round = { options: VocabularyWordWithMastery[]; oddIndex: number; themeLabel: string };
 
@@ -24,7 +24,7 @@ function buildRound(words: VocabularyWordWithMastery[]): Round | null {
 
   const options = [...shuffledMain, oddWord].sort(() => Math.random() - 0.5);
   const oddIndex = options.findIndex((w) => w.id === oddWord.id);
-  const themeLabel = THEMES.find((t) => t.code === mainTheme)?.label ?? mainTheme;
+  const themeLabel = vocabThemeLabel(mainTheme);
 
   return { options, oddIndex, themeLabel };
 }

@@ -11,7 +11,7 @@ import { splitCommon } from '../../../lib/japaneseDiff';
 import { markSpans } from '../../../lib/lessonMatch';
 import { JA_GUIDE, JA_GUIDE_TITLE } from '../../../lib/japaneseConjugationGuide';
 import { PRONUNCIATION } from '../../../lib/pronunciation';
-import { THEMES } from '../../../lib/constants';
+import { vocabThemeLabel } from '../../../lib/constants';
 
 // ---------------------------------------------------------
 // Mise en page des PDF de cours. Document « pur » : il reçoit tout déjà préparé (contenu des leçons, lectures
@@ -41,7 +41,7 @@ const CJK = /[\u3000-\u30ff\u3400-\u9fff\uff00-\uffef]/;
 /** Police adaptée au texte : Noto Sans JP dès qu'il contient du japonais (elle contient aussi les accents français). */
 const ff = (text: string) => (CJK.test(text) ? F.ja : F.body);
 
-const themeLabel = (code: string) => THEMES.find((t) => t.code === code)?.label ?? code;
+const themeLabel = (code: string) => vocabThemeLabel(code);
 
 // ---------- briques de texte ----------
 function Hl({ text, style, ja }: { text: string; style?: any; ja?: boolean }) {

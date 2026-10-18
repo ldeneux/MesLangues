@@ -1,9 +1,13 @@
 import { normalizeForCompare } from './textUtils';
+import { EXTRA_VOCAB_THEMES } from './constants';
 
 // Planificateur de leçons — module PUR (pas de base de données, pas de 'use server').
 // Entrée : les mots et verbes déjà en base ; sortie : le plan de N leçons, identique pour tous les profils.
 
-export const LESSON_TARGET_COUNT = 40; // nombre de leçons visé par langue et niveau
+export const LESSON_MAIN_COUNT = 40; // leçons des 15 thèmes principaux (numéros 1 à 40, inchangés)
+// Thèmes supplémentaires du vocabulaire : une leçon chacun, après les 40 premières (leçons 41 et suivantes).
+export const LESSON_EXTRA_THEME_ORDER: readonly string[] = EXTRA_VOCAB_THEMES.map((t) => t.code);
+export const LESSON_TARGET_COUNT = LESSON_MAIN_COUNT + LESSON_EXTRA_THEME_ORDER.length; // nombre de leçons visé par langue et niveau
 export const LESSON_WORDS = 20; // mots nouveaux par leçon (noms + adjectifs + verbes)
 export const LESSON_VERBS = 3; // verbes par leçon
 export const LESSON_PHRASES = 3; // adverbes / expressions utiles, en plus des 20 mots
@@ -137,6 +141,13 @@ export function dedupeWords(words: PlanWord[], exclude: Set<string> = new Set())
  * (si total >= nombre de thèmes), dans l'ordre LESSON_THEME_ORDER. Retourne un thème par leçon.
  */
 export function lessonThemes(total: number): string[] {
+  // Au-delà de 40 leçons : les 40 premières gardent exactement la répartition d'origine, puis une leçon par thème
+  // supplémentaire (dans l'ordre de LESSON_EXTRA_THEME_ORDER, en reprenant au début s'il y a plus de leçons que de thèmes).
+  if (total > LESSON_MAIN_COUNT) {
+    const extras: string[] = [];
+    for (let i = 0; i < total - LESSON_MAIN_COUNT; i++) extras.push(LESSON_EXTRA_THEME_ORDER[i % LESSON_EXTRA_THEME_ORDER.length]);
+    return [...lessonThemes(LESSON_MAIN_COUNT), ...extras];
+  }
   const order = LESSON_THEME_ORDER.slice();
   if (total <= order.length) return order.slice(0, total);
 
@@ -181,7 +192,7 @@ function makePool(words: PlanWord[]): Pool {
 }
 
 // Prend `n` mots non encore utilisés : d'abord ceux du thème (par utilité), puis les plus utiles de tous les thèmes.
-function take(pool: Pool, theme: string, n: number, used: Set<string>): string[] {
+function take(pool: Pool, theme: string, n: number, used: Set<string>, reserved?: ReadonlySet<string>): string[] {
   const out: string[] = [];
   if (n <= 0) return out;
   for (const w of pool.byTheme.get(theme) ?? []) {
@@ -191,9 +202,14 @@ function take(pool: Pool, theme: string, n: number, used: Set<string>): string[]
       out.push(w.id);
     }
   }
-  if (out.length < n) {
+  // Complément avec n'importe quel mot libre ; les mots des thèmes réservés (thèmes supplémentaires, qui ont leur
+  // propre leçon plus loin) ne sont pris qu'en dernier recours.
+  for (const pass of reserved && reserved.size > 0 ? [false, true] : [true]) {
+    if (out.length >= n) break;
     for (const w of pool.all) {
       if (out.length >= n) break;
+      if (!pass && reserved!.has(w.theme_code)) continue;
+      if (pass && reserved && reserved.size > 0 && !reserved.has(w.theme_code)) continue;
       if (!used.has(w.id)) {
         used.add(w.id);
         out.push(w.id);
@@ -233,7 +249,10 @@ export function planLessons(input: {
   const totalVocab = nouns.length + adjectives.length + fillers.length;
   const maxByVerbs = Math.floor(verbsSorted.length / LESSON_VERBS);
   const maxByWords = Math.floor(totalVocab / perLessonFromVocab);
-  const total = Math.min(target, maxByVerbs, maxByWords);
+  // Les 40 premières leçons (15 thèmes principaux) emportent 3 verbes chacune. Les leçons suivantes (thèmes
+  // supplémentaires) n'ont des verbes que s'il en reste ; sans verbe, elles sont complétées par des mots.
+  const mainTotal = Math.min(LESSON_MAIN_COUNT, target, maxByVerbs, maxByWords);
+  const total = mainTotal < Math.min(LESSON_MAIN_COUNT, target) ? mainTotal : Math.min(target, maxByWords);
   if (total < 1) {
     return {
       ok: false,
@@ -241,7 +260,7 @@ export function planLessons(input: {
     };
   }
   if (total < target) {
-    const byVerbs = maxByVerbs <= maxByWords;
+    const byVerbs = total < LESSON_MAIN_COUNT && maxByVerbs <= maxByWords;
     warnings.push(
       byVerbs
         ? `${total} leçons au lieu de ${target} : il n'y a que ${verbsSorted.length} verbes disponibles (3 par leçon).`
@@ -260,31 +279,34 @@ export function planLessons(input: {
   const fillerPool = makePool(fillers);
 
   const used = new Set<string>();
+  // Mots des thèmes supplémentaires : gardés pour leurs propres leçons (41+), les 40 premières n'y touchent qu'en dernier recours.
+  const reservedExtra: ReadonlySet<string> = total > LESSON_MAIN_COUNT ? new Set(LESSON_EXTRA_THEME_ORDER) : new Set<string>();
   const themes = lessonThemes(total);
   const A = adjectives.length;
   const lessons: PlannedLesson[] = [];
 
   for (let i = 0; i < total; i++) {
     const theme = themes[i];
+    const reserved = i < LESSON_MAIN_COUNT ? reservedExtra : undefined;
 
     // Mots et expressions utiles : réservés d'abord, dans la limite du budget disponible.
-    const phrase_ids = take(fillerPool, theme, Math.min(LESSON_PHRASES, phraseBudget), used);
+    const phrase_ids = take(fillerPool, theme, Math.min(LESSON_PHRASES, phraseBudget), used, reserved);
     phraseBudget -= phrase_ids.length;
 
     // Adjectifs : répartis régulièrement sur toutes les leçons, au plus 6 par leçon.
     const adjCount = Math.min(6, Math.round(((i + 1) * A) / total) - Math.round((i * A) / total));
     const verb_ids = verbsSorted.slice(i * LESSON_VERBS, (i + 1) * LESSON_VERBS).map((v) => v.id);
-    const adjective_ids = take(adjPool, theme, adjCount, used);
+    const adjective_ids = take(adjPool, theme, adjCount, used, reserved);
 
     // Noms : de quoi compléter jusqu'à 20 mots.
     const nounTarget = LESSON_WORDS - verb_ids.length - adjective_ids.length;
-    const noun_ids = take(nounPool, theme, nounTarget, used);
+    const noun_ids = take(nounPool, theme, nounTarget, used, reserved);
 
     // Stock de noms épuisé : complément par des adverbes/expressions, puis par des adjectifs restants.
     const missing = nounTarget - noun_ids.length;
-    const other_ids = missing > 0 ? take(fillerPool, theme, missing, used) : [];
+    const other_ids = missing > 0 ? take(fillerPool, theme, missing, used, reserved) : [];
     const stillMissing = missing - other_ids.length;
-    if (stillMissing > 0) adjective_ids.push(...take(adjPool, theme, stillMissing, used));
+    if (stillMissing > 0) adjective_ids.push(...take(adjPool, theme, stillMissing, used, reserved));
 
     lessons.push({
       number: i + 1,

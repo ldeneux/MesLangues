@@ -143,8 +143,9 @@ export default function DuplicatesCleanup({ languageCode, onCleaned }: { languag
         Nettoyage des doublons de vocabulaire ({langLabel})
       </div>
       <p className="eyebrow-free">
-        Pour chaque mot présent plusieurs fois dans la langue (même mot, même traduction à l'article près), on garde la
-        ligne du niveau le plus bas et on supprime les autres. Les homonymes et les synonymes ne sont pas touchés.
+        Pour chaque mot présent plusieurs fois dans le MÊME niveau (même mot, même traduction à l'article près), on ne
+        garde qu'une ligne et on supprime les autres. Un mot qui existe dans deux niveaux différents (ex. A1 et B1) est
+        conservé aux deux. Les homonymes et les synonymes ne sont pas touchés.
       </p>
 
       <div className="profile-create-actions" style={{ justifyContent: 'flex-start', flexWrap: 'wrap' }}>

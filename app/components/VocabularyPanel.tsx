@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { getVocabularyWords, type VocabularyWordWithMastery } from '../../lib/vocabulary';
-import { THEMES, LANGS } from '../../lib/constants';
+import { VOCAB_THEMES, LANGS } from '../../lib/constants';
 import VocabularyGamePanel from './VocabularyGamePanel';
 import VocabularyStatsPanel from './VocabularyStatsPanel';
 import JapaneseRuby from './JapaneseRuby';
@@ -64,7 +64,7 @@ export default function VocabularyPanel({
     () => new Set((words ?? []).map((w) => w.theme_code)),
     [words]
   );
-  const availableThemes = THEMES.filter((t) => usedThemeCodes.has(t.code));
+  const availableThemes = VOCAB_THEMES.filter((t) => usedThemeCodes.has(t.code));
   const themeFilter = themeChoice || availableThemes[0]?.code || 'all';
 
   const filtered = (words ?? []).filter(

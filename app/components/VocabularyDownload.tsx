@@ -8,7 +8,10 @@ import {
   type VocabularyPackInfo,
 } from '../../lib/vocabulary';
 import { estimateVocabularyCost } from '../../lib/pricing';
-import { VOCAB_PACK_SIZE } from '../../lib/constants';
+import { VOCAB_PACK_SIZE, VOCAB_THEMES } from '../../lib/constants';
+
+// Nombre d'essais consécutifs sans aucun mot nouveau avant d'écarter un thème et de passer au suivant.
+const MAX_EMPTY_TRIES_PER_THEME = 3;
 
 export default function VocabularyDownload({ languageCode, levelCode }: { languageCode: string; levelCode: string }) {
   const [packs, setPacks] = useState<VocabularyPackInfo[] | null>(null);
@@ -36,18 +39,31 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
     setError('');
     try {
       let done = false;
-      let stalls = 0;
+      // Thèmes écartés pour cette génération (plusieurs essais de suite sans mot nouveau) : on passe au suivant.
+      // Le pack n'est déclaré incomplet qu'une fois TOUS les thèmes écartés (rien de nouveau nulle part).
+      const skipped = new Set<string>();
+      const emptyTries = new Map<string, number>();
       while (!done) {
-        const step = await runVocabularyPackStep(packId);
+        const step = await runVocabularyPackStep(packId, Array.from(skipped));
         setProgress({ generated: step.generatedTotal, target: step.targetTotal, themeLabel: step.themeLabel });
         done = step.done;
-        // Un mot n'est jamais repris s'il existe déjà dans la langue (ce niveau ou un niveau inférieur) : si plusieurs
-        // essais de suite ne donnent rien de nouveau, on s'arrête au lieu de boucler (le pack reste incomplet).
-        stalls = !done && step.generatedThisStep === 0 ? stalls + 1 : 0;
-        if (stalls >= 6) {
+        if (done) break;
+
+        if (step.exhausted) {
           throw new Error(
-            'La génération ne trouve plus de mots nouveaux pour ce thème (tout existe déjà à ce niveau ou aux niveaux inférieurs). Le pack reste incomplet : réessaie plus tard avec « Reprendre ».'
+            `Aucun mot nouveau trouvé après avoir testé les ${VOCAB_THEMES.length} thèmes (tout existe déjà à ce niveau ou aux niveaux inférieurs). Le pack reste incomplet (${step.generatedTotal} / ${step.targetTotal}) : réessaie plus tard avec « Reprendre ».`
           );
+        }
+
+        const code = step.themeCode;
+        if (code) {
+          if (step.generatedThisStep === 0) {
+            const n = (emptyTries.get(code) ?? 0) + 1;
+            emptyTries.set(code, n);
+            if (n >= MAX_EMPTY_TRIES_PER_THEME) skipped.add(code);
+          } else {
+            emptyTries.set(code, 0);
+          }
         }
       }
     } catch (e: any) {

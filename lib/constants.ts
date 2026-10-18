@@ -40,6 +40,45 @@ export const THEMES = [
 
 export type ThemeCode = (typeof THEMES)[number]['code'];
 
+// ---------------------------------------------------------------------
+// Thèmes SUPPLÉMENTAIRES réservés au vocabulaire (pas aux phrases, leçons, conjugaison, rédaction…, qui restent sur
+// THEMES ci-dessus). Ils servent de réserve : quand les 15 thèmes principaux n'ont plus de mots nouveaux à proposer,
+// la génération d'un pack de vocabulaire continue sur ces thèmes pour atteindre les 350 mots.
+// ---------------------------------------------------------------------
+export const EXTRA_VOCAB_THEMES = [
+  { code: 'clothing', label: 'Vêtements et accessoires' },
+  { code: 'home_objects', label: 'Maison, meubles et objets du quotidien' },
+  { code: 'animals', label: 'Animaux' },
+  { code: 'nature', label: 'Nature, plantes et paysages' },
+  { code: 'jobs', label: 'Métiers et professions' },
+  { code: 'school_study', label: 'Études, cours et matières' },
+  { code: 'travel_tourism', label: 'Voyage, vacances et tourisme' },
+  { code: 'sports', label: 'Sports et activités physiques' },
+  { code: 'arts_media', label: 'Musique, cinéma, arts et médias' },
+  { code: 'money_bank', label: 'Argent, banque et paiements' },
+  { code: 'character', label: 'Caractère, qualités et défauts' },
+  { code: 'appearance', label: 'Description physique et apparence' },
+  { code: 'cooking', label: 'Cuisine, recettes et ingrédients' },
+  { code: 'city_services', label: 'Ville, commerces et services publics' },
+  { code: 'admin', label: 'Administration, courrier et démarches' },
+  { code: 'environment', label: 'Environnement et écologie' },
+  { code: 'adjectives_opposites', label: 'Adjectifs courants et contraires' },
+  { code: 'time_quantity', label: 'Temps, fréquence et quantités' },
+  { code: 'useful_expressions', label: 'Mots de liaison et expressions utiles' },
+  { code: 'celebrations', label: 'Fêtes, traditions et événements' },
+  { code: 'society_news', label: 'Société, actualité et vie publique' },
+] as const;
+
+/** Tous les thèmes du vocabulaire : les 15 principaux (avec quotas) puis les thèmes de réserve. */
+export const VOCAB_THEMES: readonly { code: string; label: string }[] = [
+  ...THEMES.map((t) => ({ code: t.code as string, label: t.label as string })),
+  ...EXTRA_VOCAB_THEMES,
+];
+
+export function vocabThemeLabel(code: string): string {
+  return VOCAB_THEMES.find((t) => t.code === code)?.label ?? code;
+}
+
 export const PACK_SIZE = 350;
 
 /**
