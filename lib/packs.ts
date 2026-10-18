@@ -27,6 +27,7 @@ const TTS_CONCURRENCY = 6;
 const CHUNK_SIZE = 20;
 
 import { normalizeForCompare } from './textUtils';
+import { fetchAllRows } from './paging';
 
 export async function getPacks(languageCode: string, levelCode: string): Promise<PackInfo[]> {
   const { data, error } = await supabaseAdmin
@@ -123,13 +124,14 @@ export async function runPackStep(packId: string): Promise<PackStepResult> {
   const themeMeta = THEMES.find((t) => t.code === targetTheme!.code);
   if (!themeMeta) throw new Error(`Thème inconnu : ${targetTheme.code}`);
 
-  // Anti-doublon : phrases déjà générées pour ce thème, cette langue, ce
-  // niveau (tous packs confondus), passées à Gemini comme liste à éviter.
+  // Anti-doublon sur TOUTE la langue : une nouvelle phrase ne doit déjà exister ni dans ce niveau, ni dans un autre
+  // niveau, ni dans un autre pack (ni parmi les anciens lots quotidiens). La liste passée à Gemini (phrases récentes
+  // du même thème, tous niveaux et tous packs de la langue) lui évite de les proposer ; le vrai verrou est le filtre
+  // en code plus bas.
   const { data: siblingPackIds } = await supabaseAdmin
     .from('packs')
     .select('id')
-    .eq('language_code', pack.language_code)
-    .eq('level_code', pack.level_code);
+    .eq('language_code', pack.language_code);
 
   const { data: prior } = await supabaseAdmin
     .from('phrases')
@@ -149,16 +151,46 @@ export async function runPackStep(packId: string): Promise<PackStepResult> {
     avoidList
   );
 
-  // Filet de sécurité anti-doublon côté code (en plus de l'instruction à
-  // Gemini) : normalisation simple, on écarte les répétitions exactes ou
-  // quasi identiques.
-  const seenNormalized = new Set(avoidList.map(normalizeForCompare));
+  // Toutes les phrases déjà présentes pour la langue : celles des packs + celles des anciens lots quotidiens.
+  const [fromPacks, fromSets] = await Promise.all([
+    fetchAllRows<{ target_text: string }>((from, to) =>
+      supabaseAdmin
+        .from('phrases')
+        .select('target_text, packs!inner(language_code)')
+        .eq('packs.language_code', pack.language_code)
+        .order('id')
+        .range(from, to)
+    ),
+    fetchAllRows<{ target_text: string }>((from, to) =>
+      supabaseAdmin
+        .from('phrases')
+        .select('target_text, phrase_sets!inner(language_code)')
+        .eq('phrase_sets.language_code', pack.language_code)
+        .order('id')
+        .range(from, to)
+    ),
+  ]);
+
+  // Filet de sécurité anti-doublon côté code : normalisation simple, on écarte les répétitions exactes ou
+  // quasi identiques, dans toute la langue.
+  const seenNormalized = new Set([...fromPacks, ...fromSets].map((p) => normalizeForCompare(p.target_text)));
   const unique = generated.filter((p) => {
     const n = normalizeForCompare(p.target_text);
     if (seenNormalized.has(n)) return false;
     seenNormalized.add(n);
     return true;
   });
+
+  if (unique.length === 0) {
+    // Tout était déjà connu cette fois — pas d'avancée, le client rappellera (et s'arrête s'il n'y a plus rien de neuf).
+    return {
+      done: false,
+      themeLabel: themeMeta.label,
+      generatedThisStep: 0,
+      generatedTotal: pack.generated_count,
+      targetTotal: pack.target_count,
+    };
+  }
 
   const { data: insertedRows, error: insertError } = await supabaseAdmin
     .from('phrases')

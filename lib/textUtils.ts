@@ -16,3 +16,23 @@ export function normalizeForCompare(s: string): string {
     .replace(/[\u0300-\u036f]/g, '') // accents latins (é -> e, etc.)
     .replace(/[\s'".,!?;:()\-—–、。！？「」『』・]/g, ''); // espaces + ponctuation courante (latine + CJK)
 }
+
+/**
+ * Clé de doublon d'un mot de vocabulaire = (texte, traduction française à l'article près).
+ * ⚠️ Doit rester ALIGNÉE sur menage_candidats() (supabase/migrations/027_menage_doublons.sql) : la génération refuse
+ * exactement ce que le bouton « Nettoyer les doublons » supprimerait. Les homonymes (même mot, autre sens) et les
+ * synonymes ont une clé différente et ne sont pas touchés.
+ */
+export function vocabPairKey(targetText: string, translationFr: string): string {
+  const t = targetText.replace(/\u2019/g, "'").replace(/\s+/g, ' ').trim().toLowerCase();
+  const tr = translationFr
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // accents (é -> e, ç -> c, ñ -> n…)
+    .replace(/\u2019/g, "'")
+    .replace(/^(de la|de l|du|des|le|la|les|l|un|une|d)( |')/, '') // article éventuel au début
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  return `${t}||${tr}`;
+}

@@ -36,10 +36,19 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
     setError('');
     try {
       let done = false;
+      let stalls = 0;
       while (!done) {
         const step = await runVocabularyPackStep(packId);
         setProgress({ generated: step.generatedTotal, target: step.targetTotal, themeLabel: step.themeLabel });
         done = step.done;
+        // Un mot n'est jamais repris s'il existe déjà dans la langue (ce niveau ou un niveau inférieur) : si plusieurs
+        // essais de suite ne donnent rien de nouveau, on s'arrête au lieu de boucler (le pack reste incomplet).
+        stalls = !done && step.generatedThisStep === 0 ? stalls + 1 : 0;
+        if (stalls >= 6) {
+          throw new Error(
+            'La génération ne trouve plus de mots nouveaux pour ce thème (tout existe déjà à ce niveau ou aux niveaux inférieurs). Le pack reste incomplet : réessaie plus tard avec « Reprendre ».'
+          );
+        }
       }
     } catch (e: any) {
       setError(e.message ?? 'Erreur pendant la génération du vocabulaire.');

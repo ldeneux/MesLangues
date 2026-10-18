@@ -4,13 +4,14 @@ import { resolveImage } from './imageIndex';
 import { supabaseAdmin } from './supabaseAdmin';
 import { callGemini, LANGUAGE_NAMES } from './gemini';
 import { synthesizeAndStore } from './tts';
-import { THEMES, packThemeQuotas, VOCAB_PACK_SIZE } from './constants';
+import { THEMES, packThemeQuotas, VOCAB_PACK_SIZE, LEVELS } from './constants';
 
 const CHUNK_SIZE = 15;
 const MASTERY_MIN_ATTEMPTS = 1;
 const MASTERY_MIN_RATE = 0.9;
 
-import { normalizeForCompare } from './textUtils';
+import { normalizeForCompare, vocabPairKey } from './textUtils';
+import { fetchAllRows } from './paging';
 import { stripRuby, readingFromRuby } from './japanese';
 
 function computeMastered(success: number, fail: number): boolean {
@@ -120,29 +121,46 @@ export async function runVocabularyPackStep(packId: string): Promise<VocabularyS
   const chunkCount = Math.min(CHUNK_SIZE, targetTheme.count - targetTheme.existing);
   const langName = LANGUAGE_NAMES[pack.language_code] ?? pack.language_code;
 
-  // Anti-doublon GLOBAL : tous les mots déjà générés pour cette langue/ce
-  // niveau, tous thèmes confondus (un mot comme "stanco"/fatigué peut être
-  // proposé sous plusieurs thèmes par erreur — l'éviter partout, pas juste
-  // dans le thème courant).
-  const { data: siblingPackIds } = await supabaseAdmin
-    .from('vocabulary_packs')
-    .select('id')
-    .eq('language_code', pack.language_code)
-    .eq('level_code', pack.level_code);
+  const theme = targetTheme;
 
-  const { data: prior } = await supabaseAdmin
-    .from('vocabulary_words')
-    .select('target_text')
-    .in(
-      'pack_id',
-      (siblingPackIds ?? []).map((p) => p.id)
-    )
-    .order('created_at', { ascending: false })
-    .limit(400);
+  // Anti-doublon sur TOUTE la langue : un nouveau mot ne doit exister ni à ce niveau, ni aux niveaux inférieurs
+  // (A2 : ni en A2 ni en A1 ; B1 : ni en B1, A2, A1…), ni dans aucun autre pack, tous thèmes confondus.
+  // La liste donnée à Gemini ne sert qu'à lui éviter de proposer des mots refusés ; le vrai verrou est le filtre
+  // en code plus bas (même définition d'un doublon que le bouton « Nettoyer les doublons »).
+  const languageWords = await fetchAllRows<{
+    target_text: string;
+    translation_fr: string;
+    level_code: string;
+    theme_code: string;
+    created_at: string;
+  }>((from, to) =>
+    supabaseAdmin
+      .from('vocabulary_words')
+      .select('target_text, translation_fr, level_code, theme_code, created_at')
+      .eq('language_code', pack.language_code)
+      .order('id')
+      .range(from, to)
+  );
 
-  const avoidList = (prior ?? []).map((p) => p.target_text);
+  const levelOrder: string[] = LEVELS.map((l) => l.code);
+  const maxLevelIdx = levelOrder.indexOf(pack.level_code);
+  const byRecent = (a: { created_at: string }, b: { created_at: string }) => (a.created_at < b.created_at ? 1 : -1);
+
+  // Niveaux inférieurs ou égal, même thème d'abord (c'est là que les redites sont les plus probables), puis le reste du niveau.
+  const sameThemeLowerOrSame = languageWords
+    .filter((w) => levelOrder.indexOf(w.level_code) <= maxLevelIdx && w.theme_code === theme.code)
+    .sort(byRecent)
+    .slice(0, 500);
+  const sameLevelOtherThemes = languageWords
+    .filter((w) => w.level_code === pack.level_code && w.theme_code !== theme.code)
+    .sort(byRecent)
+    .slice(0, 300);
+
+  const avoidList = Array.from(new Set([...sameThemeLowerOrSame, ...sameLevelOtherThemes].map((w) => w.target_text)));
   const avoidInstruction =
-    avoidList.length > 0 ? `\n\nDéjà utilisés (tous thèmes confondus), ne pas répéter :\n- ${avoidList.join('\n- ')}` : '';
+    avoidList.length > 0
+      ? `\n\nDéjà utilisés (ce niveau et les niveaux inférieurs), NE PAS répéter ces mots ni leurs variantes avec/sans article :\n- ${avoidList.join('\n- ')}`
+      : '';
 
   const system = `Tu es un professeur de ${langName} langue étrangère. Tu constitues une
 banque de vocabulaire de base niveau CECRL ${pack.level_code}, thème "${targetTheme.label}".
@@ -159,7 +177,7 @@ avant/après, sans balises markdown. Chaque objet :
   "word_type": "nom | adjectif | adverbe | expression"
 }${avoidInstruction}`;
 
-  const user = `Donne ${chunkCount} mots/expressions de niveau ${pack.level_code} sur le thème "${targetTheme.label}".`;
+  const user = `Donne ${chunkCount} mots/expressions de niveau ${pack.level_code} sur le thème "${targetTheme.label}". Ils doivent être NOUVEAUX : aucun mot déjà vu à ce niveau ou aux niveaux inférieurs.`;
 
   const isJa = pack.language_code === 'ja';
 
@@ -197,15 +215,22 @@ Chaque objet :
     throw new Error('Format de vocabulaire inattendu reçu de Gemini');
   }
 
-  // Filet de sécurité anti-doublon côté code, en plus de l'instruction à
-  // Gemini (global, pas juste le thème courant).
-  const seenNormalized = new Set(avoidList.map(normalizeForCompare));
+  // Filet de sécurité anti-doublon côté code (le vrai verrou) : on écarte tout mot déjà présent dans la langue
+  // (même mot + même traduction à l'article près, tous niveaux, tous packs), et tout mot déjà présent à ce niveau
+  // (même texte), ainsi que les répétitions à l'intérieur du lot reçu.
+  const knownPairs = new Set(languageWords.map((w) => vocabPairKey(w.target_text, w.translation_fr)));
+  const seenNormalized = new Set(
+    languageWords.filter((w) => w.level_code === pack.level_code).map((w) => normalizeForCompare(w.target_text))
+  );
   const validTypes = new Set(['nom', 'adjectif', 'adverbe', 'expression']);
   const rows = parsed
     .filter((w) => w.target_text && w.translation_fr)
     .filter((w) => {
+      const pair = vocabPairKey(w.target_text!, w.translation_fr!);
+      if (knownPairs.has(pair)) return false;
       const n = normalizeForCompare(w.target_text!);
       if (seenNormalized.has(n)) return false;
+      knownPairs.add(pair);
       seenNormalized.add(n);
       return true;
     })

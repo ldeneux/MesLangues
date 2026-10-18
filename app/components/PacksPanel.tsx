@@ -9,6 +9,7 @@ import VocabularyDownload from './VocabularyDownload';
 import ListeningDownload from './ListeningDownload';
 import WritingDownload from './WritingDownload';
 import KanjiDownload from './KanjiDownload';
+import DuplicatesCleanup from './DuplicatesCleanup';
 
 export default function PacksPanel({ languageCode, levelCode }: { languageCode: string; levelCode: string }) {
   const [packs, setPacks] = useState<PackInfo[] | null>(null);
@@ -16,6 +17,8 @@ export default function PacksPanel({ languageCode, levelCode }: { languageCode: 
   const [generatingPackId, setGeneratingPackId] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ generated: number; target: number; themeLabel?: string } | null>(null);
   const [error, setError] = useState('');
+  // incrémenté après un nettoyage : recharge la liste des packs de vocabulaire (compteurs / « Reprendre »)
+  const [cleanupKey, setCleanupKey] = useState(0);
 
   async function refresh() {
     const list = await getPacks(languageCode, levelCode);
@@ -38,10 +41,19 @@ export default function PacksPanel({ languageCode, levelCode }: { languageCode: 
     setError('');
     try {
       let done = false;
+      let stalls = 0;
       while (!done) {
         const step = await runPackStep(packId);
         setProgress({ generated: step.generatedTotal, target: step.targetTotal, themeLabel: step.themeLabel });
         done = step.done;
+        // Une phrase n'est jamais reprise si elle existe déjà dans la langue : si plusieurs essais de suite ne
+        // donnent rien de nouveau, on s'arrête au lieu de boucler (le pack reste incomplet, « Reprendre » possible).
+        stalls = !done && step.generatedThisStep === 0 ? stalls + 1 : 0;
+        if (stalls >= 6) {
+          throw new Error(
+            'La génération ne trouve plus de phrases nouvelles pour ce thème (tout existe déjà dans cette langue). Le pack reste incomplet : réessaie plus tard avec « Reprendre ».'
+          );
+        }
       }
     } catch (e: any) {
       setError(e.message ?? 'Erreur pendant la génération du pack.');
@@ -164,7 +176,8 @@ export default function PacksPanel({ languageCode, levelCode }: { languageCode: 
         </div>
       )}
 
-      <VocabularyDownload languageCode={languageCode} levelCode={levelCode} />
+      <VocabularyDownload key={cleanupKey} languageCode={languageCode} levelCode={levelCode} />
+      <DuplicatesCleanup languageCode={languageCode} onCleaned={() => setCleanupKey((k) => k + 1)} />
       <ListeningDownload languageCode={languageCode} levelCode={levelCode} />
       {languageCode === 'ja' && <KanjiDownload levelCode={levelCode} />}
       <WritingDownload languageCode={languageCode} levelCode={levelCode} />
