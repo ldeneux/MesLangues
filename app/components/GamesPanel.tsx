@@ -11,8 +11,9 @@ import GameConjugaisonEclair from './GameConjugaisonEclair';
 import GameConjugaisonEclairJa from './GameConjugaisonEclairJa';
 import GameLectureEclair from './GameLectureEclair';
 import GameParticules from './GameParticules';
+import WordGameView, { wordGameTabs, isWordGame } from './wordgames/WordGameView';
 
-type GameTab = 'intrus' | 'pendu' | 'memory' | 'ecoute' | 'articles' | 'conjugaison' | 'lecture' | 'particules';
+type GameTab = 'intrus' | 'pendu' | 'memory' | 'ecoute' | 'articles' | 'conjugaison' | 'lecture' | 'particules' | string; // + jeux de mots (wordgames/WordGameView)
 
 export default function GamesPanel({
   profileId,
@@ -65,6 +66,11 @@ export default function GamesPanel({
         >
           Conjugaison éclair
         </button>
+        {wordGameTabs(lang).map((g) => (
+          <button key={g.id} className={`subtab-btn${tab === g.id ? ' active' : ''}`} onClick={() => setTab(g.id)}>
+            {g.label}
+          </button>
+        ))}
       </div>
 
       {tab === 'intrus' && <GameIntrus profileId={profileId} languageCode={lang} levelCode={level} />}
@@ -80,6 +86,7 @@ export default function GamesPanel({
         ))}
       {isJa && tab === 'lecture' && <GameLectureEclair levelCode={level} />}
       {isJa && tab === 'particules' && <GameParticules languageCode={lang} />}
+      {isWordGame(tab) && wordGameTabs(lang).some((g) => g.id === tab) && <WordGameView game={tab} profileId={profileId} lang={lang} level={level} />}
     </div>
   );
 }
