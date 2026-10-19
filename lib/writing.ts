@@ -102,7 +102,7 @@ sans texte avant/après, sans balises markdown. Chaque objet :
 
   const user = `Donne ${chunkCount} consignes de rédaction, thème "${targetTheme.label}", niveau ${levelCode}.`;
 
-  const text = await callGemini(system, user);
+  const text = await callGemini(system, user, { thinkingLevel: 'minimal' });
   let parsed: { instruction: string; guiding_points: string[] }[];
   try {
     parsed = JSON.parse(text);

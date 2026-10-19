@@ -87,7 +87,7 @@ export async function callGeminiWithUsage(
 export async function callGemini(
   system: string,
   user: string,
-  options?: { temperature?: number; maxOutputTokens?: number }
+  options?: { temperature?: number; maxOutputTokens?: number; thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high' }
 ): Promise<string> {
   const { text } = await callGeminiWithUsage(system, user, options);
   return text;

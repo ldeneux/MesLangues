@@ -258,7 +258,7 @@ jamais de rōmaji. Varie largement les phrases et le vocabulaire.
 Tu réponds STRICTEMENT en JSON valide, un tableau de ${chunkCount} objets, sans texte avant/après, sans balises markdown.
 Chaque objet : { "question": "...", "options": ["...", "...", "...", "..."], "correct_index": 0 }`;
 
-  const text = await callGemini(languageCode === 'ja' ? systemJa : system, user);
+  const text = await callGemini(languageCode === 'ja' ? systemJa : system, user, { thinkingLevel: 'minimal' });
   let parsed: { question: string; options: string[]; correct_index: number }[];
   try {
     parsed = JSON.parse(text);

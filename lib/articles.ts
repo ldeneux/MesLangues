@@ -101,7 +101,7 @@ texte avant/après, sans balises markdown. Chaque objet :
 
   const user = `Texte source :\n${content}`;
 
-  const text = await callGemini(system, user);
+  const text = await callGemini(system, user, { thinkingLevel: 'minimal' });
   let parsed: { question: string; options: string[]; correct_index: number }[];
   try {
     parsed = JSON.parse(text);
@@ -192,7 +192,7 @@ Tu réponds STRICTEMENT en JSON valide, sans texte avant/après, sans balises
 markdown, avec exactement ces clés :
 { "title": "titre court en ${langName}", "content": "le corps de l'article en ${langName}", "content_fr": "traduction française complète et fidèle" }`;
 
-  const text = await callGemini(system, `Écris un article de niveau ${pack.level_code} sur le thème "${themeMeta?.label ?? themeCode}".`);
+  const text = await callGemini(system, `Écris un article de niveau ${pack.level_code} sur le thème "${themeMeta?.label ?? themeCode}".`, { thinkingLevel: 'minimal' });
   let parsed: { title?: string; content?: string; content_fr?: string };
   try {
     parsed = JSON.parse(text);
@@ -218,11 +218,19 @@ markdown, avec exactement ces clés :
     .single();
   if (error || !inserted) throw new Error(error?.message ?? "Échec de l'enregistrement de l'article");
 
+  // L'audio (Google TTS) et la banque de questions (Gemini) ne dépendent que du texte : on les lance EN PARALLÈLE
+  // (≈ 40 % de temps en moins par article au lieu de les enchaîner).
   const storagePath = `${pack.language_code}/${pack.level_code}/articles/${inserted.id}.mp3`;
-  const { audioUrl } = await synthesizeAndStore(parsed.content, pack.language_code, storagePath);
-  await supabaseAdmin.from('listening_articles').update({ audio_url: audioUrl }).eq('id', inserted.id);
-
-  await insertQuestionBank(inserted.id, parsed.content, QUESTIONS_PER_ARTICLE);
+  const articleContent = parsed.content;
+  const [audioResult, questionsResult] = await Promise.allSettled([
+    (async () => {
+      const { audioUrl } = await synthesizeAndStore(articleContent, pack.language_code, storagePath);
+      await supabaseAdmin.from('listening_articles').update({ audio_url: audioUrl }).eq('id', inserted.id);
+    })(),
+    insertQuestionBank(inserted.id, articleContent, QUESTIONS_PER_ARTICLE),
+  ]);
+  if (audioResult.status === 'rejected') throw audioResult.reason;
+  if (questionsResult.status === 'rejected') throw questionsResult.reason;
 
   const newTotal = generatedTotal + 1;
   const isNowComplete = newTotal >= pack.target_count;

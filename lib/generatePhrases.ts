@@ -60,7 +60,7 @@ Niveau ${levelCode} : ${
       : 'phrases plus complexes, subordonnées, nuances, registre varié.'
   }${avoidInstruction}`;
 
-  const text = await callGemini(system, user);
+  const text = await callGemini(system, user, { thinkingLevel: 'minimal' });
   const parsed = JSON.parse(text) as GeneratedPhrase[];
 
   if (!Array.isArray(parsed) || parsed.length === 0) {

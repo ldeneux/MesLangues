@@ -56,3 +56,10 @@ Cause du « 1 € pour 30 mots » : quand un niveau est presque saturé, chaque 
 - **25 mots par appel** (au lieu de 15) : moins d'appels pour le même nombre de mots.
 - **Liste à éviter réduite** : uniquement les mots du même thème (≤ 400), les autres redites sont filtrées par le code.
 Les thèmes « réserve » (jamais utilisés) sont essayés en premier pour compléter un pack, car ils donnent presque 100 % de mots nouveaux.
+
+## Autres packs : ce qui est appliqué (et ce qui ne l'est pas)
+- **Réflexion Gemini désactivée** (`thinkingLevel: minimal`) aussi pour : phrases (`generatePhrases.ts`), Écoute (article + questions, `articles.ts`), consignes de rédaction (`writing.ts`), quiz de grammaire (`grammar.ts`).
+  Volontairement NON touchés (la qualité compte) : fiches de grammaire, conjugaison européenne, verbes japonais, kanji, correction des rédactions, conversation, leçons.
+- **Écoute plus rapide** : l'audio et la banque de questions d'un article sont maintenant générés en parallèle.
+- **Saut de thème / budget / coût réel** : seulement pour le vocabulaire. Les phrases s'arrêtent déjà après 6 essais à vide sur un thème (le coût est donc borné) ; les phrases saturent rarement.
+- Piste non appliquée (décision produit) : la banque de 25 questions par article n'en tire que 5 au hasard ; la passer à 15 réduirait encore le coût et le temps de l'Écoute.
