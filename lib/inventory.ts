@@ -131,8 +131,7 @@ async function buildInventory(): Promise<Inventory> {
     });
   }
 
-  // Grammaire/Conjugaison : transverses, par langue uniquement (pas de
-  // niveau — un même verbe/une même fiche sert à tous les niveaux).
+  // Grammaire : transverse (une même fiche sert à tous les niveaux). Verbes : 120 par niveau, total affiché par langue.
   const langWide: LangWideRow[] = [];
   for (const lang of LANGS) {
     langWide.push(
@@ -154,7 +153,7 @@ async function buildInventory(): Promise<Inventory> {
         languageCode: lang.code,
         grammarTopics: { ready: topics, target: grammarTopicsFor(lang.code).length },
         grammarQuiz: { ready: questions, target: grammarTopicsFor(lang.code).length * GRAMMAR_QUIZ_TARGET_PER_TOPIC },
-        conjugation: { ready: verbs, target: CONJUGATION_TARGET },
+        conjugation: { ready: verbs, target: CONJUGATION_TARGET * LEVELS.length }, // 120 verbes par niveau
       };
       })()
     );

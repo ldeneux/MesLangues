@@ -1,6 +1,7 @@
 # Livraison : packs de vocabulaire (doublons par niveau, nouveaux thèmes, tous les thèmes testés, leçons)
 
-Copie ces fichiers dans le dépôt en respectant les dossiers, puis déploie (Vercel). Aucune migration SQL à lancer.
+Copie ces fichiers dans le dépôt en respectant les dossiers, puis déploie (Vercel).
+**Une migration SQL à lancer une fois** (SQL Editor Supabase) : `supabase/migrations/030_verbes_par_niveau.sql` (avant d'ouvrir l'onglet Packs).
 
 ## Ordre conseillé
 1. Onglet Packs > A1 : « Reprendre » sur les packs incomplets (A1 accepte maintenant les mots déjà présents en A2/B1/B2).
@@ -31,3 +32,27 @@ app/components/VocabularyDownload.tsx, VocabularyPanel.tsx, GameIntrus.tsx, Less
 - Chaque réponse met à jour la maîtrise du mot (mêmes compteurs que l'onglet Jeux).
 - Bouton « Deux autres exercices » en fin de série pour rejouer avec d'autres jeux.
 - Fichiers : app/components/LessonExercises.tsx (nouveau), LessonViewer.tsx (carte ajoutée), app/globals.css (styles ajoutés à la fin).
+
+## Verbes par niveau, séparés de la grammaire (nouveau)
+- **120 verbes par langue ET par niveau** (A1, A2, B1, B2) au lieu de 120 par langue. Migration 030 : colonne `level_code` sur `conjugation_verbs`.
+  Les verbes déjà présents sont rattachés au plus bas niveau dont une leçon les utilise, sinon A1. Un verbe reste unique par langue : A2 reçoit d'AUTRES verbes que A1.
+- **Onglet Packs** : nouveau bloc « Verbes (niveau) » (120 verbes + audio, bouton Reprendre) et bloc « Grammaire et quiz (tous niveaux) » qui ne contient plus les verbes.
+  Fichiers : `VerbsDownload.tsx` (nouveau), `GrammarConjugationDownload.tsx` (grammaire + quiz seulement), `PacksPanel.tsx`.
+- Génération (`lib/conjugation.ts`, `lib/japaneseConjugation.ts`) : demande à Gemini des verbes adaptés au niveau, en évitant TOUS les verbes déjà présents dans la langue (plus de limite à 150),
+  sans jamais écraser un verbe d'un autre niveau ; arrêt propre après 5 essais sans verbe nouveau.
+- **Leçons** : le plan utilise les verbes du niveau (120 par niveau = 40 leçons × 3 verbes à chaque niveau).
+- **Onglet Conjugaison** : verbes du niveau. **Jeux de conjugaison** : verbes du niveau et des niveaux inférieurs.
+- **Score Conjugaison** : calculé sur les verbes du niveau (cible 120). **Inventaire** : cible 120 × 4 niveaux par langue.
+- Fichiers touchés en plus : lib/constants.ts, pricing.ts, scores.ts, inventory.ts, lessons.ts, SettingsPanel.tsx, ConjugationPanel.tsx, GameConjugaisonEclair(.Ja).tsx, GamesPanel.tsx, GrammarPanel.tsx.
+- Ordre conseillé pour un niveau : mots (vocabulaire) → Verbes → classement par utilité → plan de leçons.
+
+## Coût de génération du vocabulaire réduit (nouveau)
+Cause du « 1 € pour 30 mots » : quand un niveau est presque saturé, chaque appel Gemini ne renvoie que des redites. La boucle « tous les thèmes » refaisait jusqu'à 3 essais par thème
+(≈ 100 appels à vide), chacun avec une longue liste de mots à éviter et de la réflexion Gemini activée par défaut.
+- **1 seul essai à vide par thème** (au lieu de 3), puis thème suivant.
+- **Arrêt après 6 appels à vide d'affilée** (le pack reste incomplet, « Reprendre » relance) et **budget plafonné à 0,30 € par session** (modifiable : `BUDGET_EUR_PER_RUN` dans `VocabularyDownload.tsx`).
+- **Coût réel affiché** pendant et après la génération (tokens réellement consommés).
+- **Réflexion Gemini désactivée** pour cette génération (`thinkingLevel: minimal`, `lib/gemini.ts`).
+- **25 mots par appel** (au lieu de 15) : moins d'appels pour le même nombre de mots.
+- **Liste à éviter réduite** : uniquement les mots du même thème (≤ 400), les autres redites sont filtrées par le code.
+Les thèmes « réserve » (jamais utilisés) sont essayés en premier pour compléter un pack, car ils donnent presque 100 % de mots nouveaux.

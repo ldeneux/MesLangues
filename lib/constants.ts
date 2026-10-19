@@ -105,6 +105,7 @@ export const LEVEL_CUMULATIVE_TARGET: Record<LevelCode, number> = {
   B2: 4750,
 };
 
+// Verbes : 120 par langue ET par niveau (chaque niveau a ses propres verbes ; la grammaire, elle, est commune à tous les niveaux).
 export const CONJUGATION_TARGET = 120;
 
 export const GRAMMAR_QUIZ_TARGET_PER_TOPIC = 30;

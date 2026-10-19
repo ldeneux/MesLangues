@@ -98,7 +98,7 @@ export default function GrammarPanel({ profileId, languageCode }: { profileId: s
       {!loading && !topic && !error && (
         <p className="eyebrow-free">
           Cette fiche n'a pas encore été téléchargée — va dans l'onglet "Packs" et clique sur "Grammaire et
-          conjugaison".
+          quiz".
         </p>
       )}
 

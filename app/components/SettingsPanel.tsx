@@ -152,7 +152,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
             </div>
 
             <div className="sidebar-label" style={{ marginTop: '1.25rem' }}>
-              Grammaire et conjugaison (transverses, par langue)
+              Grammaire (tous niveaux) et verbes (par niveau)
             </div>
             <div className="inv-table-wrap">
               <table className="inv-table">
@@ -161,7 +161,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
                     <th>Langue</th>
                     <th>Fiches de grammaire</th>
                     <th>Quiz de grammaire</th>
-                    <th>Verbes conjugués</th>
+                    <th>Verbes conjugués (120 par niveau)</th>
                   </tr>
                 </thead>
                 <tbody>

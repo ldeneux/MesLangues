@@ -38,9 +38,11 @@ function buildRound(verbs: ConjugationVerb[]): Round | null {
 export default function GameConjugaisonEclair({
   profileId,
   languageCode,
+  levelCode,
 }: {
   profileId: string;
   languageCode: LangCode;
+  levelCode?: string;
 }) {
   const [verbs, setVerbs] = useState<ConjugationVerb[] | null>(null);
   const [round, setRound] = useState<Round | null>(null);
@@ -50,10 +52,10 @@ export default function GameConjugaisonEclair({
 
   useEffect(() => {
     setVerbs(null);
-    getConjugationVerbs(languageCode)
+    getConjugationVerbs(languageCode, levelCode, true)
       .catch(() => [])
       .then(setVerbs);
-  }, [languageCode]);
+  }, [languageCode, levelCode]);
 
   useEffect(() => {
     if (verbs && verbs.length > 0) newRound(verbs);

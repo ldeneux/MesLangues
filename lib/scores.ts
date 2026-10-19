@@ -84,8 +84,7 @@ export async function getVocabularyDomainScore(
 }
 
 // ---------------------------------------------------------
-// Conjugaison (par langue, pas par niveau — les verbes ne sont pas
-// scindés par niveau CECRL dans le modèle actuel)
+// Conjugaison (120 verbes par niveau : on compte les verbes du niveau)
 // ---------------------------------------------------------
 export type ConjugationDomainScore = {
   masteredCount: number;
@@ -95,8 +94,8 @@ export type ConjugationDomainScore = {
   percentOfTarget: number;
 };
 
-export async function getConjugationDomainScore(profileId: string, languageCode: string): Promise<ConjugationDomainScore> {
-  const { data: verbs } = await supabaseAdmin.from('conjugation_verbs').select('id').eq('language_code', languageCode);
+export async function getConjugationDomainScore(profileId: string, languageCode: string, levelCode: LevelCode): Promise<ConjugationDomainScore> {
+  const { data: verbs } = await supabaseAdmin.from('conjugation_verbs').select('id').eq('language_code', languageCode).eq('level_code', levelCode);
   const totalVerbs = verbs?.length ?? 0;
   const verbIds = new Set((verbs ?? []).map((v) => v.id));
 
@@ -413,7 +412,7 @@ export async function getAllDomainScores(
 
   const [vocabulary, conjugation, grammar, listening, phrases, writing, conversation] = await Promise.all([
     safe('Vocabulaire', () => getVocabularyDomainScore(profileId, languageCode, levelCode), ZERO_VOCAB, domainErrors),
-    safe('Conjugaison', () => getConjugationDomainScore(profileId, languageCode), ZERO_CONJ, domainErrors),
+    safe('Conjugaison', () => getConjugationDomainScore(profileId, languageCode, levelCode), ZERO_CONJ, domainErrors),
     safe('Grammaire', () => getGrammarDomainScore(profileId, languageCode), ZERO_GRAMMAR, domainErrors),
     safe('Écoute', () => getListeningDomainScore(profileId, languageCode, levelCode), ZERO_LISTENING, domainErrors),
     safe('Phrases', () => getPhrasesDomainScore(profileId, languageCode, levelCode), ZERO_PHRASES, domainErrors),

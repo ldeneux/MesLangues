@@ -4,6 +4,7 @@ import { supabaseAdmin } from './supabaseAdmin';
 import { callGemini } from './gemini';
 import { synthesizeAndStore } from './tts';
 import { THEMES } from './constants';
+import { fetchAllRows } from './paging';
 import { kanaToRomaji } from './japanese';
 import { validateJapaneseVerb, conjugateJapaneseVerb } from './japaneseVerbs';
 import type { ConjugationStepResult } from './conjugation';
@@ -18,30 +19,35 @@ function tableHint(msg: string) {
  * Japonais : Gemini ne donne que la LISTE des verbes (écriture moderne + furigana + groupe) ;
  * toutes les formes (ます, て, ない, た, potentiel, passif…) sont calculées par code, donc fiables.
  */
-export async function runJapaneseVerbStep(target: number): Promise<ConjugationStepResult> {
+export async function runJapaneseVerbStep(target: number, levelCode: string): Promise<ConjugationStepResult> {
+  // 120 verbes PAR NIVEAU : on compte ceux de ce niveau ; les verbes déjà présents à n'importe quel niveau sont évités.
   const { count, error: countErr } = await supabaseAdmin
     .from('conjugation_verbs')
     .select('id', { count: 'exact', head: true })
     .eq('language_code', 'ja')
+    .eq('level_code', levelCode)
     .not('ja_data', 'is', null);
   if (countErr) throw new Error(tableHint(countErr.message));
 
   const generatedTotal = count ?? 0;
   if (generatedTotal >= target) return { done: true, generatedThisStep: 0, generatedTotal, targetTotal: target };
 
-  const { data: existingVerbs } = await supabaseAdmin
-    .from('conjugation_verbs')
-    .select('infinitive')
-    .eq('language_code', 'ja')
-    .not('ja_data', 'is', null)
-    .order('frequency_rank', { ascending: false })
-    .limit(150);
-  const avoidList = (existingVerbs ?? []).map((v) => v.infinitive);
+  const existingVerbs = await fetchAllRows<{ infinitive: string; frequency_rank: number }>((from, to) =>
+    supabaseAdmin
+      .from('conjugation_verbs')
+      .select('infinitive, frequency_rank')
+      .eq('language_code', 'ja')
+      .not('ja_data', 'is', null)
+      .order('frequency_rank')
+      .range(from, to)
+  );
+  const avoidList = existingVerbs.map((v) => v.infinitive);
+  const rankBase = existingVerbs.reduce((m, v) => Math.max(m, v.frequency_rank), 0);
   const chunkCount = Math.min(CHUNK_SIZE, target - generatedTotal);
   const themeCodes = THEMES.map((t) => t.code).join(', ');
 
   const system = `Tu es un professeur de japonais pour francophones. Tu listes les verbes les plus utilisés
-dans le japonais courant, par ordre décroissant de fréquence réelle.
+dans le japonais courant et adaptés au niveau CECRL ${levelCode}, par ordre décroissant de fréquence réelle.
 Tu réponds STRICTEMENT en JSON valide, un tableau d'objets, sans texte avant/après, sans balises markdown :
 {
   "written": "forme du dictionnaire en écriture japonaise moderne (kanji + kana ; en kana seul si on l'écrit d'habitude ainsi : ある, いる, できる)",
@@ -55,7 +61,7 @@ Groupes : "godan" = verbes du groupe 1 (書く, 買う, 話す, 帰る, 入る, 
 "kuru" = 来る uniquement. Un verbe « nom + する » compte comme UN verbe. Ne donne que des verbes dont tu es certain du groupe.`;
 
   const avoidInstruction = avoidList.length > 0 ? `\n\nDéjà traités, ne pas répéter :\n- ${avoidList.join('\n- ')}` : '';
-  const user = `Donne les ${chunkCount} prochains verbes les plus fréquents (rangs ${generatedTotal + 1} à ${generatedTotal + chunkCount}).${avoidInstruction}`;
+  const user = `Donne les ${chunkCount} prochains verbes les plus fréquents et utiles au niveau ${levelCode} (parmi ceux qui ne sont pas déjà traités).${avoidInstruction}`;
 
   const text = await callGemini(system, user, { temperature: 0.1 });
   let parsed: any[];
@@ -81,9 +87,10 @@ Groupes : "godan" = verbes du groupe 1 (書く, 買う, 話す, 帰る, 入る, 
     if (typeof v.translation_fr !== 'string' || !v.translation_fr.trim()) continue;
     rows.push({
       language_code: 'ja',
+      level_code: levelCode,
       infinitive: written,
       translation_fr: v.translation_fr.trim(),
-      frequency_rank: generatedTotal + rows.length + 1,
+      frequency_rank: rankBase + rows.length + 1,
       theme_code: v.theme_code && validThemes.has(v.theme_code) ? v.theme_code : null,
       tenses: {},
       ja_data: { group: v.group, ruby: v.ruby, reading: (check as { reading: string }).reading },
@@ -98,7 +105,7 @@ Groupes : "godan" = verbes du groupe 1 (書く, 買う, 話す, 帰る, 入る, 
 
   const { data: inserted, error } = await supabaseAdmin
     .from('conjugation_verbs')
-    .upsert(rows, { onConflict: 'language_code,infinitive' })
+    .upsert(rows, { onConflict: 'language_code,infinitive', ignoreDuplicates: true }) // jamais d'écrasement d'un verbe d'un autre niveau
     .select('id, infinitive, ja_data');
   if (error) throw new Error(tableHint(error.message));
 
@@ -122,6 +129,7 @@ Groupes : "godan" = verbes du groupe 1 (書く, 買う, 話す, 帰る, 入る, 
     );
   }
 
-  const total = generatedTotal + rows.length;
-  return { done: total >= target, generatedThisStep: rows.length, generatedTotal: total, targetTotal: target };
+  const added = list.length;
+  const total = generatedTotal + added;
+  return { done: total >= target, generatedThisStep: added, generatedTotal: total, targetTotal: target };
 }

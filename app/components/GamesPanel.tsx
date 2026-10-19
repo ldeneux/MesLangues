@@ -82,7 +82,7 @@ export default function GamesPanel({
         (isJa ? (
           <GameConjugaisonEclairJa profileId={profileId} levelCode={level} />
         ) : (
-          <GameConjugaisonEclair profileId={profileId} languageCode={lang} />
+          <GameConjugaisonEclair profileId={profileId} languageCode={lang} levelCode={level} />
         ))}
       {isJa && tab === 'lecture' && <GameLectureEclair levelCode={level} />}
       {isJa && tab === 'particules' && <GameParticules languageCode={lang} />}

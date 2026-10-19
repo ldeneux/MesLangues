@@ -85,8 +85,8 @@ async function fetchAllWords(languageCode: string, levelCode: string): Promise<W
   return rows;
 }
 
-async function fetchVerbs(languageCode: string): Promise<{ id: string; frequency_rank: number; infinitive: string }[]> {
-  let query = supabaseAdmin.from('conjugation_verbs').select('id, frequency_rank, infinitive').eq('language_code', languageCode);
+async function fetchVerbs(languageCode: string, levelCode: string): Promise<{ id: string; frequency_rank: number; infinitive: string }[]> {
+  let query = supabaseAdmin.from('conjugation_verbs').select('id, frequency_rank, infinitive').eq('language_code', languageCode).eq('level_code', levelCode); // verbes du niveau (120 par niveau)
   // Japonais : on ignore les anciens verbes au format européen (sans ja_data)
   if (languageCode === 'ja') query = query.not('ja_data', 'is', null);
   const { data, error } = await query.order('frequency_rank');
@@ -123,7 +123,7 @@ function countSetup(words: WordRow[], verbCount: number): LessonSetup {
 // ---------------------------------------------------------
 export async function getLessonsOverview(profileId: string, languageCode: string, levelCode: string): Promise<Result<LessonsOverview>> {
   try {
-    const [words, verbs] = await Promise.all([fetchAllWords(languageCode, levelCode), fetchVerbs(languageCode)]);
+    const [words, verbs] = await Promise.all([fetchAllWords(languageCode, levelCode), fetchVerbs(languageCode, levelCode)]);
     const setup = countSetup(words, verbs.length);
 
     const { data: lessonRows, error } = await supabaseAdmin
@@ -302,7 +302,7 @@ export async function buildLessonPlan(
     }
 
     // Verbes : on exclut ceux déjà utilisés par les leçons d'un autre niveau de la même langue.
-    const allVerbs = await fetchVerbs(languageCode);
+    const allVerbs = await fetchVerbs(languageCode, levelCode);
     const { data: otherLessons, error: olErr } = await supabaseAdmin
       .from('lessons')
       .select('verb_ids')

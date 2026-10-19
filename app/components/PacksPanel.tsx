@@ -5,6 +5,7 @@ import { getPacks, createPack, runPackStep, type PackInfo } from '../../lib/pack
 import { estimatePackCost } from '../../lib/pricing';
 import { LEVEL_CUMULATIVE_TARGET, PACK_SIZE, type LevelCode } from '../../lib/constants';
 import GrammarConjugationDownload from './GrammarConjugationDownload';
+import VerbsDownload from './VerbsDownload';
 import VocabularyDownload from './VocabularyDownload';
 import ListeningDownload from './ListeningDownload';
 import WritingDownload from './WritingDownload';
@@ -181,6 +182,7 @@ export default function PacksPanel({ languageCode, levelCode }: { languageCode: 
       <ListeningDownload languageCode={languageCode} levelCode={levelCode} />
       {languageCode === 'ja' && <KanjiDownload levelCode={levelCode} />}
       <WritingDownload languageCode={languageCode} levelCode={levelCode} />
+      <VerbsDownload languageCode={languageCode} levelCode={levelCode} />
       <GrammarConjugationDownload languageCode={languageCode} />
     </div>
   );

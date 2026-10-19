@@ -3,7 +3,8 @@
 import { supabaseAdmin } from './supabaseAdmin';
 import { callGemini, LANGUAGE_NAMES } from './gemini';
 import { synthesizeAndStore } from './tts';
-import { THEMES, CONJUGATION_TARGET } from './constants';
+import { THEMES, CONJUGATION_TARGET, LEVELS } from './constants';
+import { fetchAllRows } from './paging';
 import { runJapaneseVerbStep } from './japaneseConjugation';
 import type { JaVerbData } from './japaneseVerbs';
 
@@ -21,18 +22,33 @@ export type ConjugationVerb = {
   ja_data?: JaVerbData | null; // japonais : groupe + lecture (les formes sont calculées par code)
 };
 
-export async function getConjugationVerbs(languageCode: string): Promise<ConjugationVerb[]> {
+/**
+ * Verbes d'une langue. Sans `levelCode` : tous les niveaux. Avec `levelCode` : les verbes de CE niveau ;
+ * avec `cumulative` : ceux de ce niveau et des niveaux inférieurs (révision, jeux).
+ */
+export async function getConjugationVerbs(languageCode: string, levelCode?: string, cumulative = false): Promise<ConjugationVerb[]> {
   const isJa = languageCode === 'ja';
   let query = supabaseAdmin
     .from('conjugation_verbs')
     .select(isJa ? 'id, infinitive, translation_fr, frequency_rank, theme_code, tenses, tense_audio, ja_data' : 'id, infinitive, translation_fr, frequency_rank, theme_code, tenses, tense_audio')
     .eq('language_code', languageCode);
+  if (levelCode) {
+    const codes: string[] = LEVELS.map((l) => l.code);
+    const idx = codes.indexOf(levelCode);
+    query = cumulative && idx >= 0 ? query.in('level_code', codes.slice(0, idx + 1)) : query.eq('level_code', levelCode);
+  }
   // Japonais : on ignore d'éventuels anciens verbes générés au format européen (sans ja_data)
   if (isJa) query = query.not('ja_data', 'is', null);
   const { data, error } = await query.order('frequency_rank');
 
   if (error) {
-    throw new Error(error.message.includes('ja_data') ? 'La colonne "ja_data" n\'existe pas encore — exécute la migration 016 dans Supabase.' : error.message);
+    throw new Error(
+      error.message.includes('ja_data')
+        ? 'La colonne "ja_data" n\'existe pas encore — exécute la migration 016 dans Supabase.'
+        : error.message.includes('level_code')
+        ? 'La colonne "level_code" des verbes n\'existe pas encore — exécute la migration 030 dans Supabase.'
+        : error.message
+    );
   }
   return (data ?? []) as any;
 }
@@ -100,41 +116,46 @@ export type ConjugationStepResult = {
 };
 
 /**
- * Génère jusqu'à CHUNK_SIZE verbes supplémentaires, classés par fréquence
- * d'usage décroissante, en poursuivant après les verbes déjà en base.
- * Même logique de reprise par petits lots que les packs de phrases.
+ * Génère jusqu'à CHUNK_SIZE verbes supplémentaires POUR CE NIVEAU (120 par niveau), classés par fréquence d'usage
+ * décroissante, parmi les verbes pas encore traités dans la langue (tous niveaux confondus : un verbe n'existe
+ * qu'une fois par langue, A2 reçoit donc d'autres verbes que A1). Reprise par petits lots, comme les packs de phrases.
  */
 export async function runConjugationStep(
   languageCode: string,
+  levelCode: string,
   target: number = CONJUGATION_TARGET
 ): Promise<ConjugationStepResult> {
-  if (languageCode === 'ja') return runJapaneseVerbStep(target); // formes calculées par code
+  if (languageCode === 'ja') return runJapaneseVerbStep(target, levelCode); // formes calculées par code
 
-  const { count: existingCount } = await supabaseAdmin
+  const { count: levelCount } = await supabaseAdmin
     .from('conjugation_verbs')
     .select('id', { count: 'exact', head: true })
-    .eq('language_code', languageCode);
+    .eq('language_code', languageCode)
+    .eq('level_code', levelCode);
 
-  const generatedTotal = existingCount ?? 0;
+  const generatedTotal = levelCount ?? 0; // verbes déjà présents à ce niveau
   if (generatedTotal >= target) {
     return { done: true, generatedThisStep: 0, generatedTotal, targetTotal: target };
   }
 
-  const { data: existingVerbs } = await supabaseAdmin
-    .from('conjugation_verbs')
-    .select('infinitive')
-    .eq('language_code', languageCode)
-    .order('frequency_rank', { ascending: false })
-    .limit(150);
-
-  const avoidList = (existingVerbs ?? []).map((v) => v.infinitive);
+  // Tous les verbes déjà présents dans la langue (à éviter) et rang de fréquence de départ
+  const existingVerbs = await fetchAllRows<{ infinitive: string; frequency_rank: number }>((from, to) =>
+    supabaseAdmin
+      .from('conjugation_verbs')
+      .select('infinitive, frequency_rank')
+      .eq('language_code', languageCode)
+      .order('frequency_rank')
+      .range(from, to)
+  );
+  const avoidList = existingVerbs.map((v) => v.infinitive);
+  const rankBase = existingVerbs.reduce((m, v) => Math.max(m, v.frequency_rank), 0);
   const chunkCount = Math.min(CHUNK_SIZE, target - generatedTotal);
   const langName = LANGUAGE_NAMES[languageCode] ?? languageCode;
   const themeLabels = THEMES.map((t) => t.code).join(', ');
 
   const system = `Tu es un professeur de ${langName} langue étrangère. Tu listes les verbes
-les plus fréquemment utilisés en ${langName} courant, par ordre décroissant
-de fréquence d'usage réelle (le plus utilisé en premier), avec leur
+les plus fréquemment utilisés en ${langName} courant et adaptés au niveau CECRL ${levelCode},
+par ordre décroissant de fréquence d'usage réelle (le plus utilisé en premier), avec leur
 conjugaison complète.
 
 Tu réponds STRICTEMENT en JSON valide, un tableau d'objets, sans texte
@@ -160,9 +181,8 @@ conjuguée).`;
       ? `\n\nCes verbes ont déjà été traités, ne les répète pas :\n- ${avoidList.join('\n- ')}`
       : '';
 
-  const user = `Donne les ${chunkCount} prochains verbes les plus fréquents (rangs
-${generatedTotal + 1} à ${generatedTotal + chunkCount} par fréquence décroissante), avec leur
-conjugaison complète.${avoidInstruction}`;
+  const user = `Donne les ${chunkCount} prochains verbes les plus fréquents et utiles au niveau ${levelCode}
+(parmi ceux qui ne sont pas déjà traités), avec leur conjugaison complète.${avoidInstruction}`;
 
   const text = await callGemini(system, user);
   let parsed: Array<{
@@ -185,12 +205,19 @@ conjugaison complète.${avoidInstruction}`;
   const avoidNormalized = new Set(avoidList.map((v) => v.toLowerCase()));
 
   const rows = parsed
-    .filter((v) => v.infinitive && !avoidNormalized.has(v.infinitive.toLowerCase()))
+    .filter((v) => {
+      if (!v.infinitive) return false;
+      const k = v.infinitive.toLowerCase();
+      if (avoidNormalized.has(k)) return false;
+      avoidNormalized.add(k); // pas de doublon à l'intérieur du lot
+      return true;
+    })
     .map((v, i) => ({
       language_code: languageCode,
+      level_code: levelCode,
       infinitive: v.infinitive!,
       translation_fr: v.translation_fr ?? '',
-      frequency_rank: generatedTotal + i + 1,
+      frequency_rank: rankBase + i + 1,
       theme_code: v.theme_code && validThemeCodes.has(v.theme_code) ? v.theme_code : null,
       tenses: {
         present: v.tenses?.present ?? [],
@@ -201,14 +228,13 @@ conjugaison complète.${avoidInstruction}`;
     }));
 
   if (rows.length === 0) {
-    // Rien de nouveau cette fois (tout doublon) — on considère l'étape faite
-    // pour éviter une boucle infinie côté client, sans avancer le total.
-    return { done: generatedTotal >= target, generatedThisStep: 0, generatedTotal, targetTotal: target };
+    // Rien de nouveau cette fois (tout doublon) : pas d'avancée, le client rappelle (et s'arrête après plusieurs essais à vide).
+    return { done: false, generatedThisStep: 0, generatedTotal, targetTotal: target };
   }
 
   const { data: insertedRows, error } = await supabaseAdmin
     .from('conjugation_verbs')
-    .upsert(rows, { onConflict: 'language_code,infinitive' })
+    .upsert(rows, { onConflict: 'language_code,infinitive', ignoreDuplicates: true }) // jamais d'écrasement d'un verbe d'un autre niveau
     .select('id, infinitive, tenses');
   if (error) throw new Error(error.message);
 
@@ -247,7 +273,8 @@ conjugaison complète.${avoidInstruction}`;
   const { count: newTotal } = await supabaseAdmin
     .from('conjugation_verbs')
     .select('id', { count: 'exact', head: true })
-    .eq('language_code', languageCode);
+    .eq('language_code', languageCode)
+    .eq('level_code', levelCode);
 
   return {
     done: (newTotal ?? 0) >= target,

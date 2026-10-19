@@ -38,7 +38,7 @@ export default function ConjugationPanel({ languageCode, levelCode = 'A1' }: { l
   useEffect(() => {
     setVerbs(null);
     setSelected(null);
-    getConjugationVerbs(languageCode)
+    getConjugationVerbs(languageCode, levelCode)
       .then((list) => {
         setVerbs(list);
         if (list[0]) setSelected(list[0]);
@@ -50,7 +50,7 @@ export default function ConjugationPanel({ languageCode, levelCode = 'A1' }: { l
             : e?.message ?? 'Erreur de chargement.'
         )
       );
-  }, [languageCode]);
+  }, [languageCode, levelCode]);
 
   if (verbs === null && !error) return <p className="eyebrow-free">Chargement des verbes…</p>;
 
@@ -63,7 +63,7 @@ export default function ConjugationPanel({ languageCode, levelCode = 'A1' }: { l
   return (
     <div>
       <p className="eyebrow-free">
-        {verbs?.length ?? 0} / {CONJUGATION_TARGET} verbes générés pour cette langue —{' '}
+        {verbs?.length ?? 0} / {CONJUGATION_TARGET} verbes pour ce niveau —{' '}
         {languageCode === 'ja'
           ? 'formes poli / familier, en て, négation, passé, potentiel, passif… (selon ton niveau).'
           : 'présent, futur simple, passé composé, imparfait.'}
@@ -73,7 +73,7 @@ export default function ConjugationPanel({ languageCode, levelCode = 'A1' }: { l
 
       {(verbs?.length ?? 0) === 0 && !error && (
         <p className="eyebrow-free">
-          Aucun verbe téléchargé pour l'instant — va dans l'onglet "Packs" et clique sur "Grammaire et conjugaison".
+          Aucun verbe téléchargé pour ce niveau — va dans l'onglet "Packs" et clique sur « Télécharger les verbes ».
         </p>
       )}
 

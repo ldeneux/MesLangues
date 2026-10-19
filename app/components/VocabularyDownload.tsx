@@ -7,17 +7,21 @@ import {
   runVocabularyPackStep,
   type VocabularyPackInfo,
 } from '../../lib/vocabulary';
-import { estimateVocabularyCost } from '../../lib/pricing';
+import { estimateVocabularyCost, geminiCostEur } from '../../lib/pricing';
 import { VOCAB_PACK_SIZE, VOCAB_THEMES } from '../../lib/constants';
 
-// Nombre d'essais consécutifs sans aucun mot nouveau avant d'écarter un thème et de passer au suivant.
-const MAX_EMPTY_TRIES_PER_THEME = 3;
+// Un thème qui ne donne aucun mot nouveau est écarté tout de suite (le même appel redonnerait les mêmes redites).
+const MAX_EMPTY_TRIES_PER_THEME = 1;
+// Garde-fous de coût : arrêt après trop d'appels à vide d'affilée, ou si le coût réel de cette session dépasse ce budget.
+const MAX_CONSECUTIVE_EMPTY_CALLS = 6;
+const BUDGET_EUR_PER_RUN = 0.3;
 
 export default function VocabularyDownload({ languageCode, levelCode }: { languageCode: string; levelCode: string }) {
   const [packs, setPacks] = useState<VocabularyPackInfo[] | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [generatingPackId, setGeneratingPackId] = useState<string | null>(null);
-  const [progress, setProgress] = useState<{ generated: number; target: number; themeLabel?: string } | null>(null);
+  const [progress, setProgress] = useState<{ generated: number; target: number; themeLabel?: string; costEur: number } | null>(null);
+  const [lastCost, setLastCost] = useState<number | null>(null);
   const [error, setError] = useState('');
 
   async function refresh() {
@@ -35,8 +39,11 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
 
   async function runLoop(packId: string, target: number) {
     setGeneratingPackId(packId);
-    setProgress({ generated: 0, target });
+    setProgress({ generated: 0, target, costEur: 0 });
     setError('');
+    setLastCost(null);
+    let spent = 0;
+    let emptyCalls = 0;
     try {
       let done = false;
       // Thèmes écartés pour cette génération (plusieurs essais de suite sans mot nouveau) : on passe au suivant.
@@ -45,9 +52,23 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
       const emptyTries = new Map<string, number>();
       while (!done) {
         const step = await runVocabularyPackStep(packId, Array.from(skipped));
-        setProgress({ generated: step.generatedTotal, target: step.targetTotal, themeLabel: step.themeLabel });
+        if (step.usage) spent += geminiCostEur(step.usage.inputTokens, step.usage.outputTokens);
+        setProgress({ generated: step.generatedTotal, target: step.targetTotal, themeLabel: step.themeLabel, costEur: spent });
+        setLastCost(spent);
         done = step.done;
         if (done) break;
+
+        emptyCalls = step.generatedThisStep === 0 ? emptyCalls + 1 : 0;
+        if (emptyCalls >= MAX_CONSECUTIVE_EMPTY_CALLS) {
+          throw new Error(
+            `${emptyCalls} essais de suite sans mot nouveau : le vocabulaire de ce niveau est presque saturé (${step.generatedTotal} / ${step.targetTotal}). Arrêt pour ne pas dépenser pour rien (≈ ${spent.toFixed(2)} € dépensés). « Reprendre » relance.`
+          );
+        }
+        if (spent >= BUDGET_EUR_PER_RUN) {
+          throw new Error(
+            `Budget de ${BUDGET_EUR_PER_RUN.toFixed(2)} € atteint pour cette session (≈ ${spent.toFixed(2)} €, ${step.generatedTotal} / ${step.targetTotal} mots). « Reprendre » pour continuer.`
+          );
+        }
 
         if (step.exhausted) {
           throw new Error(
@@ -110,7 +131,7 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
               <div className="pack-row-title">Pack {p.pack_number}</div>
               <div className="pack-row-sub">
                 {isGeneratingThis && progress
-                  ? `En cours${progress.themeLabel ? ` — ${progress.themeLabel}` : ''} — ${progress.generated} / ${progress.target}`
+                  ? `En cours${progress.themeLabel ? ` — ${progress.themeLabel}` : ''} — ${progress.generated} / ${progress.target} — coût réel ≈ ${progress.costEur.toFixed(2)} €`
                   : incomplete
                   ? `Incomplet — ${p.generated_count} / ${p.target_count} mots`
                   : `Prêt — ${p.generated_count} mots`}
@@ -132,6 +153,10 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
       {packs.length === 0 && <p className="eyebrow-free">Aucun pack de vocabulaire téléchargé pour ce niveau.</p>}
 
       {error && <p className="conv-warning">{error}</p>}
+
+      {!generatingPackId && lastCost !== null && (
+        <p className="eyebrow-free">Dernière génération : coût réel ≈ {lastCost.toFixed(2)} €.</p>
+      )}
 
       {!generatingPackId && (
         <button className="primary" onClick={() => setConfirming(true)} disabled={hasIncomplete}>

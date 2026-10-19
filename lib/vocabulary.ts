@@ -2,11 +2,11 @@
 
 import { resolveImage } from './imageIndex';
 import { supabaseAdmin } from './supabaseAdmin';
-import { callGemini, LANGUAGE_NAMES } from './gemini';
+import { callGeminiWithUsage, LANGUAGE_NAMES } from './gemini';
 import { synthesizeAndStore } from './tts';
 import { VOCAB_THEMES, packThemeQuotas, VOCAB_PACK_SIZE, LEVELS } from './constants';
 
-const CHUNK_SIZE = 15;
+const CHUNK_SIZE = 25; // plus de mots par appel = moins d'appels (la liste anti-doublon n'est envoyée qu'une fois par appel)
 const MASTERY_MIN_ATTEMPTS = 1;
 const MASTERY_MIN_RATE = 0.9;
 
@@ -69,6 +69,7 @@ export type VocabularyStepResult = {
   exhausted?: boolean; // true : tous les thèmes non écartés ont été essayés, plus aucun thème à proposer
   themeCode?: string;
   themeLabel?: string;
+  usage?: { inputTokens: number; outputTokens: number }; // consommation Gemini de ce pas (pour suivre le coût réel)
   generatedThisStep: number;
   generatedTotal: number;
   targetTotal: number;
@@ -176,13 +177,10 @@ export async function runVocabularyPackStep(packId: string, skipThemes: string[]
   const sameThemeLowerOrSame = languageWords
     .filter((w) => levelOrder.indexOf(w.level_code) <= maxLevelIdx && w.theme_code === theme.code)
     .sort(byRecent)
-    .slice(0, 500);
-  const sameLevelOtherThemes = languageWords
-    .filter((w) => w.level_code === pack.level_code && w.theme_code !== theme.code)
-    .sort(byRecent)
-    .slice(0, 300);
+    .slice(0, 400);
 
-  const avoidList = Array.from(new Set([...sameThemeLowerOrSame, ...sameLevelOtherThemes].map((w) => w.target_text)));
+  // Seulement les mots du MÊME thème : les redites d'autres thèmes sont éliminées par le filtre en code (moins de tokens envoyés).
+  const avoidList = Array.from(new Set(sameThemeLowerOrSame.map((w) => w.target_text)));
   const avoidInstruction =
     avoidList.length > 0
       ? `\n\nDéjà utilisés (ce niveau et les niveaux inférieurs), NE PAS répéter ces mots ni leurs variantes avec/sans article :\n- ${avoidList.join('\n- ')}`
@@ -230,7 +228,7 @@ Chaque objet :
   "romaji": "rōmaji Hepburn avec macrons (ō ū), ex. taberu"
 }${avoidInstruction}`;
 
-  const text = await callGemini(isJa ? systemJa : system, user);
+  const { text, usage } = await callGeminiWithUsage(isJa ? systemJa : system, user, { thinkingLevel: 'minimal' });
   let parsed: Array<{ target_text?: string; translation_fr?: string; word_type?: string; ruby?: string; romaji?: string }>;
   try {
     parsed = JSON.parse(text);
@@ -286,7 +284,7 @@ Chaque objet :
 
   if (rows.length === 0) {
     // Tout était doublon cette fois — pas d'avancée, le client rappellera.
-    return { done: false, themeCode: targetTheme.code, themeLabel: targetTheme.label, generatedThisStep: 0, generatedTotal: packTotal, targetTotal: pack.target_count };
+    return { done: false, themeCode: targetTheme.code, themeLabel: targetTheme.label, usage, generatedThisStep: 0, generatedTotal: packTotal, targetTotal: pack.target_count };
   }
 
   const { data: inserted, error: insertError } = await supabaseAdmin
@@ -329,6 +327,7 @@ Chaque objet :
     done: false,
     themeCode: targetTheme.code,
     themeLabel: targetTheme.label,
+    usage,
     generatedThisStep: inserted?.length ?? 0,
     generatedTotal: totalGenerated ?? 0,
     targetTotal: pack.target_count,

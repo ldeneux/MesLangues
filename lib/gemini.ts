@@ -37,7 +37,7 @@ export type GeminiUsage = {
 export async function callGeminiWithUsage(
   system: string,
   user: string,
-  options?: { temperature?: number; maxOutputTokens?: number }
+  options?: { temperature?: number; maxOutputTokens?: number; thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high' }
 ): Promise<{ text: string; usage: GeminiUsage }> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY manquant');
@@ -52,6 +52,8 @@ export async function callGeminiWithUsage(
         temperature: options?.temperature ?? 0.9,
         responseMimeType: 'application/json',
         maxOutputTokens: options?.maxOutputTokens ?? 8192,
+        // Gemini 3.6 Flash réfléchit par défaut (tokens facturés comme de la sortie) : « minimal » pour les tâches simples.
+        ...(options?.thinkingLevel ? { thinkingConfig: { thinkingLevel: options.thinkingLevel } } : {}),
       },
     }),
   });

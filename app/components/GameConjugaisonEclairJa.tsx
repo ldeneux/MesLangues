@@ -40,7 +40,7 @@ export default function GameConjugaisonEclairJa({ profileId, levelCode }: { prof
   const [score, setScore] = useState({ correct: 0, total: 0 });
 
   useEffect(() => {
-    getConjugationVerbs('ja')
+    getConjugationVerbs('ja', levelCode, true)
       .catch(() => [])
       .then((list) => {
         setVerbs(list);
@@ -50,7 +50,7 @@ export default function GameConjugaisonEclairJa({ profileId, levelCode }: { prof
 
   if (verbs === null) return <p className="eyebrow-free">Chargement…</p>;
   if (verbs.length === 0) {
-    return <p className="eyebrow-free">Pas encore de verbes téléchargés — va dans l'onglet "Packs", « Grammaire et conjugaison ».</p>;
+    return <p className="eyebrow-free">Pas encore de verbes téléchargés — va dans l'onglet "Packs", bloc « Verbes ».</p>;
   }
   if (!round) return <p className="eyebrow-free">Pas assez de formes disponibles à ton niveau pour ce jeu.</p>;
 

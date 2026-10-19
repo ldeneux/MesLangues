@@ -14,6 +14,11 @@ const CHUNK_SIZE = 20;
 
 export const USD_TO_EUR = 0.93;
 
+/** Coût réel (€) d'un appel Gemini à partir des tokens consommés (usageMetadata). */
+export function geminiCostEur(inputTokens: number, outputTokens: number): number {
+  return ((inputTokens / 1e6) * GEMINI_INPUT_PRICE_PER_M + (outputTokens / 1e6) * GEMINI_OUTPUT_PRICE_PER_M) * USD_TO_EUR;
+}
+
 export type CostEstimate = {
   usd: number;
   eur: number;
@@ -59,6 +64,18 @@ export function estimateGrammarConjugationCost(conjugationTarget: number): CostE
 
   const usd = geminiCost + ttsCost;
   return { usd, eur: usd * USD_TO_EUR };
+}
+
+/** Verbes seuls (pack Verbes d'un niveau) : texte Gemini + audio des temps, sans les fiches de grammaire. */
+export function estimateVerbsCost(conjugationTarget: number): CostEstimate {
+  const all = estimateGrammarConjugationCost(conjugationTarget);
+  const grammarOnly = estimateGrammarConjugationCost(0);
+  return { usd: Math.max(0, all.usd - grammarOnly.usd), eur: Math.max(0, all.eur - grammarOnly.eur) };
+}
+
+/** Fiches de grammaire seules (communes à tous les niveaux). */
+export function estimateGrammarCost(): CostEstimate {
+  return estimateGrammarConjugationCost(0);
 }
 
 // --- Banque de quiz de grammaire (texte seul, pas d'audio) ---
