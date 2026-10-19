@@ -3,17 +3,9 @@
 import { useEffect, useState } from 'react';
 import { getConjugationVerbs, type ConjugationVerb } from '../../lib/conjugation';
 import { THEMES, CONJUGATION_TARGET } from '../../lib/constants';
-import { splitEnding } from '../../lib/conjugationHighlight';
+import { displayInfinitive } from '../../lib/conjugationDisplay';
+import ConjugationTables from './ConjugationTables';
 import JapaneseConjugationDetail from './JapaneseConjugationDetail';
-
-const TENSE_LABELS: Record<string, string> = {
-  present: 'Présent',
-  futur: 'Futur simple',
-  passe_compose: 'Passé composé',
-  imparfait: 'Imparfait',
-};
-
-const PRONOUNS_FR = ['je', 'tu', 'il/elle', 'nous', 'vous', 'ils/elles'];
 
 type SortMode = 'frequency' | 'theme';
 
@@ -26,14 +18,6 @@ export default function ConjugationPanel({ languageCode, levelCode = 'A1' }: { l
   const [selected, setSelected] = useState<ConjugationVerb | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>('frequency');
   const [error, setError] = useState('');
-  const [playingTense, setPlayingTense] = useState<string | null>(null);
-
-  function playTense(url: string, tense: string) {
-    setPlayingTense(tense);
-    const el = new Audio(url);
-    el.onended = () => setPlayingTense(null);
-    el.play().catch(() => setPlayingTense(null));
-  }
 
   useEffect(() => {
     setVerbs(null);
@@ -106,7 +90,7 @@ export default function ConjugationPanel({ languageCode, levelCode = 'A1' }: { l
                       className={`conjugation-list-item${selected?.id === v.id ? ' active' : ''}`}
                       onClick={() => setSelected(v)}
                     >
-                      <span>{v.infinitive}</span>
+                      <span>{displayInfinitive(v.infinitive, languageCode)}</span>
                       <span className="conjugation-list-fr">
                         {v.translation_fr}
                         {sortMode === 'frequency' && ` · ${themeLabel(v.theme_code)}`}
@@ -124,48 +108,11 @@ export default function ConjugationPanel({ languageCode, levelCode = 'A1' }: { l
             {selected && !(languageCode === 'ja') && (
               <div className="phrase-card conjugation-detail">
                 <div className="phrase-fr" style={{ fontWeight: 600, color: 'var(--ink)', fontSize: '1.1rem' }}>
-                  {selected.infinitive} <span className="revision-fr">— {selected.translation_fr}</span>
+                  {displayInfinitive(selected.infinitive, languageCode)} <span className="revision-fr">— {selected.translation_fr}</span>
                 </div>
                 <p className="eyebrow-free">{themeLabel(selected.theme_code)}</p>
 
-                {Object.entries(TENSE_LABELS).map(([key, label]) => (
-                  <div key={key} className="conjugation-tense-block">
-                    <div className="conjugation-tense-title-row">
-                      <div className="conjugation-tense-title">{label}</div>
-                      {selected.tense_audio?.[key as keyof typeof selected.tense_audio] && (
-                        <button
-                          className={`play-btn${playingTense === key ? ' playing' : ''}`}
-                          onClick={() =>
-                            playTense(selected.tense_audio[key as keyof typeof selected.tense_audio]!, key)
-                          }
-                          aria-label={`Écouter la conjugaison au ${label}`}
-                        >
-                          {playingTense === key ? '❚❚' : '▶'}
-                        </button>
-                      )}
-                    </div>
-                    <div className="conjugation-forms">
-                      {(selected.tenses[key as keyof typeof selected.tenses] ?? []).map((form, i) => {
-                        const split = splitEnding(form, languageCode, key);
-                        return (
-                          <div key={i} className="conjugation-form-row">
-                            <span className="conjugation-pronoun">{PRONOUNS_FR[i]}</span>
-                            <span>
-                              {split ? (
-                                <>
-                                  {split.stem}
-                                  <mark className="highlight-mark">{split.ending}</mark>
-                                </>
-                              ) : (
-                                form
-                              )}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
+                <ConjugationTables verb={selected} languageCode={languageCode} />
               </div>
             )}
           </div>

@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getConjugationVerbs, runConjugationStep, backfillConjugationAudio } from '../../lib/conjugation';
+import { getConjugationVerbs, runConjugationStep, backfillConjugationAudio, resetChangedConjugationAudio } from '../../lib/conjugation';
+import { addVerbAudioStep } from '../../lib/lessons';
 import { estimateVerbsCost } from '../../lib/pricing';
 import { CONJUGATION_TARGET } from '../../lib/constants';
 
@@ -15,6 +16,31 @@ export default function VerbsDownload({ languageCode, levelCode }: { languageCod
   const [confirming, setConfirming] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState('');
+  const [audioBusy, setAudioBusy] = useState(false);
+  const [audioNote, setAudioNote] = useState('');
+
+  // Régénère les audios dont le texte a changé (« she » seul, « to have »). Coût : seulement les fichiers concernés.
+  async function updateAudio() {
+    setError('');
+    setAudioNote('');
+    setAudioBusy(true);
+    try {
+      const { cleared } = await resetChangedConjugationAudio(languageCode);
+      let tensesDone = false;
+      while (!tensesDone) tensesDone = (await backfillConjugationAudio(languageCode)).done;
+      let remaining = 1;
+      while (remaining > 0) {
+        const r = await addVerbAudioStep(languageCode);
+        if (!r.ok) throw new Error((r as { error: string }).error);
+        remaining = r.data.remaining;
+      }
+      setAudioNote(cleared > 0 ? `Audio mis à jour (${cleared} fichier(s) régénéré(s)).` : 'Audio déjà à jour.');
+    } catch (e: any) {
+      setError(e?.message ?? "Erreur pendant la mise à jour de l'audio.");
+    } finally {
+      setAudioBusy(false);
+    }
+  }
 
   async function refresh() {
     try {
@@ -102,6 +128,18 @@ export default function VerbsDownload({ languageCode, levelCode }: { languageCod
             {done === 0 ? `Télécharger les verbes ${levelCode}` : 'Reprendre'}
           </button>
         )
+      )}
+
+      {languageCode !== 'ja' && !running && done > 0 && (
+        <div style={{ marginTop: '0.75rem' }}>
+          <button className="conv-mini-btn" onClick={updateAudio} disabled={audioBusy}>
+            {audioBusy ? 'Mise à jour de l\'audio…' : "Mettre à jour l'audio des verbes"}
+          </button>
+          <p className="eyebrow-free" style={{ margin: '0.3rem 0 0' }}>
+            Régénère seulement les anciens audios : « she » à la place de « he, she, it », infinitif anglais « to … ». N'a aucun effet s'ils sont déjà à jour.
+          </p>
+          {audioNote && <p className="eyebrow-free">{audioNote}</p>}
+        </div>
       )}
 
       {confirming && (

@@ -442,7 +442,7 @@ export default function LessonsPanel({
   }
 
   // ---------- leçon 0 : prononciation ----------
-  if (openNumber === 0) {
+  if (openNumber === 0 && levelCode === 'A1') {
     return (
       <PronunciationLesson
         languageCode={languageCode}
@@ -509,11 +509,13 @@ export default function LessonsPanel({
           )}
         </div>
 
-        <div className="phrase-card lesson-setup">
-          <div className="lesson-setup-title">Leçon 0 : la prononciation</div>
-          <p className="eyebrow-free">Les sons et les pièges de la langue, avec de quoi écouter. Disponible tout de suite.</p>
-          <button className="primary" onClick={() => setOpenNumber(0)}>Ouvrir la leçon 0</button>
-        </div>
+        {levelCode === 'A1' && (
+          <div className="phrase-card lesson-setup">
+            <div className="lesson-setup-title">Leçon 0 : la prononciation</div>
+            <p className="eyebrow-free">Les sons et les pièges de la langue, avec de quoi écouter. Disponible tout de suite.</p>
+            <button className="primary" onClick={() => setOpenNumber(0)}>Ouvrir la leçon 0</button>
+          </div>
+        )}
 
         {setup!.verbs > 0 && renderVerbAudioBlock()}
         {renderImageBlock()}
@@ -608,11 +610,13 @@ export default function LessonsPanel({
       {renderSentencesBlock()}
 
       <div className="lesson-tiles">
-        <button className="lesson-tile" style={{ ['--lesson-color' as any]: color }} onClick={() => setOpenNumber(0)}>
-          <span className="lesson-tile-num">0</span>
-          <span className="lesson-tile-label">Leçon 0</span>
-          <span className="lesson-tile-theme">Prononciation</span>
-        </button>
+        {levelCode === 'A1' && (
+          <button className="lesson-tile" style={{ ['--lesson-color' as any]: color }} onClick={() => setOpenNumber(0)}>
+            <span className="lesson-tile-num">0</span>
+            <span className="lesson-tile-label">Leçon 0</span>
+            <span className="lesson-tile-theme">Prononciation</span>
+          </button>
+        )}
         {lessons.map((l) => {
           const isNext = next?.number === l.number;
           return (

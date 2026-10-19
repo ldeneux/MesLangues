@@ -3,6 +3,7 @@
 import { supabaseAdmin } from './supabaseAdmin';
 import { callGemini, LANGUAGE_NAMES } from './gemini';
 import { grammarTopicsFor, vocabThemeLabel, type GrammarTopicMeta } from './constants';
+import { displayInfinitive } from './conjugationDisplay';
 import { getGrammarTopic, type GrammarTopic } from './grammar';
 import type { ConjugationVerb } from './conjugation';
 import { planLessons, dedupeWords, wordKey, grammarExampleIndex, CONJUGATION_RECAP_EVERY, type PlanWord, type PlannedLesson, type ReviewItem } from './lessonPlan';
@@ -936,7 +937,7 @@ export async function addVerbAudioStep(languageCode: string): Promise<Result<{ r
       const results = await Promise.allSettled(
         batch.slice(i, i + 4).map(async (v) => {
           // Japonais : on fait lire la prononciation en kana (évite les kanji à lectures multiples)
-          const spoken = languageCode === 'ja' ? v.ja_data?.reading || v.infinitive : v.infinitive;
+          const spoken = languageCode === 'ja' ? v.ja_data?.reading || v.infinitive : displayInfinitive(v.infinitive, languageCode);
           const { audioUrl } = await synthesizeAndStore(spoken, languageCode, `${languageCode}/conjugation/${v.id}/infinitive.mp3`);
           const { error: upErr } = await supabaseAdmin
             .from('conjugation_verbs')

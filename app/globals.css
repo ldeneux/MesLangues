@@ -2139,3 +2139,13 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 .lex-letters { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .lex-letter { width: 2.6rem; height: 2.6rem; padding: 0; text-align: center; font-size: 1.15rem; text-transform: uppercase; }
 .lex-input { width: 100%; max-width: 420px; padding: 0.6rem 0.75rem; font-size: 1.1rem; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+
+/* ---- Tableaux de conjugaison (personnes en lignes, 2 temps en colonnes) ---- */
+.conj-tables { display: flex; flex-direction: column; gap: 1rem; margin-top: 0.75rem; }
+.conj-table-wrap { overflow-x: auto; }
+.conj-table { width: 100%; border-collapse: collapse; font-size: 0.98rem; }
+.conj-table th, .conj-table td { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+.conj-table thead th { font-weight: 700; white-space: nowrap; }
+.conj-table thead th .play-btn { margin-left: 0.5rem; vertical-align: middle; }
+.conj-table tbody th { font-weight: 400; color: var(--muted, #6b6b6b); width: 5.5rem; white-space: nowrap; }
+.conj-tense-name { margin-right: 0.25rem; }

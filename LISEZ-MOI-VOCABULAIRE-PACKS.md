@@ -78,3 +78,15 @@ Elle fait, pour toutes les langues, en une seule transaction :
 - **Statuts** recalculés (350 mots = ready, sinon generating) ; packs vides supprimés. Aucun mot n'est supprimé, les ids (progression, audio) ne changent pas.
 Après application : recréer le plan de leçons des niveaux concernés (les mots ont changé de niveau), puis « Reprendre » les packs incomplets.
 Prérequis conseillé : lancer le classement par utilité sur les mots sans score (italien A2, anglais A2, allemand A1), sinon leur score vaut 50 par défaut.
+
+## Affichage et audio des verbes, leçon 0 (nouveau)
+- **Tableaux de conjugaison** (`app/components/ConjugationTables.tsx`, nouveau) : personnes en lignes, temps en colonnes, 2 par 2 :
+  présent / passé composé, puis futur simple / imparfait. Un bouton ▶ par temps. Même composant dans l'onglet Conjugaison, dans la carte « Verbe » des leçons et dans la fiche de conjugaison de fin de leçon.
+- **3e personne** : libellé « elle » seul (au lieu de « il/elle ») ; dans les formes, « he/she/it has » devient « she has » à l'affichage ET à la lecture
+  (aussi lui/lei en italien, él/ella en espagnol, er/sie/es en allemand). Règles dans `lib/conjugationDisplay.ts`.
+- **Anglais : infinitif complet** (« to have ») dans les listes, les leçons, les exercices, les jeux et le PDF ; l'audio de l'infinitif lit aussi « to have ».
+- **Lecture à 80 %** : appliquée à la lecture de la conjugaison (vitesse du lecteur, donc aussi sur les anciens fichiers, sans régénération).
+- **Mettre à jour l'audio des verbes** (onglet Packs > Verbes, bouton ajouté) : supprime puis régénère SEULEMENT les anciens audios dont le texte change (« she », « to … » pour l'anglais).
+  Une marque (`rev: 2`) évite de refaire le travail ; un second clic ne coûte rien. Coût = quelques centaines de caractères de synthèse vocale par verbe concerné.
+- **Leçon 0 « Prononciation »** : n'apparaît plus qu'au niveau A1.
+- Non modifié : les formes affichées dans le jeu « Conjugaison éclair » (seul l'infinitif et le libellé « elle » changent) ; le PDF garde sa mise en page (infinitif « to … » et « elle » appliqués).

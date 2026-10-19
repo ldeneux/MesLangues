@@ -5,7 +5,8 @@ import { getLesson, completeLesson, type LessonContent, type LessonWord } from '
 import type { ConjugationVerb } from '../../lib/conjugation';
 import type { KanjiItem } from '../../lib/kanji';
 import { vocabThemeLabel, LANGS } from '../../lib/constants';
-import { splitEnding } from '../../lib/conjugationHighlight';
+import { displayInfinitive } from '../../lib/conjugationDisplay';
+import ConjugationTables from './ConjugationTables';
 import { kanaToRomaji } from '../../lib/japanese';
 import { conjugateJapaneseVerb } from '../../lib/japaneseVerbs';
 import { speak } from '../../lib/speech';
@@ -23,14 +24,7 @@ import { markSpans } from '../../lib/lessonMatch';
 import { usePersistentFlag } from './usePersistentFlag';
 import { useJapaneseReadings } from './useJapaneseReadings';
 
-const PRONOUNS_FR = ['je', 'tu', 'il/elle', 'nous', 'vous', 'ils/elles'];
-
-// Fiche de conjugaison récapitulative : présent, passé composé, futur (japonais : formes polies équivalentes).
-const RECAP_TENSES: { key: 'present' | 'passe_compose' | 'futur'; label: string }[] = [
-  { key: 'present', label: 'Présent' },
-  { key: 'passe_compose', label: 'Passé composé' },
-  { key: 'futur', label: 'Futur' },
-];
+// Fiche de conjugaison récapitulative (japonais : formes polies équivalentes).
 const JA_RECAP: { id: string; label: string }[] = [
   { id: 'dict', label: 'Dictionnaire' },
   { id: 'masu', label: 'Présent / futur poli' },
@@ -112,7 +106,7 @@ export default function LessonViewer({
     for (const v of lesson.verbs) {
       if (seen.has(v.id) || !v.infinitive || !v.translation_fr) continue;
       seen.add(v.id);
-      out.push({ id: v.id, source: 'verb', text: v.infinitive, fr: v.translation_fr, audio: v.tense_audio?.infinitive ?? null, image: null });
+      out.push({ id: v.id, source: 'verb', text: displayInfinitive(v.infinitive, languageCode), fr: v.translation_fr, audio: v.tense_audio?.infinitive ?? null, image: null });
     }
     return out;
   }, [lesson]);
@@ -169,7 +163,7 @@ export default function LessonViewer({
       play(url, key);
       return;
     }
-    const spoken = isJa ? v.ja_data?.reading || v.infinitive : v.infinitive;
+    const spoken = isJa ? v.ja_data?.reading || v.infinitive : displayInfinitive(v.infinitive, languageCode);
     audioRef.current?.pause();
     if (speak(cleanKana(spoken), bcp47)) {
       setPlayingKey(key);
@@ -252,7 +246,7 @@ export default function LessonViewer({
         </span>
       );
     }
-    return <span>{v.infinitive}</span>;
+    return <span>{displayInfinitive(v.infinitive, languageCode)}</span>;
   }
 
   function renderVerbRow(v: ConjugationVerb, keyPrefix = 'v') {
@@ -318,7 +312,7 @@ export default function LessonViewer({
         <button
           className={`play-btn${playingKey === infKey ? ' playing' : ''}`}
           onClick={() => playInfinitive(v, infKey)}
-          aria-label={`Écouter ${v.infinitive}`}
+          aria-label={`Écouter ${displayInfinitive(v.infinitive, languageCode)}`}
         >
           {playingKey === infKey ? '❚❚' : '▶'}
         </button>
@@ -342,45 +336,13 @@ export default function LessonViewer({
       );
     }
 
-    const forms = v.tenses?.present ?? [];
-    const presentAudio = v.tense_audio?.present ?? null;
     return (
       <>
         <div className="lesson-card-title">
           Verbe {index + 1} sur {lesson!.verbs.length}
         </div>
         {head}
-        <div className="conjugation-tense-title-row" style={{ marginTop: '0.9rem' }}>
-          <div className="conjugation-tense-title">Présent</div>
-          <button
-            className={`play-btn${playingKey === `pres-${v.id}` ? ' playing' : ''}`}
-            onClick={() => play(presentAudio, `pres-${v.id}`)}
-            disabled={!presentAudio}
-            aria-label="Écouter la conjugaison au présent"
-          >
-            {playingKey === `pres-${v.id}` ? '❚❚' : '▶'}
-          </button>
-        </div>
-        <div className="conjugation-forms">
-          {forms.map((form, i) => {
-            const split = splitEnding(form, languageCode, 'present');
-            return (
-              <div key={i} className="conjugation-form-row">
-                <span className="conjugation-pronoun">{PRONOUNS_FR[i]}</span>
-                <span>
-                  {split ? (
-                    <>
-                      {split.stem}
-                      <mark className="highlight-mark">{split.ending}</mark>
-                    </>
-                  ) : (
-                    form
-                  )}
-                </span>
-              </div>
-            );
-          })}
-        </div>
+        <ConjugationTables verb={v} languageCode={languageCode} />
       </>
     );
   }
@@ -426,31 +388,9 @@ export default function LessonViewer({
           return (
             <div key={v.id} className="lesson-conj-verb">
               <div className="lesson-conj-verb-title">
-                {v.infinitive} <span className="lesson-word-fr">— {v.translation_fr}</span>
+                {displayInfinitive(v.infinitive, languageCode)} <span className="lesson-word-fr">— {v.translation_fr}</span>
               </div>
-              <div className="lesson-conj-cols">
-                {RECAP_TENSES.map((t) => (
-                  <div key={t.key} className="lesson-conj-col">
-                    <div className="conjugation-tense-title">{t.label}</div>
-                    {(v.tenses?.[t.key] ?? []).map((form, i) => {
-                      const split = splitEnding(form, languageCode, t.key);
-                      return (
-                        <div key={i} className="lesson-conj-line">
-                          <span className="conjugation-pronoun">{PRONOUNS_FR[i]}</span>{' '}
-                          {split ? (
-                            <>
-                              {split.stem}
-                              <mark className="highlight-mark">{split.ending}</mark>
-                            </>
-                          ) : (
-                            form
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
+              <ConjugationTables verb={v} languageCode={languageCode} />
             </div>
           );
         })}

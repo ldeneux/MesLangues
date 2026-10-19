@@ -5,6 +5,7 @@ import { callGemini, LANGUAGE_NAMES } from './gemini';
 import { synthesizeAndStore } from './tts';
 import { THEMES, CONJUGATION_TARGET, LEVELS } from './constants';
 import { fetchAllRows } from './paging';
+import { spokenConjugation, spokenConjugationChanged } from './conjugationDisplay';
 import { runJapaneseVerbStep } from './japaneseConjugation';
 import type { JaVerbData } from './japaneseVerbs';
 
@@ -18,7 +19,7 @@ export type ConjugationVerb = {
   frequency_rank: number;
   theme_code: string | null;
   tenses: Record<(typeof TENSES)[number], string[]>;
-  tense_audio: Partial<Record<(typeof TENSES)[number], string>> & { basic?: string; infinitive?: string };
+  tense_audio: Partial<Record<(typeof TENSES)[number], string>> & { basic?: string; infinitive?: string; rev?: number };
   ja_data?: JaVerbData | null; // japonais : groupe + lecture (les formes sont calculées par code)
 };
 
@@ -90,7 +91,7 @@ export async function backfillConjugationAudio(
     const chunk = jobs.slice(i, i + TTS_CONCURRENCY);
     await Promise.allSettled(
       chunk.map(async (job) => {
-        const spoken = job.forms.join(', ') + '.';
+        const spoken = spokenConjugation(job.forms, languageCode); // « he/she/it » → « she »
         const storagePath = `${languageCode}/conjugation/${job.verbId}/${job.tense}.mp3`;
         const { audioUrl } = await synthesizeAndStore(spoken, languageCode, storagePath);
 
@@ -106,6 +107,44 @@ export async function backfillConjugationAudio(
   }
 
   return { done: incomplete.length <= BACKFILL_BATCH_SIZE, processed: batch.length };
+}
+
+/**
+ * Prépare la mise à jour de l'audio des verbes d'une langue : supprime les anciens fichiers dont le texte lu change
+ * (« he, she, it has » → « she has » ; infinitif anglais « have » → « to have »). Ils sont ensuite régénérés par
+ * backfillConjugationAudio (temps) et addVerbAudioStep (infinitif). Une marque `rev: 2` évite de refaire deux fois le
+ * même travail. Ne coûte rien par elle-même (suppression de références seulement).
+ */
+export async function resetChangedConjugationAudio(languageCode: string): Promise<{ cleared: number }> {
+  if (languageCode === 'ja') return { cleared: 0 };
+  const verbs = await fetchAllRows<{ id: string; tenses: Record<string, string[]>; tense_audio: Record<string, unknown> | null }>((from, to) =>
+    supabaseAdmin
+      .from('conjugation_verbs')
+      .select('id, tenses, tense_audio')
+      .eq('language_code', languageCode)
+      .order('id')
+      .range(from, to)
+  );
+
+  let cleared = 0;
+  for (const v of verbs) {
+    const audio = { ...(v.tense_audio ?? {}) } as Record<string, unknown>;
+    if (Number(audio.rev ?? 1) >= 2) continue;
+    for (const t of TENSES) {
+      const forms = v.tenses?.[t];
+      if (audio[t] && forms?.length > 0 && spokenConjugationChanged(forms, languageCode)) {
+        delete audio[t];
+        cleared++;
+      }
+    }
+    if (languageCode === 'en' && audio.infinitive) {
+      delete audio.infinitive;
+      cleared++;
+    }
+    audio.rev = 2;
+    await supabaseAdmin.from('conjugation_verbs').update({ tense_audio: audio }).eq('id', v.id);
+  }
+  return { cleared };
 }
 
 export type ConjugationStepResult = {
@@ -255,7 +294,7 @@ conjuguée).`;
       batch.map(async (job) => {
         const row = insertedRows!.find((r) => r.id === job.verbId)!;
         const forms = (row.tenses as Record<string, string[]>)[job.tense];
-        const spoken = forms.join(', ') + '.';
+        const spoken = spokenConjugation(forms, languageCode);
         const storagePath = `${languageCode}/conjugation/${job.verbId}/${job.tense}.mp3`;
         const { audioUrl } = await synthesizeAndStore(spoken, languageCode, storagePath);
 
@@ -264,7 +303,7 @@ conjuguée).`;
           .select('tense_audio')
           .eq('id', job.verbId)
           .single();
-        const updatedAudio = { ...(current?.tense_audio ?? {}), [job.tense]: audioUrl };
+        const updatedAudio = { ...(current?.tense_audio ?? {}), [job.tense]: audioUrl, rev: 2 }; // nouveau verbe : audio déjà au nouveau format
         await supabaseAdmin.from('conjugation_verbs').update({ tense_audio: updatedAudio }).eq('id', job.verbId);
       })
     );

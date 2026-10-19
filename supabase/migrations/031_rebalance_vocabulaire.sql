@@ -32,6 +32,7 @@ returns table (
   sans_pack_rattaches int
 )
 language plpgsql
+set search_path = langues, public -- les tables sont dans le schéma « langues » : fixé pour la fonction, quel que soit l'appelant
 as $fn$
 declare
   v_levels text[] := array['A1', 'A2', 'B1', 'B2'];

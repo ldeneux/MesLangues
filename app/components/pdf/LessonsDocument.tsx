@@ -4,6 +4,7 @@ import type { LessonContent, LessonWord } from '../../../lib/lessons';
 import type { ConjugationVerb } from '../../../lib/conjugation';
 import type { KanjiItem } from '../../../lib/kanji';
 import { splitEnding } from '../../../lib/conjugationHighlight';
+import { displayInfinitive, simplifyForm } from '../../../lib/conjugationDisplay';
 import { parseRuby } from '../../../lib/japanese';
 import { conjugateJapaneseVerb, JA_GROUP_INFO, JA_LEVEL_ORDER, type JaFormRow, type JaLevel } from '../../../lib/japaneseVerbs';
 import { JA_FORM_CATEGORIES } from '../../../lib/japaneseFormInfo';
@@ -35,7 +36,7 @@ const LINE = '#e2dfd4';
 const TINT = '#f7f5ee';
 const MARK = '#b4412c';
 const F = { body: 'NotoSans', head: 'Fraunces', ja: 'NotoSansJP' };
-const PRONOUNS = ['je', 'tu', 'il/elle', 'nous', 'vous', 'ils/elles'];
+const PRONOUNS = ['je', 'tu', 'elle', 'nous', 'vous', 'ils/elles'];
 
 const CJK = /[\u3000-\u30ff\u3400-\u9fff\uff00-\uffef]/;
 /** Police adaptée au texte : Noto Sans JP dès qu'il contient du japonais (elle contient aussi les accents français). */
@@ -216,7 +217,7 @@ function verbTitle(v: ConjugationVerb, ctx: PdfContext, size: number) {
       <Text style={{ fontFamily: F.ja, fontWeight: 700, fontSize: size }}>{v.infinitive}</Text>
     );
   }
-  return <Text style={{ fontFamily: F.head, fontWeight: 700, fontSize: size, color: INK }}>{v.infinitive}</Text>;
+  return <Text style={{ fontFamily: F.head, fontWeight: 700, fontSize: size, color: INK }}>{displayInfinitive(v.infinitive, ctx.languageCode)}</Text>;
 }
 
 function VerbCard({ v, ctx, index, total }: { v: ConjugationVerb; ctx: PdfContext; index: number; total: number }) {
@@ -266,7 +267,7 @@ function VerbCard({ v, ctx, index, total }: { v: ConjugationVerb; ctx: PdfContex
     );
   }
 
-  const forms = v.tenses?.present ?? [];
+  const forms = (v.tenses?.present ?? []).map((f) => simplifyForm(f, ctx.languageCode));
   const col = (from: number) => (
     <View style={{ width: '48%' }}>
       {forms.slice(from, from + 3).map((f, k) => {
@@ -313,7 +314,7 @@ function ConjugationRecap({ verbs, ctx }: { verbs: ConjugationVerb[]; ctx: PdfCo
   return (
     <View>
       <Text style={{ fontSize: 9, color: SOFT, marginBottom: 6 }}>
-        Les {verbs.length} verbes des 5 dernières leçons.{isJa ? '' : ' Dans chaque colonne : je, tu, il/elle, nous, vous, ils/elles.'}
+        Les {verbs.length} verbes des 5 dernières leçons.{isJa ? '' : ' Dans chaque colonne : je, tu, elle, nous, vous, ils/elles.'}
       </Text>
       <View wrap={false} style={{ flexDirection: 'row', backgroundColor: ctx.levelColor, borderRadius: 6, paddingVertical: 4, paddingHorizontal: 6 }}>
         <Text style={{ width: isJa ? '28%' : '19%', fontSize: 8, color: '#fff', fontWeight: 700 }}>Verbe</Text>
@@ -346,12 +347,13 @@ function ConjugationRecap({ verbs, ctx }: { verbs: ConjugationVerb[]; ctx: PdfCo
         return (
           <View key={v.id} wrap={false} style={{ flexDirection: 'row', paddingVertical: 4, paddingHorizontal: 6, backgroundColor: i % 2 ? TINT : '#fff' }}>
             <View style={{ width: '19%' }}>
-              <Text style={{ fontWeight: 700, fontSize: 9.5 }}>{v.infinitive}</Text>
+              <Text style={{ fontWeight: 700, fontSize: 9.5 }}>{displayInfinitive(v.infinitive, ctx.languageCode)}</Text>
               <Text style={{ fontSize: 7.5, color: SOFT }}>{v.translation_fr}</Text>
             </View>
             {RECAP_TENSES.map((t) => (
               <View key={t.key} style={{ width: '27%' }}>
-                {(v.tenses?.[t.key] ?? []).map((f, k) => {
+                {(v.tenses?.[t.key] ?? []).map((raw, k) => {
+                  const f = simplifyForm(raw, ctx.languageCode);
                   const sp = splitEnding(f, ctx.languageCode, t.key);
                   return (
                     <Text key={k} style={{ fontSize: 8, lineHeight: 1.3, color: INK }}>
@@ -594,7 +596,7 @@ function Recap({ lesson, ctx }: { lesson: LessonContent; ctx: PdfContext }) {
         {block('Noms', w(lesson.nouns), isJa)}
         {block('Adjectifs', w(lesson.adjectives), isJa)}
         {block('Autres mots', w(lesson.others), isJa)}
-        {block('Verbes', lesson.verbs.map((v) => ({ text: v.infinitive, fr: v.translation_fr })), isJa)}
+        {block('Verbes', lesson.verbs.map((v) => ({ text: displayInfinitive(v.infinitive, ctx.languageCode), fr: v.translation_fr })), isJa)}
         {block('Kanji', lesson.kanji.map((k) => ({ text: k.char, fr: k.meaning_fr })), true)}
         {block('À connaître aussi', w(lesson.phrases), isJa)}
       </Grid>

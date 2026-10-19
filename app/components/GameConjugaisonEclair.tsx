@@ -5,7 +5,7 @@ import { getConjugationVerbs, type ConjugationVerb } from '../../lib/conjugation
 import { recordGameResult } from '../../lib/vocabulary';
 import type { LangCode } from '../../lib/constants';
 
-const PRONOUNS_FR = ['je', 'tu', 'il/elle', 'nous', 'vous', 'ils/elles'];
+import { PRONOUNS_FR, displayInfinitive } from '../../lib/conjugationDisplay';
 const TENSE_LABELS: Record<string, string> = {
   present: 'présent',
   futur: 'futur simple',
@@ -91,7 +91,7 @@ export default function GameConjugaisonEclair({
       <div className="phrase-card phrase-card-big">
         <p className="eyebrow-free">Conjugue :</p>
         <div className="phrase-target">
-          {round.verb.infinitive} — {PRONOUNS_FR[round.pronounIndex]} — {TENSE_LABELS[round.tense]}
+          {displayInfinitive(round.verb.infinitive, languageCode)} — {PRONOUNS_FR[round.pronounIndex]} — {TENSE_LABELS[round.tense]}
         </div>
 
         {checked !== null && (
