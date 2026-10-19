@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { getPacks, createPack, runPackStep, type PackInfo } from '../../lib/packs';
 import { estimatePackCost } from '../../lib/pricing';
-import { LEVEL_CUMULATIVE_TARGET, PACK_SIZE, type LevelCode } from '../../lib/constants';
+import { LEVEL_CUMULATIVE_TARGET, LEVEL_PACK_COUNT, PACK_SIZE, type LevelCode } from '../../lib/constants';
 import GrammarConjugationDownload from './GrammarConjugationDownload';
 import VerbsDownload from './VerbsDownload';
 import VocabularyDownload from './VocabularyDownload';
@@ -86,11 +86,13 @@ export default function PacksPanel({ languageCode, levelCode }: { languageCode: 
   }
 
   const hasIncomplete = packs.some((p) => p.generated_count < p.target_count);
+  const packObjective = LEVEL_PACK_COUNT[levelCode as LevelCode] ?? 2;
+  const objectiveReached = packs.length >= packObjective;
 
   return (
     <div>
       <p className="eyebrow-free">
-        Progression vers le niveau suivant : {totalGenerated} / {cumulativeTarget} phrases générées pour ce niveau.
+        Objectif du niveau : {totalGenerated} / {cumulativeTarget} phrases ({packObjective} packs de {PACK_SIZE}) pour ce niveau.
       </p>
 
       <div className="pack-list">
@@ -143,10 +145,13 @@ export default function PacksPanel({ languageCode, levelCode }: { languageCode: 
         </div>
       )}
 
-      {!generatingPackId && (
+      {!generatingPackId && !objectiveReached && (
         <button className="primary" onClick={() => setConfirming(true)} disabled={hasIncomplete}>
           Télécharger le pack suivant ({PACK_SIZE} phrases)
         </button>
+      )}
+      {!generatingPackId && objectiveReached && !hasIncomplete && (
+        <p className="eyebrow-free">Objectif atteint : {packObjective} packs de phrases pour ce niveau.</p>
       )}
       {hasIncomplete && !generatingPackId && (
         <p className="eyebrow-free" style={{ marginTop: '0.5rem' }}>

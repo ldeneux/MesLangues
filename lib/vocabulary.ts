@@ -270,7 +270,9 @@ Chaque objet :
       word_type: w.word_type && validTypes.has(w.word_type) ? w.word_type : 'nom',
       target_text: w.target_text!,
       translation_fr: w.translation_fr!,
-    }));
+    }))
+    // Jamais plus que demandé : Gemini renvoie parfois plus de mots que le nombre voulu, et un pack dépassait alors 350.
+    .slice(0, chunkCount);
 
   // Japonais : lectures validées (le ruby, sans accolades, doit redonner exactement le mot)
   const jaReadingByText = new Map<string, { ruby: string; romaji: string }>();

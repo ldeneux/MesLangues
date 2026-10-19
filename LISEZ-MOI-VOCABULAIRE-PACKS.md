@@ -1,7 +1,7 @@
 # Livraison : packs de vocabulaire (doublons par niveau, nouveaux thèmes, tous les thèmes testés, leçons)
 
 Copie ces fichiers dans le dépôt en respectant les dossiers, puis déploie (Vercel).
-**Une migration SQL à lancer une fois** (SQL Editor Supabase) : `supabase/migrations/030_verbes_par_niveau.sql` (avant d'ouvrir l'onglet Packs).
+**Migrations SQL** (SQL Editor Supabase) : `030_verbes_par_niveau.sql` (à lancer une fois) et `031_rebalance_vocabulaire.sql` (installe la fonction de remise à plat, voir la dernière section : elle ne modifie rien tant que tu ne l'appelles pas avec `true`).
 
 ## Ordre conseillé
 1. Onglet Packs > A1 : « Reprendre » sur les packs incomplets (A1 accepte maintenant les mots déjà présents en A2/B1/B2).
@@ -63,3 +63,18 @@ Les thèmes « réserve » (jamais utilisés) sont essayés en premier pour comp
 - **Écoute plus rapide** : l'audio et la banque de questions d'un article sont maintenant générés en parallèle.
 - **Saut de thème / budget / coût réel** : seulement pour le vocabulaire. Les phrases s'arrêtent déjà après 6 essais à vide sur un thème (le coût est donc borné) ; les phrases saturent rarement.
 - Piste non appliquée (décision produit) : la banque de 25 questions par article n'en tire que 5 au hasard ; la passer à 15 réduirait encore le coût et le temps de l'Écoute.
+
+## Objectifs par niveau et remise à plat du vocabulaire (nouveau)
+**Objectif par langue, phrases ET mots** (éléments nouveaux à chaque niveau) : A1 = 2 packs (700) · A2 = 2 packs (700) · B1 = 3 packs (1050) · B2 = 4 packs (1400).
+- `lib/constants.ts` : `LEVEL_PACK_COUNT` (2/2/3/4) et `LEVEL_CUMULATIVE_TARGET` (700/700/1050/1400, désormais PAR NIVEAU, utilisé par l'inventaire, les scores et l'onglet Packs).
+- Onglets Packs (phrases) et Vocabulaire : le bouton « Télécharger un pack » disparaît une fois l'objectif de packs atteint (« Objectif atteint »).
+
+**Remise à plat des mots en base** : `031_rebalance_vocabulaire.sql` crée la fonction `langues.rebalance_vocabulary(p_apply)`.
+1. Aperçu, sans rien écrire : `select * from langues.rebalance_vocabulary();`
+2. Application : `select * from langues.rebalance_vocabulary(true);`
+Elle fait, pour toutes les langues, en une seule transaction :
+- **Reclassement** : si un niveau dépasse son objectif, les mots les moins utiles (`usage_score` le plus bas ; score absent = 50 ; à égalité les plus récents) passent au niveau suivant, en cascade A1 → A2 → B1 → B2.
+- **Packs** : les mots de chaque niveau sont rangés par paquets de 350 (anciens packs réutilisés par numéro, packs créés si besoin). Les mots « SANS PACK » sont rattachés.
+- **Statuts** recalculés (350 mots = ready, sinon generating) ; packs vides supprimés. Aucun mot n'est supprimé, les ids (progression, audio) ne changent pas.
+Après application : recréer le plan de leçons des niveaux concernés (les mots ont changé de niveau), puis « Reprendre » les packs incomplets.
+Prérequis conseillé : lancer le classement par utilité sur les mots sans score (italien A2, anglais A2, allemand A1), sinon leur score vaut 50 par défaut.

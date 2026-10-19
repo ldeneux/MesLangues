@@ -95,14 +95,23 @@ export function packThemeQuotas(total: number = PACK_SIZE): { code: ThemeCode; l
   return raw;
 }
 
-// Cible cumulée de phrases distinctes pour "être prêt" à chaque niveau —
-// dérivée des tailles de vocabulaire CECRL usuelles (~1 phrase ≈ 1 item
-// nouveau de vocabulaire/structure).
+// OBJECTIF par langue et par niveau, en nombre de packs (1 pack = 350 phrases ou 350 mots), identique pour les
+// phrases et le vocabulaire : A1 = 2 packs, A2 = 2, B1 = 3, B2 = 4. Éléments NOUVEAUX à chaque niveau (pas cumulés) :
+// 700 + 700 + 1050 + 1400 = 3850 en tout pour une langue.
+export const LEVEL_PACK_COUNT: Record<LevelCode, number> = {
+  A1: 2,
+  A2: 2,
+  B1: 3,
+  B2: 4,
+};
+
+// Cible d'éléments (phrases ou mots) propres à chaque niveau : 700 / 700 / 1050 / 1400.
+// (Nom conservé : « LEVEL_CUMULATIVE_TARGET » est utilisé partout ; la valeur est désormais PAR NIVEAU.)
 export const LEVEL_CUMULATIVE_TARGET: Record<LevelCode, number> = {
-  A1: 700,
-  A2: 1500,
-  B1: 2750,
-  B2: 4750,
+  A1: LEVEL_PACK_COUNT.A1 * 350,
+  A2: LEVEL_PACK_COUNT.A2 * 350,
+  B1: LEVEL_PACK_COUNT.B1 * 350,
+  B2: LEVEL_PACK_COUNT.B2 * 350,
 };
 
 // Verbes : 120 par langue ET par niveau (chaque niveau a ses propres verbes ; la grammaire, elle, est commune à tous les niveaux).

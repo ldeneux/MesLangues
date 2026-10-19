@@ -8,7 +8,7 @@ import {
   type VocabularyPackInfo,
 } from '../../lib/vocabulary';
 import { estimateVocabularyCost, geminiCostEur } from '../../lib/pricing';
-import { VOCAB_PACK_SIZE, VOCAB_THEMES } from '../../lib/constants';
+import { VOCAB_PACK_SIZE, VOCAB_THEMES, LEVEL_PACK_COUNT, type LevelCode } from '../../lib/constants';
 
 // Un thème qui ne donne aucun mot nouveau est écarté tout de suite (le même appel redonnerait les mêmes redites).
 const MAX_EMPTY_TRIES_PER_THEME = 1;
@@ -115,6 +115,8 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
   if (packs === null) return <p className="eyebrow-free">Chargement du vocabulaire…</p>;
 
   const hasIncomplete = packs.some((p) => p.generated_count < p.target_count);
+  const packObjective = LEVEL_PACK_COUNT[levelCode as LevelCode] ?? 2;
+  const objectiveReached = packs.length >= packObjective;
 
   return (
     <div className="pack-list" style={{ marginTop: '1.5rem' }}>
@@ -158,10 +160,13 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
         <p className="eyebrow-free">Dernière génération : coût réel ≈ {lastCost.toFixed(2)} €.</p>
       )}
 
-      {!generatingPackId && (
+      {!generatingPackId && !objectiveReached && (
         <button className="primary" onClick={() => setConfirming(true)} disabled={hasIncomplete}>
           Télécharger un pack de vocabulaire ({VOCAB_PACK_SIZE} mots)
         </button>
+      )}
+      {!generatingPackId && objectiveReached && !hasIncomplete && (
+        <p className="eyebrow-free">Objectif atteint : {packObjective} packs de vocabulaire ({packObjective * VOCAB_PACK_SIZE} mots) pour ce niveau.</p>
       )}
       {hasIncomplete && !generatingPackId && (
         <p className="eyebrow-free" style={{ marginTop: '0.5rem' }}>
