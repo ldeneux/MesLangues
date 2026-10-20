@@ -7,7 +7,7 @@ import {
   LEVELS,
   LEVEL_CUMULATIVE_TARGET,
   VOCAB_PACK_SIZE,
-  LISTENING_PACK_SIZE,
+  LISTENING_LEVEL_TARGET,
   WRITING_PROMPTS_PER_LEVEL,
   CONJUGATION_TARGET,
   grammarTopicsFor,
@@ -124,7 +124,7 @@ async function buildInventory(): Promise<Inventory> {
         levelCode: level.code,
         phrases: { ready: counts[base], target: LEVEL_CUMULATIVE_TARGET[level.code] },
         vocabulary: { ready: counts[base + 1], target: LEVEL_CUMULATIVE_TARGET[level.code] },
-        listening: { ready: counts[base + 2], target: LISTENING_PACK_SIZE },
+        listening: { ready: counts[base + 2], target: LISTENING_LEVEL_TARGET[level.code] },
         writing: { ready: counts[base + 3], target: WRITING_PROMPTS_PER_LEVEL },
         ...(kanjiCounts ? { kanji: { ready: kanjiCounts[li], target: kanjiForLevel(level.code).length } } : {}),
       });

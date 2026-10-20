@@ -4,7 +4,7 @@ import { supabaseAdmin } from './supabaseAdmin';
 import { fetchAllRows } from './paging';
 import { callGemini, LANGUAGE_NAMES } from './gemini';
 import { synthesizeAndStore } from './tts';
-import { THEMES, LISTENING_PACK_SIZE, QUESTIONS_PER_ARTICLE, QUIZ_DRAW_SIZE } from './constants';
+import { THEMES, LEVELS, LISTENING_PACK_SIZE, LISTENING_LEVEL_TARGET, QUESTIONS_PER_ARTICLE, QUIZ_DRAW_SIZE, packThemeQuotas, type LevelCode } from './constants';
 
 // ---------------------------------------------------------
 // Packs d'articles (même principe que phrases/vocabulaire) : génération
@@ -274,6 +274,27 @@ export type ImportArticleResult = {
   packTarget?: number;
 };
 
+// Ressemblance entre deux articles : indice de Jaccard sur les mots de 5 lettres et plus (sans accents), ou sur les paires
+// de caractères pour le japonais. Réglage : deux articles de sujets différents ≈ 0,02 à 0,10 ; le même sujet réécrit
+// autrement ≈ 0,28 ; une simple reformulation ≈ 0,9. Seuil : 0,22 (japonais : 0,30, non calibré).
+function similarityTokens(text: string, languageCode: string): Set<string> {
+  const t = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (languageCode === 'ja') {
+    const chars = Array.from(t.replace(/[\s、。！？「」『』・,.!?]/g, ''));
+    const grams = new Set<string>();
+    for (let i = 0; i < chars.length - 1; i++) grams.add(chars[i] + chars[i + 1]);
+    return grams;
+  }
+  return new Set((t.match(/\p{L}+/gu) ?? []).filter((w) => w.length >= 5));
+}
+
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let inter = 0;
+  for (const x of Array.from(a)) if (b.has(x)) inter++;
+  return inter / (a.size + b.size - inter);
+}
+
 function validateImportedArticle(a: ImportedArticle): string | null {
   const text = (v: unknown) => typeof v === 'string' && v.trim().length > 0;
   if (!a || typeof a !== 'object') return 'article invalide';
@@ -314,7 +335,30 @@ export async function importListeningArticle(
     .eq('level_code', levelCode)
     .eq('title', title)
     .limit(1);
-  if (dup && dup.length > 0) return { status: 'skipped', reason: 'titre déjà présent' };
+  if (dup && dup.length > 0) return { status: 'skipped', reason: `« ${title} » : titre déjà présent` };
+
+  // Anti-doublon sur TOUTE la langue (tous niveaux) : on refuse un article trop proche d'un article existant
+  const existing = await fetchAllRows<{ title: string; level_code: string; content: string }>((from, to) =>
+    supabaseAdmin
+      .from('listening_articles')
+      .select('title, level_code, content')
+      .eq('language_code', languageCode)
+      .order('id')
+      .range(from, to)
+  );
+  const newTokens = similarityTokens(article.content, languageCode);
+  const threshold = languageCode === 'ja' ? 0.3 : 0.22;
+  let closest: { title: string; level: string; score: number } | null = null;
+  for (const e of existing) {
+    const score = jaccard(newTokens, similarityTokens(e.content ?? '', languageCode));
+    if (score >= threshold && (!closest || score > closest.score)) closest = { title: e.title, level: e.level_code, score };
+  }
+  if (closest) {
+    return {
+      status: 'skipped',
+      reason: `« ${title} » trop proche de « ${closest.title} » (${closest.level}, ressemblance ${Math.round(closest.score * 100)} %)`,
+    };
+  }
 
   // Pack cible : le premier (par numéro) qui n'est pas plein, sinon un nouveau
   const { data: packs, error: packsError } = await supabaseAdmin
@@ -382,6 +426,49 @@ export async function importListeningArticle(
     .eq('id', pack.id);
 
   return { status: 'inserted', packNumber: pack.pack_number, packCount: newCount, packTarget: pack.target_count };
+}
+
+export type ListeningInventory = {
+  language: string;
+  total: number;
+  // Par niveau : objectif, nombre d'articles et répartition par thème (quota = répartition selon le poids des thèmes)
+  levels: Record<string, { target: number; count: number; themes: { code: string; label: string; count: number; quota: number; remaining: number }[] }>;
+  // Tous les articles existants de la langue (pour éviter doublons et sujets trop proches)
+  articles: { level: string; theme: string | null; title: string; summary: string }[];
+};
+
+/** Inventaire des articles d'écoute d'une langue (tous niveaux) : couverture par thème et liste des sujets déjà traités. */
+export async function getListeningInventory(languageCode: string): Promise<ListeningInventory> {
+  const rows = await fetchAllRows<{ level_code: string; theme_code: string | null; title: string; content: string }>((from, to) =>
+    supabaseAdmin
+      .from('listening_articles')
+      .select('level_code, theme_code, title, content')
+      .eq('language_code', languageCode)
+      .order('level_code')
+      .order('id')
+      .range(from, to)
+  );
+
+  const levels: ListeningInventory['levels'] = {};
+  for (const l of LEVELS) {
+    const code = l.code as LevelCode;
+    const target = LISTENING_LEVEL_TARGET[code];
+    const inLevel = rows.filter((r) => r.level_code === code);
+    levels[code] = {
+      target,
+      count: inLevel.length,
+      themes: packThemeQuotas(target).map((q) => {
+        const count = inLevel.filter((r) => r.theme_code === q.code).length;
+        return { code: q.code, label: q.label, count, quota: q.count, remaining: Math.max(0, q.count - count) };
+      }),
+    };
+  }
+  return {
+    language: languageCode,
+    total: rows.length,
+    levels,
+    articles: rows.map((r) => ({ level: r.level_code, theme: r.theme_code, title: r.title, summary: (r.content ?? '').slice(0, 160) })),
+  };
 }
 
 /** Articles d'un niveau sans audio : nombre et total de caractères à lire (pour l'estimation du coût). */

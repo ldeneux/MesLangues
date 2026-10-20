@@ -123,6 +123,15 @@ export const GRAMMAR_QUIZ_DRAW_SIZE = 10;
 export const VOCAB_PACK_SIZE = 350;
 
 export const LISTENING_PACK_SIZE = 50;
+
+// Objectif d'articles d'écoute par langue et par niveau : A1 = 100, A2 = 100, B1 = 150, B2 = 200
+// (2 / 2 / 3 / 4 packs de 50 articles, comme les objectifs de phrases et de vocabulaire).
+export const LISTENING_LEVEL_TARGET: Record<LevelCode, number> = {
+  A1: LEVEL_PACK_COUNT.A1 * LISTENING_PACK_SIZE,
+  A2: LEVEL_PACK_COUNT.A2 * LISTENING_PACK_SIZE,
+  B1: LEVEL_PACK_COUNT.B1 * LISTENING_PACK_SIZE,
+  B2: LEVEL_PACK_COUNT.B2 * LISTENING_PACK_SIZE,
+};
 // Banque de questions par article (5 sont tirées au hasard à chaque quiz).
 export const QUESTIONS_PER_ARTICLE = 25;
 export const QUIZ_DRAW_SIZE = 5;
