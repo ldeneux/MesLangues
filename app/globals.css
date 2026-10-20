@@ -2143,9 +2143,13 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 /* ---- Tableaux de conjugaison (personnes en lignes, 2 temps en colonnes) ---- */
 .conj-tables { display: flex; flex-direction: column; gap: 1rem; margin-top: 0.75rem; }
 .conj-table-wrap { overflow-x: auto; }
-.conj-table { width: 100%; border-collapse: collapse; font-size: 0.98rem; }
-.conj-table th, .conj-table td { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
-.conj-table thead th { font-weight: 700; white-space: nowrap; }
+
+/* À REMPLACER dans app/globals.css : les 5 lignes « .conj-table… » (section « Tableaux de conjugaison ») par celles-ci */
+.conj-table { width: 100%; border-collapse: collapse; font-size: 0.98rem; table-layout: fixed; } /* largeurs fixes : les 2 tableaux (présent/passé composé, futur/imparfait) ont exactement les mêmes colonnes */
+.conj-table th, .conj-table td { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; overflow-wrap: anywhere; }
+.conj-table thead th { font-weight: 700; }
+.conj-table thead th:first-child, .conj-table tbody th { width: 5.5rem; }
 .conj-table thead th .play-btn { margin-left: 0.5rem; vertical-align: middle; }
-.conj-table tbody th { font-weight: 400; color: var(--muted, #6b6b6b); width: 5.5rem; white-space: nowrap; }
+.conj-table tbody th { font-weight: 400; color: var(--muted, #6b6b6b); white-space: nowrap; }
 .conj-tense-name { margin-right: 0.25rem; }
+

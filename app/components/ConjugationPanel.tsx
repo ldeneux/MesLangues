@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getConjugationVerbs, type ConjugationVerb } from '../../lib/conjugation';
-import { THEMES, CONJUGATION_TARGET } from '../../lib/constants';
+import { THEMES, CONJUGATION_TARGET, LANGS } from '../../lib/constants';
+import { speak } from '../../lib/speech';
 import { displayInfinitive } from '../../lib/conjugationDisplay';
 import ConjugationTables from './ConjugationTables';
 import JapaneseConjugationDetail from './JapaneseConjugationDetail';
@@ -18,6 +19,46 @@ export default function ConjugationPanel({ languageCode, levelCode = 'A1' }: { l
   const [selected, setSelected] = useState<ConjugationVerb | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>('frequency');
   const [error, setError] = useState('');
+  const [playingInf, setPlayingInf] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Infinitif : audio enregistré s'il existe, sinon voix du navigateur (même règle que dans les leçons).
+  function stopInfinitive() {
+    audioRef.current?.pause();
+    audioRef.current = null;
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.cancel();
+    setPlayingInf(false);
+  }
+
+  function playInfinitive(v: ConjugationVerb) {
+    if (playingInf) {
+      stopInfinitive();
+      return;
+    }
+    stopInfinitive();
+    const url = v.tense_audio?.infinitive ?? null;
+    if (url) {
+      const el = new Audio(url);
+      audioRef.current = el;
+      setPlayingInf(true);
+      el.onended = () => setPlayingInf(false);
+      el.play().catch(() => setPlayingInf(false));
+      return;
+    }
+    const bcp47 = LANGS.find((l) => l.code === languageCode)?.bcp47 ?? 'en-US';
+    if (speak(displayInfinitive(v.infinitive, languageCode), bcp47)) {
+      setPlayingInf(true);
+      window.setTimeout(() => setPlayingInf(false), 1500);
+    }
+  }
+
+  // changer de verbe ou de langue coupe le son en cours
+  useEffect(() => {
+    stopInfinitive();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id, languageCode]);
+
+  useEffect(() => () => stopInfinitive(), []);
 
   useEffect(() => {
     setVerbs(null);
@@ -107,8 +148,17 @@ export default function ConjugationPanel({ languageCode, levelCode = 'A1' }: { l
 
             {selected && !(languageCode === 'ja') && (
               <div className="phrase-card conjugation-detail">
-                <div className="phrase-fr" style={{ fontWeight: 600, color: 'var(--ink)', fontSize: '1.1rem' }}>
-                  {displayInfinitive(selected.infinitive, languageCode)} <span className="revision-fr">— {selected.translation_fr}</span>
+                <div className="phrase-fr" style={{ fontWeight: 600, color: 'var(--ink)', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                  <button
+                    className={`play-btn${playingInf ? ' playing' : ''}`}
+                    onClick={() => playInfinitive(selected)}
+                    aria-label={`Écouter ${displayInfinitive(selected.infinitive, languageCode)}`}
+                  >
+                    {playingInf ? '❚❚' : '▶'}
+                  </button>
+                  <span>
+                    {displayInfinitive(selected.infinitive, languageCode)} <span className="revision-fr">— {selected.translation_fr}</span>
+                  </span>
                 </div>
                 <p className="eyebrow-free">{themeLabel(selected.theme_code)}</p>
 

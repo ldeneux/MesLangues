@@ -14,7 +14,8 @@ import {
   type ListeningPackInfo,
 } from '../../lib/articles';
 import { estimateListeningPackCost, estimateTtsCost } from '../../lib/pricing';
-import { LISTENING_PACK_SIZE, LISTENING_LEVEL_TARGET, QUESTIONS_PER_ARTICLE, type LevelCode } from '../../lib/constants';
+import { LISTENING_PACK_SIZE, LISTENING_LEVEL_TARGET, QUESTIONS_PER_ARTICLE, LANGS, type LevelCode } from '../../lib/constants';
+import { buildListeningPrompt, listeningLotFileName, LISTENING_LOT_SIZES } from '../../lib/listeningPrompt';
 
 export default function ListeningDownload({ languageCode, levelCode }: { languageCode: string; levelCode: string }) {
   const [packs, setPacks] = useState<ListeningPackInfo[] | null>(null);
@@ -32,6 +33,10 @@ export default function ListeningDownload({ languageCode, levelCode }: { languag
   const [missingAudio, setMissingAudio] = useState<{ count: number; chars: number } | null>(null);
   const [audioBusy, setAudioBusy] = useState(false);
   const [audioProgress, setAudioProgress] = useState('');
+  // Prompt pour demander un lot d'articles à Claude
+  const [lotCount, setLotCount] = useState<number>(10);
+  const [lotInput, setLotInput] = useState('');
+  const [promptCopied, setPromptCopied] = useState(false);
 
   async function refresh() {
     const list = await getListeningPacks(languageCode, levelCode);
@@ -171,6 +176,26 @@ export default function ListeningDownload({ languageCode, levelCode }: { languag
   const totalArticles = levelInventory?.count ?? packs.reduce((n, p) => n + p.generated_count, 0);
   const objectiveReached = totalArticles >= objective;
 
+  // N° de lot proposé : nombre d'articles déjà présents à ce niveau ÷ taille du lot (modifiable)
+  const lotNumber = lotInput.trim() ? Math.max(1, parseInt(lotInput, 10) || 1) : Math.floor(totalArticles / lotCount) + 1;
+  const lotPrompt = buildListeningPrompt({
+    languageLabel: LANGS.find((l) => l.code === languageCode)?.label ?? languageCode,
+    languageCode,
+    levelCode,
+    lot: lotNumber,
+    count: lotCount,
+  });
+
+  async function copyLotPrompt() {
+    try {
+      await navigator.clipboard.writeText(lotPrompt);
+      setPromptCopied(true);
+      setTimeout(() => setPromptCopied(false), 2000);
+    } catch {
+      setError('Copie impossible : ouvre « Voir le prompt » et copie-le à la main.');
+    }
+  }
+
   return (
     <div className="pack-list" style={{ marginTop: '1.5rem' }}>
       <div className="pack-row-title" style={{ marginBottom: '0.5rem' }}>
@@ -284,6 +309,49 @@ export default function ListeningDownload({ languageCode, levelCode }: { languag
         <p className="eyebrow-free" style={{ margin: '0.3rem 0 0' }}>
           À me transmettre avant chaque lot : liste des sujets déjà traités et des thèmes qui manquent. L'import refuse de toute façon un article trop proche d'un article existant de la langue.
         </p>
+
+        <div style={{ marginTop: '1rem', borderTop: '1px solid var(--line)', paddingTop: '0.75rem' }}>
+          <div className="pack-row-title">Demander un lot d'articles à Claude</div>
+          <p className="eyebrow-free" style={{ margin: '0.3rem 0 0.6rem' }}>
+            1) Télécharge l'inventaire ci-dessus. 2) Copie ce prompt dans Claude et joins l'inventaire (et, si tu veux, un lot déjà importé comme exemple
+            de format). 3) Importe plus haut le fichier JSON qu'il te rend.
+          </p>
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <label className="eyebrow-free">
+              Articles dans le lot{' '}
+              <select value={lotCount} onChange={(e) => setLotCount(Number(e.target.value))}>
+                {LISTENING_LOT_SIZES.map((n) => (
+                  <option key={n} value={n}>
+                    {n} articles ({n} thèmes)
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="eyebrow-free">
+              Lot n°{' '}
+              <input
+                type="number"
+                min={1}
+                value={lotInput === '' ? lotNumber : lotInput}
+                onChange={(e) => setLotInput(e.target.value)}
+                style={{ width: '4.5rem' }}
+              />
+            </label>
+            <button className="conv-mini-btn" onClick={copyLotPrompt}>
+              {promptCopied ? 'Prompt copié ✓' : 'Copier le prompt'}
+            </button>
+          </div>
+          <p className="eyebrow-free" style={{ margin: '0.3rem 0 0' }}>
+            Fichier attendu : <code>{listeningLotFileName(languageCode, levelCode, lotNumber)}</code>. Avec 10 articles de {QUESTIONS_PER_ARTICLE} questions, la réponse de
+            Claude est très longue : si elle s'arrête en cours de route, repasse à 5.
+          </p>
+          <details style={{ marginTop: '0.4rem' }}>
+            <summary className="eyebrow-free" style={{ cursor: 'pointer' }}>
+              Voir le prompt
+            </summary>
+            <textarea readOnly value={lotPrompt} rows={12} style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.75rem', boxSizing: 'border-box' }} />
+          </details>
+        </div>
 
         {missingAudio && missingAudio.count > 0 && (
           <div style={{ marginTop: '0.75rem' }}>
