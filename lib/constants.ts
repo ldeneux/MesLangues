@@ -123,6 +123,7 @@ export const GRAMMAR_QUIZ_DRAW_SIZE = 10;
 export const VOCAB_PACK_SIZE = 350;
 
 export const LISTENING_PACK_SIZE = 50;
+// Banque de questions par article (5 sont tirées au hasard à chaque quiz).
 export const QUESTIONS_PER_ARTICLE = 25;
 export const QUIZ_DRAW_SIZE = 5;
 

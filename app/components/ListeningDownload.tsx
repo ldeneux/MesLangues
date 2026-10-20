@@ -5,10 +5,14 @@ import {
   getListeningPacks,
   createListeningPack,
   runListeningPackStep,
+  importListeningArticle,
+  getMissingArticleAudio,
+  generateMissingArticleAudioStep,
+  type ImportedArticle,
   type ListeningPackInfo,
 } from '../../lib/articles';
-import { estimateListeningPackCost } from '../../lib/pricing';
-import { LISTENING_PACK_SIZE } from '../../lib/constants';
+import { estimateListeningPackCost, estimateTtsCost } from '../../lib/pricing';
+import { LISTENING_PACK_SIZE, QUESTIONS_PER_ARTICLE } from '../../lib/constants';
 
 export default function ListeningDownload({ languageCode, levelCode }: { languageCode: string; levelCode: string }) {
   const [packs, setPacks] = useState<ListeningPackInfo[] | null>(null);
@@ -17,9 +21,77 @@ export default function ListeningDownload({ languageCode, levelCode }: { languag
   const [progress, setProgress] = useState<{ generated: number; target: number; themeLabel?: string } | null>(null);
   const [error, setError] = useState('');
 
+  // Import manuel (fichier JSON) + audio manquant
+  const [makeVisible, setMakeVisible] = useState(true);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importNote, setImportNote] = useState('');
+  const [missingAudio, setMissingAudio] = useState<{ count: number; chars: number } | null>(null);
+  const [audioBusy, setAudioBusy] = useState(false);
+  const [audioProgress, setAudioProgress] = useState('');
+
   async function refresh() {
     const list = await getListeningPacks(languageCode, levelCode);
     setPacks(list);
+    getMissingArticleAudio(languageCode, levelCode).then(setMissingAudio).catch(() => {});
+  }
+
+  async function handleImportFile(file: File) {
+    setError('');
+    setImportNote('');
+    setImportBusy(true);
+    try {
+      let data: { language?: string; level?: string; articles?: ImportedArticle[] };
+      try {
+        data = JSON.parse(await file.text());
+      } catch {
+        throw new Error("Ce fichier n'est pas un JSON valide.");
+      }
+      if (data.language !== languageCode || data.level !== levelCode) {
+        throw new Error(
+          `Ce fichier est prévu pour ${data.language ?? '?'} ${data.level ?? '?'} : ouvre d'abord la langue « ${languageCode} » au niveau ${levelCode}.`
+        );
+      }
+      const articles = data.articles ?? [];
+      if (!Array.isArray(articles) || articles.length === 0) throw new Error('Aucun article dans ce fichier.');
+
+      let inserted = 0;
+      let skipped = 0;
+      for (let i = 0; i < articles.length; i++) {
+        setImportNote(`Import en cours : article ${i + 1} / ${articles.length}…`);
+        const r = await importListeningArticle(languageCode, levelCode, articles[i], makeVisible);
+        if (r.status === 'inserted') inserted++;
+        else skipped++;
+      }
+      setImportNote(
+        `Import terminé : ${inserted} article(s) ajouté(s)${skipped > 0 ? `, ${skipped} ignoré(s) (titre déjà présent)` : ''}. Pense à générer l'audio ci-dessous.`
+      );
+    } catch (e: any) {
+      setError(e.message ?? "Erreur pendant l'import.");
+    } finally {
+      setImportBusy(false);
+      refresh();
+    }
+  }
+
+  async function handleGenerateAudio() {
+    setError('');
+    setAudioBusy(true);
+    try {
+      let remaining = missingAudio?.count ?? 1;
+      const total = remaining;
+      while (remaining > 0) {
+        setAudioProgress(`Audio : ${total - remaining} / ${total}`);
+        const r = await generateMissingArticleAudioStep(languageCode, levelCode);
+        remaining = r.remaining;
+      }
+      setImportNote('Audio généré pour tous les articles.');
+    } catch (e: any) {
+      setError(e.message ?? "Erreur pendant la génération de l'audio.");
+    } finally {
+      setAudioBusy(false);
+      setAudioProgress('');
+      refresh();
+    }
   }
 
   useEffect(() => {
@@ -68,16 +140,18 @@ export default function ListeningDownload({ languageCode, levelCode }: { languag
 
   if (packs === null) return <p className="eyebrow-free">Chargement des packs Écoute…</p>;
 
-  const hasIncomplete = packs.some((p) => p.generated_count < p.target_count);
+  // Un pack « prêt » (par exemple importé à la main et rendu visible) n'est jamais à reprendre, même s'il n'a pas ses 50 articles.
+  const isIncomplete = (p: ListeningPackInfo) => p.status !== 'ready' && p.generated_count < p.target_count;
+  const hasIncomplete = packs.some(isIncomplete);
 
   return (
     <div className="pack-list" style={{ marginTop: '1.5rem' }}>
       <div className="pack-row-title" style={{ marginBottom: '0.5rem' }}>
-        Écoute ({LISTENING_PACK_SIZE} articles/pack, {`25 questions chacun`})
+        Écoute ({LISTENING_PACK_SIZE} articles/pack, {`${QUESTIONS_PER_ARTICLE} questions chacun`})
       </div>
 
       {packs.map((p) => {
-        const incomplete = p.generated_count < p.target_count;
+        const incomplete = isIncomplete(p);
         const isGeneratingThis = generatingPackId === p.id;
         return (
           <div key={p.id} className="pack-row">
@@ -88,6 +162,8 @@ export default function ListeningDownload({ languageCode, levelCode }: { languag
                   ? `En cours${progress.themeLabel ? ` — ${progress.themeLabel}` : ''} — ${progress.generated} / ${progress.target}`
                   : incomplete
                   ? `Incomplet — ${p.generated_count} / ${p.target_count} articles`
+                  : p.generated_count < p.target_count
+                  ? `Prêt (partiel) — ${p.generated_count} / ${p.target_count} articles`
                   : `Prêt — ${p.generated_count} articles`}
               </div>
             </div>
@@ -119,12 +195,50 @@ export default function ListeningDownload({ languageCode, levelCode }: { languag
         </p>
       )}
 
+      <div className="phrase-card" style={{ marginTop: '1rem' }}>
+        <div className="pack-row-title">Importer des articles (fichier JSON)</div>
+        <p className="eyebrow-free" style={{ margin: '0.3rem 0 0.6rem' }}>
+          Articles écrits à la main : aucun appel à Gemini. Ils sont ajoutés au premier pack de ce niveau qui a de la place ({LISTENING_PACK_SIZE} articles par pack,{' '}
+          {QUESTIONS_PER_ARTICLE} questions chacun). Un article dont le titre existe déjà est ignoré.
+        </p>
+        <label className="conv-mini-btn" style={{ cursor: importBusy ? 'default' : 'pointer', display: 'inline-block' }}>
+          {importBusy ? 'Import en cours…' : 'Choisir un fichier JSON'}
+          <input
+            type="file"
+            accept="application/json,.json"
+            disabled={importBusy || audioBusy || generatingPackId !== null}
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              if (f) handleImportFile(f);
+            }}
+          />
+        </label>
+        <label className="eyebrow-free" style={{ display: 'block', marginTop: '0.5rem' }}>
+          <input type="checkbox" checked={makeVisible} onChange={(e) => setMakeVisible(e.target.checked)} /> Rendre les articles disponibles tout de suite, même si le
+          pack n'est pas complet
+        </label>
+        {importNote && <p className="eyebrow-free">{importNote}</p>}
+
+        {missingAudio && missingAudio.count > 0 && (
+          <div style={{ marginTop: '0.75rem' }}>
+            <button className="primary" onClick={handleGenerateAudio} disabled={audioBusy || importBusy || generatingPackId !== null}>
+              {audioBusy ? audioProgress || "Génération de l'audio…" : `Générer l'audio manquant (${missingAudio.count} article${missingAudio.count > 1 ? 's' : ''})`}
+            </button>
+            <p className="eyebrow-free" style={{ margin: '0.3rem 0 0' }}>
+              ≈ {missingAudio.chars.toLocaleString('fr-FR')} caractères à lire — coût estimé ≈ {estimateTtsCost(missingAudio.chars).eur.toFixed(2)} € (voix Standard).
+            </p>
+          </div>
+        )}
+      </div>
+
       {confirming && (
         <div className="conv-live" style={{ minHeight: 0 }}>
           <div className="pack-confirm-modal">
             <p>
               Cette opération va générer <strong>{LISTENING_PACK_SIZE} articles</strong> (texte + audio) avec leur
-              banque de <strong>25 questions</strong> chacun (tirage aléatoire de 5 à chaque quiz, pour ne jamais
+              banque de <strong>{QUESTIONS_PER_ARTICLE} questions</strong> chacun (tirage aléatoire de 5 à chaque quiz, pour ne jamais
               rejouer le même).
             </p>
             <p>

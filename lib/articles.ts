@@ -1,6 +1,7 @@
 'use server';
 
 import { supabaseAdmin } from './supabaseAdmin';
+import { fetchAllRows } from './paging';
 import { callGemini, LANGUAGE_NAMES } from './gemini';
 import { synthesizeAndStore } from './tts';
 import { THEMES, LISTENING_PACK_SIZE, QUESTIONS_PER_ARTICLE, QUIZ_DRAW_SIZE } from './constants';
@@ -250,6 +251,190 @@ markdown, avec exactement ces clés :
     generatedTotal: newTotal,
     targetTotal: pack.target_count,
   };
+}
+
+// ---------------------------------------------------------
+// Import manuel d'articles (fichier JSON écrit à la main / avec Claude) + audio manquant.
+// Mêmes tables que la génération automatique : listening_articles + listening_questions.
+// ---------------------------------------------------------
+export type ImportedQuestion = { question: string; options: string[]; correct_index: number };
+export type ImportedArticle = {
+  theme?: string;
+  title: string;
+  content: string;
+  content_fr: string;
+  questions: ImportedQuestion[];
+};
+
+export type ImportArticleResult = {
+  status: 'inserted' | 'skipped';
+  reason?: string;
+  packNumber?: number;
+  packCount?: number;
+  packTarget?: number;
+};
+
+function validateImportedArticle(a: ImportedArticle): string | null {
+  const text = (v: unknown) => typeof v === 'string' && v.trim().length > 0;
+  if (!a || typeof a !== 'object') return 'article invalide';
+  if (!text(a.title) || !text(a.content) || !text(a.content_fr)) return 'titre, texte ou traduction manquant';
+  if (!Array.isArray(a.questions) || a.questions.length !== QUESTIONS_PER_ARTICLE) {
+    return `il faut exactement ${QUESTIONS_PER_ARTICLE} questions (reçu : ${Array.isArray(a.questions) ? a.questions.length : 0})`;
+  }
+  for (let i = 0; i < a.questions.length; i++) {
+    const q = a.questions[i];
+    if (!text(q?.question)) return `question ${i + 1} vide`;
+    if (!Array.isArray(q.options) || q.options.length !== 4 || !q.options.every(text)) return `question ${i + 1} : il faut 4 options non vides`;
+    if (new Set(q.options.map((o) => o.trim().toLowerCase())).size !== 4) return `question ${i + 1} : options en double`;
+    if (!Number.isInteger(q.correct_index) || q.correct_index < 0 || q.correct_index > 3) return `question ${i + 1} : correct_index doit être entre 0 et 3`;
+  }
+  return null;
+}
+
+/**
+ * Importe UN article (avec ses questions) dans le premier pack de ce niveau qui a encore de la place (sinon un nouveau
+ * pack est créé). Un article dont le titre existe déjà pour cette langue et ce niveau est ignoré (réimport sans risque).
+ * `makeVisible` : rend le pack disponible dans l'onglet Écoute même s'il n'est pas encore plein (50 articles).
+ */
+export async function importListeningArticle(
+  languageCode: string,
+  levelCode: string,
+  article: ImportedArticle,
+  makeVisible: boolean
+): Promise<ImportArticleResult> {
+  if (!LANGUAGE_NAMES[languageCode]) throw new Error(`Langue inconnue : ${languageCode}`);
+  const invalid = validateImportedArticle(article);
+  if (invalid) throw new Error(`Article « ${article?.title ?? '?'} » refusé : ${invalid}`);
+
+  const title = article.title.trim();
+  const { data: dup } = await supabaseAdmin
+    .from('listening_articles')
+    .select('id')
+    .eq('language_code', languageCode)
+    .eq('level_code', levelCode)
+    .eq('title', title)
+    .limit(1);
+  if (dup && dup.length > 0) return { status: 'skipped', reason: 'titre déjà présent' };
+
+  // Pack cible : le premier (par numéro) qui n'est pas plein, sinon un nouveau
+  const { data: packs, error: packsError } = await supabaseAdmin
+    .from('listening_packs')
+    .select('id, pack_number, target_count, status')
+    .eq('language_code', languageCode)
+    .eq('level_code', levelCode)
+    .order('pack_number');
+  if (packsError) throw new Error(packsError.message);
+
+  let pack: { id: string; pack_number: number; target_count: number; status: string } | null = null;
+  let packCountBefore = 0;
+  for (const p of packs ?? []) {
+    const { count } = await supabaseAdmin.from('listening_articles').select('id', { count: 'exact', head: true }).eq('pack_id', p.id);
+    if ((count ?? 0) < p.target_count) {
+      pack = p;
+      packCountBefore = count ?? 0;
+      break;
+    }
+  }
+  if (!pack) {
+    const created = await createListeningPack(languageCode, levelCode);
+    pack = { id: created.id, pack_number: created.pack_number, target_count: created.target_count, status: created.status };
+  }
+
+  const themeCode = article.theme && (THEMES as readonly { code: string }[]).some((t) => t.code === article.theme) ? article.theme : null;
+  const { data: inserted, error: insertError } = await supabaseAdmin
+    .from('listening_articles')
+    .insert({
+      language_code: languageCode,
+      level_code: levelCode,
+      pack_id: pack.id,
+      theme_code: themeCode,
+      title,
+      content: article.content.trim(),
+      content_fr: article.content_fr.trim(),
+    })
+    .select('id')
+    .single();
+  if (insertError || !inserted) throw new Error(insertError?.message ?? "Insertion de l'article impossible");
+
+  const { error: questionsError } = await supabaseAdmin.from('listening_questions').insert(
+    article.questions.map((q, i) => ({
+      article_id: inserted.id,
+      position: i + 1,
+      question: q.question.trim(),
+      options: q.options.map((o) => o.trim()),
+      correct_index: q.correct_index,
+    }))
+  );
+  if (questionsError) {
+    await supabaseAdmin.from('listening_articles').delete().eq('id', inserted.id); // pas d'article sans questions
+    throw new Error(questionsError.message);
+  }
+
+  const newCount = packCountBefore + 1;
+  const full = newCount >= pack.target_count;
+  await supabaseAdmin
+    .from('listening_packs')
+    .update(
+      full
+        ? { generated_count: newCount, status: 'ready', completed_at: new Date().toISOString() }
+        : { generated_count: newCount, status: makeVisible ? 'ready' : pack.status === 'ready' ? 'ready' : 'generating' }
+    )
+    .eq('id', pack.id);
+
+  return { status: 'inserted', packNumber: pack.pack_number, packCount: newCount, packTarget: pack.target_count };
+}
+
+/** Articles d'un niveau sans audio : nombre et total de caractères à lire (pour l'estimation du coût). */
+export async function getMissingArticleAudio(languageCode: string, levelCode: string): Promise<{ count: number; chars: number }> {
+  const rows = await fetchAllRows<{ content: string }>((from, to) =>
+    supabaseAdmin
+      .from('listening_articles')
+      .select('content')
+      .eq('language_code', languageCode)
+      .eq('level_code', levelCode)
+      .is('audio_url', null)
+      .order('id')
+      .range(from, to)
+  );
+  return { count: rows.length, chars: rows.reduce((n, r) => n + (r.content?.length ?? 0), 0) };
+}
+
+/** Génère l'audio de quelques articles sans audio (3 à la fois). Le client rappelle jusqu'à `remaining: 0`. */
+export async function generateMissingArticleAudioStep(
+  languageCode: string,
+  levelCode: string
+): Promise<{ remaining: number; generated: number }> {
+  const { data: batch, error } = await supabaseAdmin
+    .from('listening_articles')
+    .select('id, content')
+    .eq('language_code', languageCode)
+    .eq('level_code', levelCode)
+    .is('audio_url', null)
+    .order('created_at')
+    .limit(3);
+  if (error) throw new Error(error.message);
+  if (!batch || batch.length === 0) return { remaining: 0, generated: 0 };
+
+  const results = await Promise.allSettled(
+    batch.map(async (a) => {
+      const { audioUrl } = await synthesizeAndStore(a.content, languageCode, `${languageCode}/${levelCode}/articles/${a.id}.mp3`);
+      const { error: upError } = await supabaseAdmin.from('listening_articles').update({ audio_url: audioUrl }).eq('id', a.id);
+      if (upError) throw new Error(upError.message);
+    })
+  );
+  const generated = results.filter((r) => r.status === 'fulfilled').length;
+  if (generated === 0) {
+    const first = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+    throw first?.reason instanceof Error ? first.reason : new Error("Échec de la synthèse vocale");
+  }
+
+  const { count } = await supabaseAdmin
+    .from('listening_articles')
+    .select('id', { count: 'exact', head: true })
+    .eq('language_code', languageCode)
+    .eq('level_code', levelCode)
+    .is('audio_url', null);
+  return { remaining: count ?? 0, generated };
 }
 
 // ---------------------------------------------------------

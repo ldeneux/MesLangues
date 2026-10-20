@@ -90,3 +90,18 @@ Prérequis conseillé : lancer le classement par utilité sur les mots sans scor
   Une marque (`rev: 2`) évite de refaire le travail ; un second clic ne coûte rien. Coût = quelques centaines de caractères de synthèse vocale par verbe concerné.
 - **Leçon 0 « Prononciation »** : n'apparaît plus qu'au niveau A1.
 - Non modifié : les formes affichées dans le jeu « Conjugaison éclair » (seul l'infinitif et le libellé « elle » changent) ; le PDF garde sa mise en page (infinitif « to … » et « elle » appliqués).
+
+## Pack Écoute : contenu inchangé
+Aucun changement de contenu pédagogique : 25 questions par article, consigne de génération d'origine, longueur des articles inchangée.
+Les seules économies en place sont techniques : audio et questions générés en parallèle (gain de temps), et réflexion Gemini désactivée (`thinkingLevel: minimal`, voir `lib/articles.ts`) — ce dernier point reste à valider par toi.
+
+## Import manuel d'articles d'écoute (JSON) + audio manquant (nouveau)
+Principe : les articles et leurs 25 questions sont écrits à la main (aucun appel à Gemini) ; l'application les importe, puis génère seulement l'audio.
+- **Onglet Packs > Écoute** : bloc « Importer des articles (fichier JSON) » (choix du fichier) et bouton « Générer l'audio manquant » avec estimation du coût (voix Standard).
+- **Format du fichier** : `{ "language": "it", "level": "A2", "articles": [ { "theme": "food_restaurant", "title": "...", "content": "texte dans la langue", "content_fr": "traduction française", "questions": [ { "question": "...", "options": ["...","...","...","..."], "correct_index": 0 } ] } ] }`
+  Règles contrôlées à l'import : exactement 25 questions par article, 4 options distinctes, `correct_index` entre 0 et 3. Un article dont le titre existe déjà pour cette langue et ce niveau est ignoré (réimport sans risque).
+  La langue et le niveau du fichier doivent correspondre à la langue et au niveau ouverts dans l'application.
+- **Packs** : les articles vont dans le premier pack du niveau qui a de la place (50 articles par pack), un nouveau pack est créé si besoin. La case « Rendre disponibles tout de suite » met le pack en « Prêt (partiel) » pour pouvoir tester avant d'atteindre 50 ; un pack prêt n'est jamais proposé en « Reprendre » (ce qui aurait lancé Gemini).
+- **Audio** : 3 articles à la fois, même voix et même emplacement de stockage que la génération automatique. Coût ≈ 0,004 € par article A2.
+- Fichiers : `lib/articles.ts` (`importListeningArticle`, `getMissingArticleAudio`, `generateMissingArticleAudioStep`), `app/components/ListeningDownload.tsx`, `lib/pricing.ts` (`estimateTtsCost`).
+- Lot test fourni : `ecoute_it_A2_lot1.json` (italien A2, 5 articles de 115 à 120 mots, 25 questions chacun, bonnes réponses réparties à peu près également sur les 4 positions).
