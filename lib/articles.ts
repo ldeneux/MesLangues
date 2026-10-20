@@ -285,7 +285,8 @@ function similarityTokens(text: string, languageCode: string): Set<string> {
     for (let i = 0; i < chars.length - 1; i++) grams.add(chars[i] + chars[i + 1]);
     return grams;
   }
-  return new Set((t.match(/\p{L}+/gu) ?? []).filter((w) => w.length >= 5));
+  const words: string[] = t.match(/\p{L}+/gu) ?? [];
+  return new Set(words.filter((w) => w.length >= 5));
 }
 
 function jaccard(a: Set<string>, b: Set<string>): number {
