@@ -1,17 +1,19 @@
 'use client';
 
-export type Tab = 'kana' | 'kanji' | 'lessons' | 'today' | 'revision' | 'packs' | 'vocabulary' | 'grammar' | 'conjugation' | 'writing' | 'conversation' | 'exam' | 'games';
+export type Tab = 'kana' | 'kanji' | 'lessons' | 'today' | 'revision' | 'packs' | 'vocabulary' | 'grammar' | 'conjugation' | 'writing' | 'conversation' | 'exam' | 'games' | 'reading';
 
 export default function Sidebar({
   tab,
   onTabChange,
   showKana = false,
   showKanji = false,
+  showReading = false,
 }: {
   tab: Tab;
   onTabChange: (t: Tab) => void;
   showKana?: boolean;
   showKanji?: boolean;
+  showReading?: boolean; // Coin lecture : niveau B2 uniquement
 }) {
   return (
     <aside className="sidebar">
@@ -53,6 +55,11 @@ export default function Sidebar({
         <button className={`sidebar-item${tab === 'games' ? ' active' : ''}`} onClick={() => onTabChange('games')}>
           🎮 Jeux
         </button>
+        {showReading && (
+          <button className={`sidebar-item${tab === 'reading' ? ' active' : ''}`} onClick={() => onTabChange('reading')}>
+            📖 Coin lecture
+          </button>
+        )}
         <button className={`sidebar-item${tab === 'conversation' ? ' active' : ''}`} onClick={() => onTabChange('conversation')}>
           💬 Conversation
         </button>

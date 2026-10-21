@@ -9,6 +9,7 @@ import Sidebar, { type Tab } from './Sidebar';
 import LearnPanel from './LearnPanel';
 import RevisionPanel from './RevisionPanel';
 import PacksPanel from './PacksPanel';
+import ReadingCorner from './ReadingCorner';
 import VocabularyPanel from './VocabularyPanel';
 import GrammarPanel from './GrammarPanel';
 import ConjugationPanel from './ConjugationPanel';
@@ -33,14 +34,19 @@ export default function LanguageHub() {
     if (l !== 'ja' && (tab === 'kana' || tab === 'kanji')) setTab('today'); // Kana et Kanji n'existent qu'en japonais
   }
 
+  function handleLevelChange(lv: LevelCode) {
+    setLevel(lv);
+    if (lv !== 'B2' && tab === 'reading') setTab('today'); // le Coin lecture n'existe qu'au niveau B2
+  }
+
   if (loading) return <p className="eyebrow-free">Chargement…</p>;
   if (!profile) return <ProfileGate />;
 
   return (
     <>
-      {!examLocked && <TopBar lang={lang} level={level} onLangChange={handleLangChange} onLevelChange={setLevel} />}
+      {!examLocked && <TopBar lang={lang} level={level} onLangChange={handleLangChange} onLevelChange={handleLevelChange} />}
       <div className="hub-layout">
-        {!examLocked && <Sidebar tab={tab} onTabChange={setTab} showKana={lang === 'ja'} showKanji={lang === 'ja'} />}
+        {!examLocked && <Sidebar tab={tab} onTabChange={setTab} showKana={lang === 'ja'} showKanji={lang === 'ja'} showReading={level === 'B2'} />}
 
         <main className="hub-content">
           <ErrorBoundary key={`${tab}-${lang}-${level}`} label={tab}>
@@ -67,6 +73,7 @@ export default function LanguageHub() {
             <ExamPanel profileId={profile.id} languageCode={lang} levelCode={level} onLockChange={setExamLocked} />
           )}
           {tab === 'games' && <GamesPanel profileId={profile.id} lang={lang} level={level} />}
+          {tab === 'reading' && level === 'B2' && <ReadingCorner languageCode={lang} />}
         </ErrorBoundary>
         </main>
       </div>

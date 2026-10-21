@@ -203,3 +203,19 @@ export function estimateLessonSentencesCost(lessonCount: number, sentenceCount: 
     ((sentenceCount * SENTENCE_CHARS_PER_SENTENCE) / 1e6) * TTS_PRICE_PER_M_CHARS;
   return { usd, eur: usd * USD_TO_EUR };
 }
+// À AJOUTER À LA FIN de lib/pricing.ts
+// (si tu avais déjà collé l'ancien bloc « Coin lecture » avec estimateReadingStoryCost, remplace-le par celui-ci)
+
+// --- Coin lecture : une version par langue, à la demande ---
+//  1re langue d'un récit : version + traduction française (2 textes en sortie) ; langues suivantes : 1 texte en sortie,
+//  avec la traduction française en entrée. ≈ 1,6 token par mot (japonais : ≈ 1,7 caractère par mot, même ordre de grandeur).
+const READING_PROMPT_TOKENS = 700;
+const READING_TOKENS_PER_WORD = 1.6;
+const READING_FR_INPUT_TOKENS_PER_WORD = 1.5;
+
+export function estimateReadingCost(words: number, hasFrench: boolean): CostEstimate {
+  const inputTokens = READING_PROMPT_TOKENS + (hasFrench ? words * READING_FR_INPUT_TOKENS_PER_WORD : 0);
+  const outputTokens = (hasFrench ? 1 : 2) * words * READING_TOKENS_PER_WORD + 100;
+  const usd = (inputTokens / 1e6) * GEMINI_INPUT_PRICE_PER_M + (outputTokens / 1e6) * GEMINI_OUTPUT_PRICE_PER_M;
+  return { usd, eur: usd * USD_TO_EUR };
+}
