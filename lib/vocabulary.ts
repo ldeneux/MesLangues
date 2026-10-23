@@ -88,6 +88,45 @@ export async function reopenVocabularyPack(packId: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Supprime définitivement un mot de la base (progression, définition… partent avec lui, en cascade) et son fichier audio.
+ * Le pack du mot reste « prêt » avec son nouveau nombre de mots : s'il passe sous l'objectif, il s'affiche « Clôturé »
+ * (et non « Incomplet »), donc ses mots restent visibles.
+ */
+export async function deleteVocabularyWord(wordId: string): Promise<{ packId: string | null; remaining: number }> {
+  const { data: word, error: readError } = await supabaseAdmin
+    .from('vocabulary_words')
+    .select('id, pack_id, language_code, level_code')
+    .eq('id', wordId)
+    .maybeSingle();
+  if (readError) throw new Error(readError.message);
+  if (!word) throw new Error('Mot introuvable (déjà supprimé ?).');
+
+  const { error } = await supabaseAdmin.from('vocabulary_words').delete().eq('id', wordId);
+  if (error) throw new Error(error.message);
+
+  // Fichier audio (non bloquant : un orphelin dans le stockage ne gêne rien)
+  await supabaseAdmin.storage
+    .from('phrase-audio')
+    .remove([`${word.language_code}/${word.level_code}/vocabulary/${word.id}.mp3`])
+    .catch(() => {});
+
+  let remaining = 0;
+  if (word.pack_id) {
+    const { count } = await supabaseAdmin
+      .from('vocabulary_words')
+      .select('id', { count: 'exact', head: true })
+      .eq('pack_id', word.pack_id);
+    remaining = count ?? 0;
+    // « ready » : le pack reste visible, quel que soit son état avant la suppression
+    await supabaseAdmin
+      .from('vocabulary_packs')
+      .update({ status: 'ready', generated_count: remaining, completed_at: new Date().toISOString() })
+      .eq('id', word.pack_id);
+  }
+  return { packId: word.pack_id ?? null, remaining };
+}
+
 export type AudioStepResult = {
   remaining: number; // mots du pack encore sans audio (hors ceux écartés par le client)
   completed: number; // audios créés pendant ce pas

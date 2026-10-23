@@ -7,13 +7,13 @@ export default function Sidebar({
   onTabChange,
   showKana = false,
   showKanji = false,
-  showReading = false,
+  showReading = true,
 }: {
   tab: Tab;
   onTabChange: (t: Tab) => void;
   showKana?: boolean;
   showKanji?: boolean;
-  showReading?: boolean; // Coin lecture : niveau B2 uniquement
+  showReading?: boolean; // Coin lecture : accessible à tous les niveaux
 }) {
   return (
     <aside className="sidebar">

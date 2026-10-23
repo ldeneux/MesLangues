@@ -70,7 +70,7 @@ export async function getVocabularyDomainScore(
     if (isMastered(p.success_count, p.fail_count)) masteredCount++;
   }
 
-  const levelTarget = LEVEL_CUMULATIVE_TARGET[levelCode] ?? 700;
+  const levelTarget = LEVEL_CUMULATIVE_TARGET[levelCode] ?? 1400;
 
   return {
     masteredCount,
@@ -244,7 +244,7 @@ export async function getPhrasesDomainScore(
 
   const relevant = (progress ?? []).filter((p) => phraseIds.has(p.phrase_id) && p.success_count + p.fail_count > 0);
   const masteredCount = relevant.filter((p) => isMastered(p.success_count, p.fail_count)).length;
-  const levelTarget = LEVEL_CUMULATIVE_TARGET[levelCode] ?? 700;
+  const levelTarget = LEVEL_CUMULATIVE_TARGET[levelCode] ?? 1400;
 
   return {
     masteredCount,
@@ -372,7 +372,7 @@ const ZERO_VOCAB: VocabularyDomainScore = {
   practicedCount: 0,
   neverPracticedCount: 0,
   totalWords: 0,
-  levelTarget: 700,
+  levelTarget: 1400,
   buckets: [
     { range: '0-20%', count: 0 },
     { range: '20-40%', count: 0 },
@@ -385,7 +385,7 @@ const ZERO_VOCAB: VocabularyDomainScore = {
 const ZERO_CONJ: ConjugationDomainScore = { masteredCount: 0, practicedCount: 0, totalVerbs: 0, target: CONJUGATION_TARGET, percentOfTarget: 0 };
 const ZERO_GRAMMAR: GrammarDomainScore = { topicsMastered: 0, topicsAttempted: 0, totalTopics: GRAMMAR_TOPICS.length, percentOfTarget: 0 };
 const ZERO_LISTENING: ListeningDomainScore = { articlesMastered: 0, articlesAttempted: 0, totalArticles: 0, percentOfTarget: 0 };
-const ZERO_PHRASES: PhrasesDomainScore = { masteredCount: 0, practicedCount: 0, levelTarget: 700, percentOfTarget: 0 };
+const ZERO_PHRASES: PhrasesDomainScore = { masteredCount: 0, practicedCount: 0, levelTarget: 1400, percentOfTarget: 0 };
 const ZERO_WRITING: WritingDomainScore = { promptsMastered: 0, promptsAttempted: 0, totalPrompts: 0, percentOfTarget: 0 };
 const ZERO_CONVERSATION: ConversationDomainScore = { themesMastered: 0, themesAttempted: 0, target: CONVERSATION_TARGET_THEMES, percentOfTarget: 0 };
 

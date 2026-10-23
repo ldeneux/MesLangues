@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { getVocabularyWords, type VocabularyWordWithMastery } from '../../lib/vocabulary';
+import { getVocabularyWords, deleteVocabularyWord, type VocabularyWordWithMastery } from '../../lib/vocabulary';
 import { VOCAB_THEMES, LANGS } from '../../lib/constants';
 import VocabularyGamePanel from './VocabularyGamePanel';
 import VocabularyStatsPanel from './VocabularyStatsPanel';
@@ -59,6 +59,20 @@ export default function VocabularyPanel({
         )
       );
   }, [profileId, languageCode, levelCode]);
+
+  // Double-clic sur un mot (image ou carte) : proposition de suppression définitive (ex. « la cuillère » / « une cuillère »)
+  async function handleDelete(w: VocabularyWordWithMastery) {
+    const ok = window.confirm(
+      `Supprimer « ${w.target_text} » (${w.translation_fr}) ?\n\nLe mot est supprimé définitivement de la base (cette langue, ce niveau), avec sa progression et son audio. Son pack passera en « Clôturé » s'il n'est plus complet.`
+    );
+    if (!ok) return;
+    try {
+      await deleteVocabularyWord(w.id);
+      setWords((prev) => (prev ? prev.filter((x) => x.id !== w.id) : prev));
+    } catch (e: any) {
+      setError(e?.message ?? 'Suppression impossible.');
+    }
+  }
 
   const usedThemeCodes = useMemo(
     () => new Set((words ?? []).map((w) => w.theme_code)),
@@ -169,7 +183,15 @@ export default function VocabularyPanel({
 
               <div className="lesson-word-grid">
                 {shown.map((w) => (
-                  <div key={w.id} className="lesson-word-card">
+                  <div
+                    key={w.id}
+                    className="lesson-word-card"
+                    title="Double-clic : supprimer ce mot"
+                    onDoubleClick={(e) => {
+                      if ((e.target as HTMLElement).closest('.play-btn')) return; // double-clic sur ▶ = pas une suppression
+                      handleDelete(w);
+                    }}
+                  >
                     {w.image && (
                       <div className="lesson-word-img">
                         <img src={imageUrl(w.image)} alt="" loading="lazy" />

@@ -189,7 +189,7 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
   if (packs === null) return <p className="eyebrow-free">Chargement du vocabulaire…</p>;
 
   const hasIncomplete = packs.some(isIncomplete); // un pack clôturé ne bloque plus le téléchargement du suivant
-  const packObjective = LEVEL_PACK_COUNT[levelCode as LevelCode] ?? 2;
+  const packObjective = LEVEL_PACK_COUNT[levelCode as LevelCode] ?? 4;
   const objectiveReached = packs.length >= packObjective;
 
   return (

@@ -36,7 +36,6 @@ export default function LanguageHub() {
 
   function handleLevelChange(lv: LevelCode) {
     setLevel(lv);
-    if (lv !== 'B2' && tab === 'reading') setTab('today'); // le Coin lecture n'existe qu'au niveau B2
   }
 
   if (loading) return <p className="eyebrow-free">Chargement…</p>;
@@ -46,7 +45,7 @@ export default function LanguageHub() {
     <>
       {!examLocked && <TopBar lang={lang} level={level} onLangChange={handleLangChange} onLevelChange={handleLevelChange} />}
       <div className="hub-layout">
-        {!examLocked && <Sidebar tab={tab} onTabChange={setTab} showKana={lang === 'ja'} showKanji={lang === 'ja'} showReading={level === 'B2'} />}
+        {!examLocked && <Sidebar tab={tab} onTabChange={setTab} showKana={lang === 'ja'} showKanji={lang === 'ja'} showReading />}
 
         <main className="hub-content">
           <ErrorBoundary key={`${tab}-${lang}-${level}`} label={tab}>
@@ -73,7 +72,7 @@ export default function LanguageHub() {
             <ExamPanel profileId={profile.id} languageCode={lang} levelCode={level} onLockChange={setExamLocked} />
           )}
           {tab === 'games' && <GamesPanel profileId={profile.id} lang={lang} level={level} />}
-          {tab === 'reading' && level === 'B2' && <ReadingCorner languageCode={lang} />}
+          {tab === 'reading' && <ReadingCorner languageCode={lang} />}
         </ErrorBoundary>
         </main>
       </div>

@@ -96,16 +96,16 @@ export function packThemeQuotas(total: number = PACK_SIZE): { code: ThemeCode; l
 }
 
 // OBJECTIF par langue et par niveau, en nombre de packs (1 pack = 350 phrases ou 350 mots), identique pour les
-// phrases et le vocabulaire : A1 = 2 packs, A2 = 2, B1 = 3, B2 = 4. Éléments NOUVEAUX à chaque niveau (pas cumulés) :
-// 700 + 700 + 1050 + 1400 = 3850 en tout pour une langue.
+// phrases et le vocabulaire : A1 = 4 packs, A2 = 4, B1 = 5, B2 = 5. Éléments NOUVEAUX à chaque niveau (pas cumulés) :
+// 1400 + 1400 + 1750 + 1750 = 6300 en tout pour une langue.
 export const LEVEL_PACK_COUNT: Record<LevelCode, number> = {
-  A1: 2,
-  A2: 2,
-  B1: 3,
-  B2: 4,
+  A1: 4,
+  A2: 4,
+  B1: 5,
+  B2: 5,
 };
 
-// Cible d'éléments (phrases ou mots) propres à chaque niveau : 700 / 700 / 1050 / 1400.
+// Cible d'éléments (phrases ou mots) propres à chaque niveau : 1400 / 1400 / 1750 / 1750.
 // (Nom conservé : « LEVEL_CUMULATIVE_TARGET » est utilisé partout ; la valeur est désormais PAR NIVEAU.)
 export const LEVEL_CUMULATIVE_TARGET: Record<LevelCode, number> = {
   A1: LEVEL_PACK_COUNT.A1 * 350,
@@ -125,12 +125,13 @@ export const VOCAB_PACK_SIZE = 350;
 export const LISTENING_PACK_SIZE = 50;
 
 // Objectif d'articles d'écoute par langue et par niveau : A1 = 100, A2 = 100, B1 = 150, B2 = 200
-// (2 / 2 / 3 / 4 packs de 50 articles, comme les objectifs de phrases et de vocabulaire).
+// (2 / 2 / 3 / 4 packs de 50 articles). Indépendant des objectifs de phrases et de vocabulaire, qui ont changé.
+const LISTENING_PACK_COUNT: Record<LevelCode, number> = { A1: 2, A2: 2, B1: 3, B2: 4 };
 export const LISTENING_LEVEL_TARGET: Record<LevelCode, number> = {
-  A1: LEVEL_PACK_COUNT.A1 * LISTENING_PACK_SIZE,
-  A2: LEVEL_PACK_COUNT.A2 * LISTENING_PACK_SIZE,
-  B1: LEVEL_PACK_COUNT.B1 * LISTENING_PACK_SIZE,
-  B2: LEVEL_PACK_COUNT.B2 * LISTENING_PACK_SIZE,
+  A1: LISTENING_PACK_COUNT.A1 * LISTENING_PACK_SIZE,
+  A2: LISTENING_PACK_COUNT.A2 * LISTENING_PACK_SIZE,
+  B1: LISTENING_PACK_COUNT.B1 * LISTENING_PACK_SIZE,
+  B2: LISTENING_PACK_COUNT.B2 * LISTENING_PACK_SIZE,
 };
 // Banque de questions par article (5 sont tirées au hasard à chaque quiz).
 export const QUESTIONS_PER_ARTICLE = 25;

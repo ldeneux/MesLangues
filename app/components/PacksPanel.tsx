@@ -87,7 +87,7 @@ export default function PacksPanel({ languageCode, levelCode }: { languageCode: 
   }
 
   const hasIncomplete = packs.some((p) => p.generated_count < p.target_count);
-  const packObjective = LEVEL_PACK_COUNT[levelCode as LevelCode] ?? 2;
+  const packObjective = LEVEL_PACK_COUNT[levelCode as LevelCode] ?? 4;
   const objectiveReached = packs.length >= packObjective;
 
   return (

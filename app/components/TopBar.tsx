@@ -151,7 +151,7 @@ export default function TopBar({
         </div>
       </div>
 
-      {searchOpen && <SearchModal onClose={() => setSearchOpen(false)} />}
+      {searchOpen && <SearchModal onClose={() => setSearchOpen(false)} defaultLevel={level} />}
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
 
       {scoresOpen && profile && (

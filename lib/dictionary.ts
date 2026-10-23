@@ -4,7 +4,9 @@ import { supabaseAdmin } from './supabaseAdmin';
 import { callGemini, LANGUAGE_NAMES } from './gemini';
 import { resolveImage } from './imageIndex';
 import { imageBareKey } from './imageName';
-import { stripRuby } from './japanese';
+import { stripRuby, readingFromRuby } from './japanese';
+import { synthesizeAndStore } from './tts';
+import { VOCAB_THEMES, VOCAB_PACK_SIZE, LEVELS } from './constants';
 
 // Les 5 langues, dans l'ordre d'affichage de l'application.
 const LANG_CODES = ['it', 'es', 'en', 'ja', 'de'] as const;
@@ -210,4 +212,151 @@ chaque valeur étant ${needsJa ? '{ "text": "...", "ruby": "... (japonais seulem
     out[code] = entry;
   }
   return out;
+}
+
+export type AddWordResult = {
+  added: string[]; // codes des langues où le mot a été ajouté
+  skipped: { code: string; reason: string }[]; // déjà présent, ou pas de traduction
+  audioFailed: string[]; // langues dont l'audio n'a pas pu être créé (à compléter depuis « Packs »)
+};
+
+// Thème et nature du mot : repris de la base si le mot y est déjà (n'importe quelle langue), sinon classés par Gemini.
+async function themeAndTypeFor(french: string): Promise<{ theme_code: string; word_type: string }> {
+  const known = await supabaseAdmin
+    .from('vocabulary_words')
+    .select('theme_code, word_type')
+    .ilike('translation_fr', likeEscape(french))
+    .limit(1);
+  if (known.data?.[0]) return known.data[0];
+
+  const validTypes = ['nom', 'adjectif', 'adverbe', 'expression'];
+  const themes = VOCAB_THEMES.map((t) => `${t.code} = ${t.label}`).join('\n');
+  try {
+    const raw = await callGemini(
+      `Tu classes un mot de vocabulaire français. Réponds STRICTEMENT en JSON : { "theme_code": "...", "word_type": "nom | adjectif | adverbe | expression" }.
+theme_code doit être EXACTEMENT l'un des codes suivants (le plus pertinent) :
+${themes}`,
+      `Mot : « ${french} »`,
+      { temperature: 0, maxOutputTokens: 128, thinkingLevel: 'minimal' }
+    );
+    const p = JSON.parse(raw);
+    return {
+      theme_code: VOCAB_THEMES.some((t) => t.code === p?.theme_code) ? p.theme_code : VOCAB_THEMES[0].code,
+      word_type: validTypes.includes(p?.word_type) ? p.word_type : 'nom',
+    };
+  } catch {
+    return { theme_code: VOCAB_THEMES[0].code, word_type: 'nom' };
+  }
+}
+
+// Pack d'accueil : le premier pack « prêt » (ou clôturé) du niveau qui a de la place ; sinon un nouveau pack, créé clôturé
+// (les mots y sont tout de suite visibles).
+async function packWithRoom(languageCode: string, levelCode: string): Promise<string> {
+  const { data: packs, error } = await supabaseAdmin
+    .from('vocabulary_packs')
+    .select('id, pack_number, status, target_count')
+    .eq('language_code', languageCode)
+    .eq('level_code', levelCode)
+    .order('pack_number');
+  if (error) throw new Error(error.message);
+
+  for (const p of packs ?? []) {
+    if (p.status !== 'ready') continue;
+    const { count } = await supabaseAdmin.from('vocabulary_words').select('id', { count: 'exact', head: true }).eq('pack_id', p.id);
+    if ((count ?? 0) < p.target_count) return p.id;
+  }
+
+  const nextNumber = Math.max(0, ...(packs ?? []).map((p) => p.pack_number)) + 1;
+  const created = await supabaseAdmin
+    .from('vocabulary_packs')
+    .insert({
+      language_code: languageCode,
+      level_code: levelCode,
+      pack_number: nextNumber,
+      target_count: VOCAB_PACK_SIZE,
+      status: 'ready',
+      generated_count: 0,
+      completed_at: new Date().toISOString(),
+    })
+    .select('id')
+    .single();
+  if (created.error || !created.data) throw new Error(created.error?.message ?? 'Création du pack impossible.');
+  return created.data.id;
+}
+
+/**
+ * Ajoute le mot trouvé par la recherche aux 5 langues, au niveau choisi (texte, thème, nature, audio, lecture japonaise).
+ * Un mot déjà présent dans une langue à ce niveau ou à un niveau inférieur n'est pas dupliqué.
+ */
+export async function addWordToVocabulary(result: DictionaryResult, levelCode: string): Promise<AddWordResult> {
+  const levelIdx = LEVELS.findIndex((l) => l.code === levelCode);
+  if (levelIdx < 0) throw new Error('Niveau inconnu.');
+  const french = (result?.french ?? '').trim();
+  if (!french) throw new Error('Aucun mot à ajouter.');
+
+  const { theme_code, word_type } = await themeAndTypeFor(french);
+  const lowerLevels = LEVELS.slice(0, levelIdx + 1).map((l) => l.code as string);
+
+  const added: string[] = [];
+  const skipped: AddWordResult['skipped'] = [];
+  const audioFailed: string[] = [];
+  const touchedPacks = new Set<string>();
+
+  for (const code of LANG_CODES) {
+    const entry = result.entries?.[code];
+    if (!entry?.text?.trim()) {
+      skipped.push({ code, reason: 'pas de traduction' });
+      continue;
+    }
+    const text = entry.text.trim();
+
+    // Doublon : même texte déjà présent à ce niveau ou en dessous (même règle que la génération des packs)
+    const dup = await supabaseAdmin
+      .from('vocabulary_words')
+      .select('id, level_code')
+      .eq('language_code', code)
+      .eq('target_text', text)
+      .in('level_code', lowerLevels)
+      .limit(1);
+    if (dup.data && dup.data.length > 0) {
+      skipped.push({ code, reason: `déjà présent (${dup.data[0].level_code})` });
+      continue;
+    }
+
+    const packId = await packWithRoom(code, levelCode);
+    const ins = await supabaseAdmin
+      .from('vocabulary_words')
+      .insert({ language_code: code, level_code: levelCode, pack_id: packId, theme_code, word_type, target_text: text, translation_fr: french })
+      .select('id')
+      .single();
+    if (ins.error || !ins.data) {
+      skipped.push({ code, reason: ins.error?.message ?? 'insertion impossible' });
+      continue;
+    }
+    added.push(code);
+    touchedPacks.add(packId);
+
+    // Japonais : lecture (furigana + rōmaji) mise en cache comme pour les mots générés
+    let ttsText = text;
+    if (code === 'ja' && entry.ruby && entry.romaji && stripRuby(entry.ruby) === text) {
+      await supabaseAdmin.from('ja_readings').upsert({ text, ruby: entry.ruby, romaji: entry.romaji }, { onConflict: 'text' });
+      ttsText = readingFromRuby(entry.ruby);
+    }
+
+    // Audio : non bloquant (rattrapable avec « Compléter les audios » dans Packs)
+    try {
+      const { audioUrl } = await synthesizeAndStore(ttsText, code, `${code}/${levelCode}/vocabulary/${ins.data.id}.mp3`);
+      await supabaseAdmin.from('vocabulary_words').update({ audio_url: audioUrl }).eq('id', ins.data.id);
+    } catch {
+      audioFailed.push(code);
+    }
+  }
+
+  // Compteurs des packs touchés
+  for (const packId of touchedPacks) {
+    const { count } = await supabaseAdmin.from('vocabulary_words').select('id', { count: 'exact', head: true }).eq('pack_id', packId);
+    await supabaseAdmin.from('vocabulary_packs').update({ generated_count: count ?? 0 }).eq('id', packId);
+  }
+
+  return { added, skipped, audioFailed };
 }

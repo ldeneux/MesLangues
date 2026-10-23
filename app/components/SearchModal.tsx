@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { LANGS } from '../../lib/constants';
-import { suggestFrenchWords, lookupFrenchWord, type DictionaryResult, type DictionaryEntry } from '../../lib/dictionary';
+import { LANGS, LEVELS } from '../../lib/constants';
+import { suggestFrenchWords, lookupFrenchWord, addWordToVocabulary, type DictionaryResult, type DictionaryEntry, type AddWordResult } from '../../lib/dictionary';
 import { imageUrl } from '../../lib/imageName';
 import { speak } from '../../lib/speech';
 import FlagIcon from './FlagIcon';
@@ -15,13 +15,16 @@ import { stripRuby } from '../../lib/japanese';
  *    (la partie proposée est sélectionnée : Retour arrière ou une autre touche la remplace) ;
  *  - en quittant la saisie (Tab, clic ailleurs, Entrée) : traduction + image du mot à gauche des traductions.
  */
-export default function SearchModal({ onClose }: { onClose: () => void }) {
+export default function SearchModal({ onClose, defaultLevel = 'A1' }: { onClose: () => void; defaultLevel?: string }) {
   const [text, setText] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [result, setResult] = useState<DictionaryResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [playingKey, setPlayingKey] = useState<string | null>(null);
+  const [addLevel, setAddLevel] = useState(defaultLevel);
+  const [adding, setAdding] = useState(false);
+  const [added, setAdded] = useState<AddWordResult | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const pendingSel = useRef<[number, number] | null>(null); // sélection à rétablir après l'auto-complétion
@@ -59,6 +62,7 @@ export default function SearchModal({ onClose }: { onClose: () => void }) {
     lookupSeq.current++;
     lastLookedUp.current = '';
     setResult(null);
+    setAdded(null);
     setLoading(false);
     setError('');
 
@@ -97,6 +101,7 @@ export default function SearchModal({ onClose }: { onClose: () => void }) {
     setLoading(true);
     setError('');
     setResult(null);
+    setAdded(null);
     setSuggestions([]);
     try {
       const r = await lookupFrenchWord(q);
@@ -109,6 +114,19 @@ export default function SearchModal({ onClose }: { onClose: () => void }) {
       setError(e?.message ?? 'Recherche impossible.');
     } finally {
       if (seq === lookupSeq.current) setLoading(false);
+    }
+  }
+
+  async function handleAdd() {
+    if (!result) return;
+    setAdding(true);
+    setError('');
+    try {
+      setAdded(await addWordToVocabulary(result, addLevel));
+    } catch (e: any) {
+      setError(e?.message ?? "Ajout impossible.");
+    } finally {
+      setAdding(false);
     }
   }
 
@@ -225,9 +243,46 @@ export default function SearchModal({ onClose }: { onClose: () => void }) {
           </div>
         </div>
 
+        {result && !loading && Object.values(result.entries).some(Boolean) && (
+          <div className="search-add">
+            {added ? (
+              <p className="search-add-done">
+                ✅ Ajouté au niveau {addLevel} :{' '}
+                {added.added.length > 0 ? added.added.map((c) => LANGS.find((l) => l.code === c)?.label ?? c).join(', ') : 'rien de nouveau'}
+                {added.skipped.length > 0 && (
+                  <span className="eyebrow-free" style={{ display: 'block', margin: '0.25rem 0 0' }}>
+                    Non ajouté : {added.skipped.map((x) => `${LANGS.find((l) => l.code === x.code)?.label ?? x.code} (${x.reason})`).join(', ')}
+                  </span>
+                )}
+                {added.audioFailed.length > 0 && (
+                  <span className="eyebrow-free" style={{ display: 'block', margin: '0.25rem 0 0' }}>
+                    Audio manquant ({added.audioFailed.map((c) => LANGS.find((l) => l.code === c)?.label ?? c).join(', ')}) : à compléter depuis l'onglet Packs.
+                  </span>
+                )}
+              </p>
+            ) : (
+              <>
+                <label className="search-add-label">
+                  Ajouter ce mot aux 5 langues, niveau
+                  <select className="cascade-select" value={addLevel} onChange={(e) => setAddLevel(e.target.value)} disabled={adding}>
+                    {LEVELS.map((l) => (
+                      <option key={l.code} value={l.code}>
+                        {l.label} — {l.subtitle}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button className="primary" onClick={handleAdd} disabled={adding}>
+                  {adding ? 'Ajout en cours…' : '➕ Ajouter au vocabulaire'}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
         <p className="eyebrow-free" style={{ marginTop: '1rem', marginBottom: 0 }}>
           Tape un mot, puis quitte la saisie (Tab ou Entrée) pour voir les traductions. Les mots déjà dans ton vocabulaire viennent de la base ; les autres sont
-          traduits à la demande (étiquette « IA », rien n'est enregistré).
+          traduits à la demande (étiquette « IA ») ; ils ne sont enregistrés que si tu cliques sur « Ajouter au vocabulaire ».
         </p>
       </div>
     </div>
