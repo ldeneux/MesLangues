@@ -5,6 +5,9 @@ import {
   getVocabularyPacks,
   createVocabularyPack,
   runVocabularyPackStep,
+  closeVocabularyPack,
+  reopenVocabularyPack,
+  completeVocabularyAudioStep,
   type VocabularyPackInfo,
 } from '../../lib/vocabulary';
 import { estimateVocabularyCost, geminiCostEur } from '../../lib/pricing';
@@ -23,6 +26,9 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
   const [progress, setProgress] = useState<{ generated: number; target: number; themeLabel?: string; costEur: number } | null>(null);
   const [lastCost, setLastCost] = useState<number | null>(null);
   const [error, setError] = useState('');
+  const [audioPackId, setAudioPackId] = useState<string | null>(null); // pack dont on complète les audios
+  const [audioProgress, setAudioProgress] = useState<{ done: number; total: number } | null>(null);
+  const [busyPackId, setBusyPackId] = useState<string | null>(null); // clôture / réouverture en cours
 
   async function refresh() {
     const list = await getVocabularyPacks(languageCode, levelCode);
@@ -112,9 +118,77 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
     runLoop(pack.id, pack.target_count);
   }
 
+  // Clôturé = pack marqué « prêt » alors qu'il n'a pas atteint son objectif : ses mots sont disponibles, on peut le rouvrir.
+  const isClosed = (p: VocabularyPackInfo) => p.status === 'ready' && p.generated_count < p.target_count;
+  const isIncomplete = (p: VocabularyPackInfo) => p.generated_count < p.target_count && !isClosed(p);
+
+  async function handleClose(pack: VocabularyPackInfo) {
+    if (
+      !window.confirm(
+        `Clôturer le pack ${pack.pack_number} à ${pack.generated_count} / ${pack.target_count} mots ?\n\nSes mots seront disponibles (vocabulaire, jeux, leçons) et tu pourras télécharger le pack suivant. Tu pourras le rouvrir plus tard.`
+      )
+    )
+      return;
+    setBusyPackId(pack.id);
+    setError('');
+    try {
+      await closeVocabularyPack(pack.id);
+      await refresh();
+    } catch (e: any) {
+      setError(e?.message ?? 'Impossible de clôturer le pack.');
+    } finally {
+      setBusyPackId(null);
+    }
+  }
+
+  async function handleReopen(pack: VocabularyPackInfo) {
+    setBusyPackId(pack.id);
+    setError('');
+    try {
+      await reopenVocabularyPack(pack.id);
+      await refresh();
+    } catch (e: any) {
+      setError(e?.message ?? 'Impossible de rouvrir le pack.');
+    } finally {
+      setBusyPackId(null);
+    }
+  }
+
+  // Audios manquants (mots ajoutés à la main, synthèse échouée…) : lots de 24, résumable.
+  async function handleCompleteAudio(pack: VocabularyPackInfo) {
+    const total = pack.missing_audio ?? 0;
+    if (total === 0) return;
+    setAudioPackId(pack.id);
+    setAudioProgress({ done: 0, total });
+    setError('');
+    const failed = new Set<string>();
+    let done = 0;
+    let lastError = '';
+    try {
+      for (;;) {
+        const step = await completeVocabularyAudioStep(pack.id, Array.from(failed));
+        done += step.completed;
+        step.failedIds.forEach((id) => failed.add(id));
+        if (step.firstError) lastError = step.firstError;
+        setAudioProgress({ done, total });
+        if (step.remaining <= 0) break;
+        if (step.completed === 0) break; // plus de progrès (tout échoue) : on s'arrête au lieu de boucler
+      }
+      if (failed.size > 0) {
+        setError(`${failed.size} audio(s) n'ont pas pu être créés${lastError ? ` : ${lastError}` : ''}. Relance le lien pour réessayer.`);
+      }
+    } catch (e: any) {
+      setError(e?.message ?? 'Erreur pendant la création des audios.');
+    } finally {
+      setAudioPackId(null);
+      setAudioProgress(null);
+      refresh();
+    }
+  }
+
   if (packs === null) return <p className="eyebrow-free">Chargement du vocabulaire…</p>;
 
-  const hasIncomplete = packs.some((p) => p.generated_count < p.target_count);
+  const hasIncomplete = packs.some(isIncomplete); // un pack clôturé ne bloque plus le téléchargement du suivant
   const packObjective = LEVEL_PACK_COUNT[levelCode as LevelCode] ?? 2;
   const objectiveReached = packs.length >= packObjective;
 
@@ -125,28 +199,63 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
       </div>
 
       {packs.map((p) => {
-        const incomplete = p.generated_count < p.target_count;
+        const closed = isClosed(p);
+        const incomplete = isIncomplete(p);
         const isGeneratingThis = generatingPackId === p.id;
+        const missing = p.missing_audio ?? 0;
+        const audioBusy = audioPackId === p.id;
+        const busy = busyPackId === p.id;
+        const anyJob = generatingPackId !== null || audioPackId !== null || busyPackId !== null;
         return (
-          <div key={p.id} className="pack-row">
-            <div>
-              <div className="pack-row-title">Pack {p.pack_number}</div>
-              <div className="pack-row-sub">
-                {isGeneratingThis && progress
-                  ? `En cours${progress.themeLabel ? ` — ${progress.themeLabel}` : ''} — ${progress.generated} / ${progress.target} — coût réel ≈ ${progress.costEur.toFixed(2)} €`
-                  : incomplete
-                  ? `Incomplet — ${p.generated_count} / ${p.target_count} mots`
-                  : `Prêt — ${p.generated_count} mots`}
+          <div key={p.id} className="pack-block">
+            <div className="pack-row">
+              <div>
+                <div className="pack-row-title">Pack {p.pack_number}</div>
+                <div className="pack-row-sub">
+                  {isGeneratingThis && progress
+                    ? `En cours${progress.themeLabel ? ` — ${progress.themeLabel}` : ''} — ${progress.generated} / ${progress.target} — coût réel ≈ ${progress.costEur.toFixed(2)} €`
+                    : closed
+                    ? `Clôturé — ${p.generated_count} / ${p.target_count} mots`
+                    : incomplete
+                    ? `Incomplet — ${p.generated_count} / ${p.target_count} mots`
+                    : `Prêt — ${p.generated_count} mots`}
+                </div>
               </div>
+              {isGeneratingThis ? (
+                <span className="pack-status pack-status-generating">En cours</span>
+              ) : closed ? (
+                <div className="pack-actions">
+                  <span className="pack-status pack-status-closed">Clôturé</span>
+                  <button className="secondary" onClick={() => handleReopen(p)} disabled={anyJob}>
+                    Rouvrir
+                  </button>
+                </div>
+              ) : incomplete ? (
+                <div className="pack-actions">
+                  <button className="secondary" onClick={() => handleClose(p)} disabled={anyJob}>
+                    Clôturer
+                  </button>
+                  <button className="secondary" onClick={() => handleResume(p)} disabled={anyJob}>
+                    Reprendre
+                  </button>
+                </div>
+              ) : (
+                <span className="pack-status pack-status-ready">Prêt</span>
+              )}
             </div>
-            {isGeneratingThis ? (
-              <span className="pack-status pack-status-generating">En cours</span>
-            ) : incomplete ? (
-              <button className="secondary" onClick={() => handleResume(p)} disabled={generatingPackId !== null}>
-                Reprendre
-              </button>
-            ) : (
-              <span className="pack-status pack-status-ready">Prêt</span>
+
+            {(missing > 0 || audioBusy) && !isGeneratingThis && (
+              <div className="pack-audio-line">
+                {audioBusy && audioProgress ? (
+                  <span>
+                    🔊 Création des audios… {audioProgress.done} / {audioProgress.total}
+                  </span>
+                ) : (
+                  <button className="pack-audio-link" onClick={() => handleCompleteAudio(p)} disabled={anyJob}>
+                    🔊 Compléter les audios ({missing} manquant{missing > 1 ? 's' : ''})
+                  </button>
+                )}
+              </div>
             )}
           </div>
         );

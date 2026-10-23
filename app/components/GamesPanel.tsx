@@ -5,6 +5,7 @@ import type { LangCode, LevelCode } from '../../lib/constants';
 import GameIntrus from './GameIntrus';
 import GamePendu from './GamePendu';
 import GameMemory from './GameMemory';
+import GameRetrouveImage from './GameRetrouveImage';
 import GameEcouteDevine from './GameEcouteDevine';
 import GameChasseArticles from './GameChasseArticles';
 import GameConjugaisonEclair from './GameConjugaisonEclair';
@@ -13,7 +14,7 @@ import GameLectureEclair from './GameLectureEclair';
 import GameParticules from './GameParticules';
 import WordGameView, { wordGameTabs, isWordGame } from './wordgames/WordGameView';
 
-type GameTab = 'intrus' | 'pendu' | 'memory' | 'ecoute' | 'articles' | 'conjugaison' | 'lecture' | 'particules' | string; // + jeux de mots (wordgames/WordGameView)
+type GameTab = 'intrus' | 'pendu' | 'memory' | 'image' | 'ecoute' | 'articles' | 'conjugaison' | 'lecture' | 'particules' | string; // + jeux de mots (wordgames/WordGameView)
 
 export default function GamesPanel({
   profileId,
@@ -41,6 +42,9 @@ export default function GamesPanel({
         )}
         <button className={`subtab-btn${tab === 'memory' ? ' active' : ''}`} onClick={() => setTab('memory')}>
           Memory
+        </button>
+        <button className={`subtab-btn${tab === 'image' ? ' active' : ''}`} onClick={() => setTab('image')}>
+          Retrouve l'image
         </button>
         <button className={`subtab-btn${tab === 'ecoute' ? ' active' : ''}`} onClick={() => setTab('ecoute')}>
           Écoute et devine
@@ -76,6 +80,7 @@ export default function GamesPanel({
       {tab === 'intrus' && <GameIntrus profileId={profileId} languageCode={lang} levelCode={level} />}
       {!isJa && tab === 'pendu' && <GamePendu profileId={profileId} languageCode={lang} levelCode={level} />}
       {tab === 'memory' && <GameMemory profileId={profileId} languageCode={lang} levelCode={level} />}
+      {tab === 'image' && <GameRetrouveImage profileId={profileId} languageCode={lang} levelCode={level} />}
       {tab === 'ecoute' && <GameEcouteDevine profileId={profileId} languageCode={lang} levelCode={level} />}
       {!isJa && tab === 'articles' && <GameChasseArticles profileId={profileId} languageCode={lang} levelCode={level} />}
       {tab === 'conjugaison' &&

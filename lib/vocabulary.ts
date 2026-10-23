@@ -29,6 +29,7 @@ export type VocabularyPackInfo = {
   status: 'pending' | 'generating' | 'ready';
   generated_count: number;
   target_count: number;
+  missing_audio?: number; // mots du pack sans fichier audio (ajoutés à la main, TTS échoué…)
 };
 
 export async function getVocabularyPacks(languageCode: string, levelCode: string): Promise<VocabularyPackInfo[]> {
@@ -40,7 +41,121 @@ export async function getVocabularyPacks(languageCode: string, levelCode: string
     .order('pack_number');
 
   if (error) throw new Error(error.message);
-  return data ?? [];
+  const packs = data ?? [];
+  if (packs.length === 0) return packs;
+
+  // Nombre RÉEL de mots par pack et mots sans audio (des mots peuvent avoir été ajoutés à la main en SQL :
+  // le compteur generated_count n'est alors pas à jour).
+  const words = await fetchAllRows<{ pack_id: string; audio_url: string | null }>((from, to) =>
+    supabaseAdmin
+      .from('vocabulary_words')
+      .select('pack_id, audio_url')
+      .in('pack_id', packs.map((p) => p.id))
+      .order('id')
+      .range(from, to)
+  );
+  const total = new Map<string, number>();
+  const missing = new Map<string, number>();
+  for (const w of words) {
+    total.set(w.pack_id, (total.get(w.pack_id) ?? 0) + 1);
+    if (!w.audio_url) missing.set(w.pack_id, (missing.get(w.pack_id) ?? 0) + 1);
+  }
+  return packs.map((p) => ({ ...p, generated_count: total.get(p.id) ?? 0, missing_audio: missing.get(p.id) ?? 0 }));
+}
+
+/**
+ * Clôture un pack incomplet : il passe « prêt » avec les mots qu'il contient (ils deviennent disponibles dans le
+ * vocabulaire, les jeux, les leçons…). L'objectif (target_count) est conservé : on peut le rouvrir.
+ */
+export async function closeVocabularyPack(packId: string): Promise<void> {
+  const { count } = await supabaseAdmin
+    .from('vocabulary_words')
+    .select('id', { count: 'exact', head: true })
+    .eq('pack_id', packId);
+  const { error } = await supabaseAdmin
+    .from('vocabulary_packs')
+    .update({ status: 'ready', generated_count: count ?? 0, completed_at: new Date().toISOString() })
+    .eq('id', packId);
+  if (error) throw new Error(error.message);
+}
+
+/** Rouvre un pack clôturé : il redevient incomplet (« Reprendre » possible) et ses mots quittent le vocabulaire disponible tant qu'il n'est pas refermé. */
+export async function reopenVocabularyPack(packId: string): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from('vocabulary_packs')
+    .update({ status: 'pending', completed_at: null })
+    .eq('id', packId);
+  if (error) throw new Error(error.message);
+}
+
+export type AudioStepResult = {
+  remaining: number; // mots du pack encore sans audio (hors ceux écartés par le client)
+  completed: number; // audios créés pendant ce pas
+  failedIds: string[]; // mots dont la synthèse a échoué (à écarter au pas suivant)
+  firstError?: string;
+};
+
+/**
+ * Complète les audios manquants d'un pack, par petits lots (résumable). `skipIds` : mots déjà essayés en vain pendant
+ * cette session. Même chemin de stockage et même voix que la génération normale.
+ */
+export async function completeVocabularyAudioStep(packId: string, skipIds: string[] = []): Promise<AudioStepResult> {
+  const BATCH = 24;
+  const { data: pack, error: packError } = await supabaseAdmin
+    .from('vocabulary_packs')
+    .select('language_code, level_code')
+    .eq('id', packId)
+    .single();
+  if (packError || !pack) throw new Error(packError?.message ?? 'Pack introuvable');
+
+  const missing = await fetchAllRows<{ id: string; target_text: string }>((from, to) =>
+    supabaseAdmin
+      .from('vocabulary_words')
+      .select('id, target_text')
+      .eq('pack_id', packId)
+      .or('audio_url.is.null,audio_url.eq.')
+      .order('id')
+      .range(from, to)
+  );
+  const skip = new Set(skipIds);
+  const todo = missing.filter((w) => !skip.has(w.id));
+  const batch = todo.slice(0, BATCH);
+  if (batch.length === 0) return { remaining: 0, completed: 0, failedIds: [] };
+
+  // Japonais : on lit la prononciation en kana si la lecture est connue (comme à la génération)
+  const readingByText = new Map<string, string>();
+  if (pack.language_code === 'ja') {
+    const { data: readings } = await supabaseAdmin
+      .from('ja_readings')
+      .select('text, ruby')
+      .in('text', batch.map((w) => w.target_text));
+    for (const r of readings ?? []) readingByText.set(r.text, readingFromRuby(r.ruby));
+  }
+
+  let completed = 0;
+  const failedIds: string[] = [];
+  let firstError: string | undefined;
+  const CONCURRENCY = 6;
+  for (let i = 0; i < batch.length; i += CONCURRENCY) {
+    const slice = batch.slice(i, i + CONCURRENCY);
+    await Promise.all(
+      slice.map(async (w) => {
+        try {
+          const storagePath = `${pack.language_code}/${pack.level_code}/vocabulary/${w.id}.mp3`;
+          const ttsText = readingByText.get(w.target_text) ?? w.target_text;
+          const { audioUrl } = await synthesizeAndStore(ttsText, pack.language_code, storagePath);
+          const { error } = await supabaseAdmin.from('vocabulary_words').update({ audio_url: audioUrl }).eq('id', w.id);
+          if (error) throw new Error(error.message);
+          completed++;
+        } catch (e: any) {
+          failedIds.push(w.id);
+          if (!firstError) firstError = e?.message ?? String(e);
+        }
+      })
+    );
+  }
+
+  return { remaining: todo.length - completed - failedIds.length, completed, failedIds, firstError };
 }
 
 export async function createVocabularyPack(languageCode: string, levelCode: string): Promise<VocabularyPackInfo> {

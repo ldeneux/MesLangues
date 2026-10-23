@@ -219,6 +219,10 @@ a { color: inherit; }
   transform: translate(-50%, -50%);
 }
 
+.flag-icon-fr {
+  background: linear-gradient(to right, #0055a4 0 33.33%, #ffffff 33.33% 66.66%, #ef4135 66.66% 100%);
+}
+
 .flag-icon-de {
   background: linear-gradient(to bottom, #000000 0 33.33%, #dd0000 33.33% 66.66%, #ffce00 66.66% 100%);
 }
@@ -2153,3 +2157,75 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 .conj-table tbody th { font-weight: 400; color: var(--muted, #6b6b6b); white-space: nowrap; }
 .conj-tense-name { margin-right: 0.25rem; }
 
+
+
+/* ---- Packs : clôture et audios manquants ---- */
+.pack-block { display: flex; flex-direction: column; }
+.pack-actions { display: flex; align-items: center; gap: 0.5rem; }
+.pack-status-closed { background: #efe6d2; color: #7a5a1e; }
+.pack-audio-line { padding: 0.3rem 1rem 0; font-size: 0.85rem; color: var(--ink-soft); }
+.pack-audio-link {
+  background: none; border: none; padding: 0; font: inherit; font-size: 0.85rem;
+  color: var(--en); text-decoration: underline; cursor: pointer;
+}
+.pack-audio-link:disabled { opacity: 0.4; cursor: default; text-decoration: none; }
+
+/* ---- Recherche d'un mot (loupe) ---- */
+.search-modal { max-width: 720px; }
+.search-input-row { display: flex; align-items: flex-start; gap: 0.75rem; margin-bottom: 1.25rem; }
+.search-flag { flex: 0 0 auto; display: inline-flex; align-items: center; height: 44px; }
+.search-input-wrap { position: relative; flex: 1; }
+.search-input {
+  width: 100%; padding: 0.7rem 0.9rem; font-size: 1.15rem; border: 1px solid var(--line);
+  border-radius: 10px; background: #fff; font-family: inherit; color: var(--ink);
+}
+.search-input:focus { outline: 2px solid var(--en); outline-offset: 1px; }
+.search-suggest {
+  position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 5; background: #fff;
+  border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); overflow: hidden;
+}
+.search-suggest-item {
+  display: block; width: 100%; text-align: left; padding: 0.5rem 0.9rem; background: none; border: none;
+  font: inherit; cursor: pointer; color: var(--ink);
+}
+.search-suggest-item:hover { background: color-mix(in srgb, var(--ink) 6%, white); }
+.search-body { display: flex; gap: 1.25rem; align-items: stretch; }
+.search-image {
+  flex: 0 0 200px; min-height: 200px; border-radius: 12px; background: color-mix(in srgb, var(--ink) 4%, white);
+  border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.search-image img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.search-image-empty { color: var(--ink-soft); font-size: 1.5rem; }
+.search-rows { flex: 1; display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
+.search-row { display: flex; align-items: center; gap: 0.75rem; }
+.search-row .search-flag { height: auto; }
+.search-cell {
+  flex: 1; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  padding: 0.4rem 0.8rem; background: #fff; border: 1px solid var(--line); border-radius: 10px; min-width: 0;
+}
+.search-cell.empty { background: color-mix(in srgb, var(--ink) 3%, white); border-style: dashed; }
+.search-cell-text { font-size: 1.1rem; font-weight: 600; display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.search-romaji { font-size: 0.8rem; font-weight: 400; color: var(--ink-soft); }
+.search-wait { color: var(--ink-soft); font-size: 0.9rem; }
+.search-badge { font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.4rem; border-radius: 6px; background: #e3ebf4; color: var(--en); flex: 0 0 auto; }
+@media (max-width: 640px) {
+  .search-body { flex-direction: column; }
+  .search-image { flex-basis: auto; min-height: 160px; max-height: 200px; }
+}
+
+/* ---- Jeu « Retrouve l'image » : grille 5 × 5 d'images seules ---- */
+.find-prompt { flex-wrap: wrap; margin-top: 0; }
+.find-word { font-size: 1.6rem; font-weight: 700; }
+.find-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.5rem; max-width: 640px; }
+.find-cell {
+  position: relative; padding: 0.25rem; aspect-ratio: 1 / 1; background: #fff; border: 2px solid var(--line);
+  border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.find-cell img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
+.find-cell:hover:not(:disabled) { border-color: var(--en); }
+.find-cell:disabled { cursor: default; }
+.find-cell.wrong { border-color: #a3402f; background: #f3d6d0; }
+.find-cell.wrong img { opacity: 0.45; }
+.find-cell.found { border-color: #2f6b4f; background: #d8ecd0; }
+.find-cell.missed { border-color: #c98a1e; background: #f7e7c2; }
+.find-cell.answer { border-color: #2f6b4f; box-shadow: 0 0 0 3px rgba(47, 107, 79, 0.35); }

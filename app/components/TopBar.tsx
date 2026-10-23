@@ -6,6 +6,7 @@ import { LANGS, LEVELS, type LangCode, type LevelCode } from '../../lib/constant
 import FlagIcon from './FlagIcon';
 import MyScoresPanel from './MyScoresPanel';
 import SettingsPanel from './SettingsPanel';
+import SearchModal from './SearchModal';
 
 export default function TopBar({
   lang,
@@ -25,6 +26,7 @@ export default function TopBar({
   const [emoji, setEmoji] = useState(EMOJI_CHOICES[0]);
   const [scoresOpen, setScoresOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   async function handleCreate() {
     if (!name.trim()) return;
@@ -37,7 +39,7 @@ export default function TopBar({
   return (
     <div className="topbar topbar-full">
       <div className="topbar-left">
-        <img src="/logo.png" alt="Mes langues" className="topbar-logo" width={90} height={90} />
+        <img src="/logo.png" alt="Mes langues" className="topbar-logo" width={96} height={96} />
       </div>
 
       <div className="topbar-main">
@@ -80,6 +82,9 @@ export default function TopBar({
 
         <div className="topbar-right">
           <div className="topbar-actions">
+            <button className="topbar-icon-btn" onClick={() => setSearchOpen(true)} aria-label="Chercher un mot" title="Chercher un mot">
+              🔍
+            </button>
             <button className="topbar-icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Réglages" title="Réglages">
               ⚙️
             </button>
@@ -146,6 +151,7 @@ export default function TopBar({
         </div>
       </div>
 
+      {searchOpen && <SearchModal onClose={() => setSearchOpen(false)} />}
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
 
       {scoresOpen && profile && (
