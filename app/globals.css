@@ -2241,3 +2241,23 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 .search-badge-danger { background: #f3c9c0; color: #8c2f1f; }
 .delete-actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem; }
 button.primary.danger { background: #a3402f; color: #fff; }
+
+/* ---- Contenu d'un pack (double-clic) ---- */
+.pack-row { cursor: default; user-select: none; }
+.pack-words-modal { max-width: 760px; display: flex; flex-direction: column; max-height: 90vh; }
+.pack-words-sub { font-size: 0.85rem; font-weight: 400; color: var(--ink-soft); font-family: inherit; }
+.pack-words-toolbar { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+.pack-words-list { flex: 1; min-height: 160px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.pack-words-group-head {
+  position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 0.6rem; padding: 0.45rem 0.8rem;
+  background: color-mix(in srgb, var(--ink) 6%, white); font-weight: 700; cursor: pointer; border-bottom: 1px solid var(--line);
+}
+.pack-word-row { display: flex; align-items: center; gap: 0.7rem; padding: 0.4rem 0.8rem; cursor: pointer; border-bottom: 1px solid color-mix(in srgb, var(--ink) 7%, white); }
+.pack-word-row:hover { background: color-mix(in srgb, var(--ink) 3%, white); }
+.pack-word-row.selected { background: #e8f0f8; }
+.pack-word-foreign { flex: 1; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.pack-word-fr { flex: 1; color: var(--ink-soft); min-width: 0; overflow-wrap: anywhere; }
+.pack-words-footer { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-top: 1rem; }
+.pack-words-move { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.pack-words-confirm { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; font-size: 0.9rem; color: #8c2f1f; }
+.pack-delete-btn { color: #8c2f1f; }

@@ -127,6 +127,112 @@ export async function deleteVocabularyWord(wordId: string): Promise<{ packId: st
   return { packId: word.pack_id ?? null, remaining };
 }
 
+export type PackWord = {
+  id: string;
+  target_text: string;
+  translation_fr: string;
+  word_type: string;
+  audio_url: string | null;
+};
+
+/** Mots d'un pack (sans suivi de maîtrise) pour la fenêtre de gestion du pack. */
+export async function getVocabularyPackWords(packId: string): Promise<PackWord[]> {
+  return fetchAllRows<PackWord>((from, to) =>
+    supabaseAdmin
+      .from('vocabulary_words')
+      .select('id, target_text, translation_fr, word_type, audio_url')
+      .eq('pack_id', packId)
+      .order('id')
+      .range(from, to)
+  );
+}
+
+async function recountPack(packId: string): Promise<number> {
+  const { count } = await supabaseAdmin.from('vocabulary_words').select('id', { count: 'exact', head: true }).eq('pack_id', packId);
+  const n = count ?? 0;
+  await supabaseAdmin.from('vocabulary_packs').update({ generated_count: n }).eq('id', packId);
+  return n;
+}
+
+/**
+ * Transfère des mots vers un autre pack de la MÊME langue et du MÊME niveau. Les compteurs des deux packs sont recalculés ;
+ * un pack « prêt » qui passe sous son objectif s'affiche « Clôturé » (ses mots restent visibles).
+ */
+export async function moveVocabularyWords(wordIds: string[], targetPackId: string): Promise<{ moved: number; targetCount: number }> {
+  if (wordIds.length === 0) return { moved: 0, targetCount: 0 };
+
+  const { data: target, error: targetError } = await supabaseAdmin
+    .from('vocabulary_packs')
+    .select('id, language_code, level_code, target_count, pack_number')
+    .eq('id', targetPackId)
+    .single();
+  if (targetError || !target) throw new Error(targetError?.message ?? 'Pack de destination introuvable.');
+
+  const words: { id: string; pack_id: string | null; language_code: string; level_code: string }[] = [];
+  for (let i = 0; i < wordIds.length; i += 200) {
+    const { data, error } = await supabaseAdmin
+      .from('vocabulary_words')
+      .select('id, pack_id, language_code, level_code')
+      .in('id', wordIds.slice(i, i + 200));
+    if (error) throw new Error(error.message);
+    words.push(...(data ?? []));
+  }
+  if (words.some((w) => w.language_code !== target.language_code || w.level_code !== target.level_code)) {
+    throw new Error('Le transfert est possible uniquement vers un pack de la même langue et du même niveau.');
+  }
+
+  const toMove = words.filter((w) => w.pack_id !== targetPackId);
+  const { count: current } = await supabaseAdmin
+    .from('vocabulary_words')
+    .select('id', { count: 'exact', head: true })
+    .eq('pack_id', targetPackId);
+  if ((current ?? 0) + toMove.length > target.target_count) {
+    throw new Error(
+      `Le pack ${target.pack_number} n'a de la place que pour ${Math.max(0, target.target_count - (current ?? 0))} mot(s) (objectif ${target.target_count}).`
+    );
+  }
+
+  const sources = new Set(toMove.map((w) => w.pack_id).filter((id): id is string => !!id));
+  for (let i = 0; i < toMove.length; i += 200) {
+    const { error } = await supabaseAdmin
+      .from('vocabulary_words')
+      .update({ pack_id: targetPackId })
+      .in('id', toMove.slice(i, i + 200).map((w) => w.id));
+    if (error) throw new Error(error.message);
+  }
+
+  for (const id of sources) await recountPack(id);
+  const targetCount = await recountPack(targetPackId);
+  return { moved: toMove.length, targetCount };
+}
+
+/** Supprime un pack ET tous ses mots (progression et définitions en cascade), avec leurs fichiers audio. Irréversible. */
+export async function deleteVocabularyPack(packId: string): Promise<{ deletedWords: number }> {
+  const { data: pack, error: packError } = await supabaseAdmin
+    .from('vocabulary_packs')
+    .select('id, language_code, level_code')
+    .eq('id', packId)
+    .maybeSingle();
+  if (packError) throw new Error(packError.message);
+  if (!pack) throw new Error('Pack introuvable (déjà supprimé ?).');
+
+  const words = await fetchAllRows<{ id: string }>((from, to) =>
+    supabaseAdmin.from('vocabulary_words').select('id').eq('pack_id', packId).order('id').range(from, to)
+  );
+
+  const { error } = await supabaseAdmin.from('vocabulary_packs').delete().eq('id', packId); // les mots suivent (on delete cascade)
+  if (error) throw new Error(error.message);
+
+  // Fichiers audio (non bloquant)
+  for (let i = 0; i < words.length; i += 100) {
+    await supabaseAdmin.storage
+      .from('phrase-audio')
+      .remove(words.slice(i, i + 100).map((w) => `${pack.language_code}/${pack.level_code}/vocabulary/${w.id}.mp3`))
+      .catch(() => {});
+  }
+  return { deletedWords: words.length };
+}
+
 export type AudioStepResult = {
   remaining: number; // mots du pack encore sans audio (hors ceux écartés par le client)
   completed: number; // audios créés pendant ce pas

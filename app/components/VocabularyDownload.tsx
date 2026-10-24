@@ -10,6 +10,7 @@ import {
   completeVocabularyAudioStep,
   type VocabularyPackInfo,
 } from '../../lib/vocabulary';
+import PackWordsModal from './PackWordsModal';
 import { estimateVocabularyCost, geminiCostEur } from '../../lib/pricing';
 import { VOCAB_PACK_SIZE, VOCAB_THEMES, LEVEL_PACK_COUNT, type LevelCode } from '../../lib/constants';
 
@@ -29,6 +30,7 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
   const [audioPackId, setAudioPackId] = useState<string | null>(null); // pack dont on complète les audios
   const [audioProgress, setAudioProgress] = useState<{ done: number; total: number } | null>(null);
   const [busyPackId, setBusyPackId] = useState<string | null>(null); // clôture / réouverture en cours
+  const [openPackId, setOpenPackId] = useState<string | null>(null); // pack ouvert (double-clic) pour voir / transférer ses mots
 
   async function refresh() {
     const list = await getVocabularyPacks(languageCode, levelCode);
@@ -208,7 +210,14 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
         const anyJob = generatingPackId !== null || audioPackId !== null || busyPackId !== null;
         return (
           <div key={p.id} className="pack-block">
-            <div className="pack-row">
+            <div
+              className="pack-row"
+              title={isGeneratingThis ? undefined : 'Double-clic : voir les mots du pack'}
+              onDoubleClick={(e) => {
+                if (isGeneratingThis || (e.target as HTMLElement).closest('button')) return;
+                setOpenPackId(p.id);
+              }}
+            >
               <div>
                 <div className="pack-row-title">Pack {p.pack_number}</div>
                 <div className="pack-row-sub">
@@ -303,6 +312,15 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
             </div>
           </div>
         </div>
+      )}
+      {openPackId && packs.find((x) => x.id === openPackId) && (
+        <PackWordsModal
+          pack={packs.find((x) => x.id === openPackId)!}
+          allPacks={packs}
+          languageCode={languageCode}
+          onClose={() => setOpenPackId(null)}
+          onChanged={() => refresh()}
+        />
       )}
     </div>
   );
