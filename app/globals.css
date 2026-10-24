@@ -2234,3 +2234,10 @@ button.secondary:disabled { opacity: 0.4; cursor: default; }
 .search-add { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--line); }
 .search-add-label { display: flex; align-items: center; gap: 0.6rem; font-size: 0.95rem; }
 .search-add-done { margin: 0; font-weight: 600; }
+
+/* ---- Fenêtre de suppression d'un mot ---- */
+.delete-fr { flex: 1; font-size: 1.15rem; }
+.search-cell.highlight { border-color: #a3402f; background: #f9e3de; }
+.search-badge-danger { background: #f3c9c0; color: #8c2f1f; }
+.delete-actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem; }
+button.primary.danger { background: #a3402f; color: #fff; }

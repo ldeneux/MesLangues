@@ -18,11 +18,13 @@ export type DictionaryEntry = {
   ruby?: string; // japonais : furigana {kanji|lecture}
   romaji?: string;
   source: 'base' | 'ia'; // « base » : mot déjà dans le vocabulaire ; « ia » : traduit à la demande (rien n'est enregistré)
+  level?: string; // niveau du mot dans le vocabulaire (source « base » uniquement)
 };
 
 export type DictionaryResult = {
   french: string; // forme française retenue (celle de la base si le mot y est)
   image: string | null; // nom du fichier image (sans extension) s'il en existe une
+  level: string | null; // niveau le plus bas où le mot existe déjà dans le vocabulaire (null : inconnu de la base)
   entries: Record<string, DictionaryEntry | null>;
 };
 
@@ -79,6 +81,15 @@ type BaseRow = {
  * manquantes sont traduites par Gemini (un seul appel). Rien n'est écrit en base. Renvoie aussi l'image du mot si elle existe.
  */
 export async function lookupFrenchWord(input: string): Promise<DictionaryResult> {
+  return lookupInternal(input, true);
+}
+
+/** Comme lookupFrenchWord, mais SANS IA : seules les traductions déjà présentes dans la base sont renvoyées (les autres langues restent vides). */
+export async function lookupFrenchWordInBase(input: string): Promise<DictionaryResult> {
+  return lookupInternal(input, false);
+}
+
+async function lookupInternal(input: string, withAi: boolean): Promise<DictionaryResult> {
   const q = (input ?? '').trim().replace(/\s+/g, ' ');
   if (!q) throw new Error('Saisis un mot.');
   const esc = likeEscape(q);
@@ -133,7 +144,7 @@ export async function lookupFrenchWord(input: string): Promise<DictionaryResult>
         return LEVEL_ORDER.indexOf(a.level_code) - LEVEL_ORDER.indexOf(b.level_code);
       });
     entries[code] = cands[0]
-      ? { text: cands[0].target_text, audio_url: cands[0].audio_url || null, source: 'base' }
+      ? { text: cands[0].target_text, audio_url: cands[0].audio_url || null, source: 'base', level: cands[0].level_code }
       : null;
   }
 
@@ -149,7 +160,7 @@ export async function lookupFrenchWord(input: string): Promise<DictionaryResult>
 
   // 2) Langues manquantes : traduction par Gemini (un seul appel)
   const missing = LANG_CODES.filter((c) => !entries[c]);
-  if (missing.length > 0) {
+  if (withAi && missing.length > 0) {
     try {
       const translated = await translateMissing(french, missing);
       for (const code of missing) if (translated[code]) entries[code] = translated[code]!;
@@ -173,7 +184,11 @@ export async function lookupFrenchWord(input: string): Promise<DictionaryResult>
     }
   }
 
-  return { french, image, entries };
+  const baseLevels = LANG_CODES.map((c) => entries[c]?.level)
+    .filter((l): l is string => !!l)
+    .sort((a, b) => LEVEL_ORDER.indexOf(a) - LEVEL_ORDER.indexOf(b));
+
+  return { french, image, level: baseLevels[0] ?? null, entries };
 }
 
 async function translateMissing(french: string, codes: string[]): Promise<Record<string, DictionaryEntry | null>> {
@@ -306,6 +321,10 @@ export async function addWordToVocabulary(result: DictionaryResult, levelCode: s
     const entry = result.entries?.[code];
     if (!entry?.text?.trim()) {
       skipped.push({ code, reason: 'pas de traduction' });
+      continue;
+    }
+    if (entry.source === 'base') {
+      skipped.push({ code, reason: 'déjà dans le vocabulaire' });
       continue;
     }
     const text = entry.text.trim();

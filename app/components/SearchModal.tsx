@@ -2,12 +2,9 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { LANGS, LEVELS } from '../../lib/constants';
-import { suggestFrenchWords, lookupFrenchWord, addWordToVocabulary, type DictionaryResult, type DictionaryEntry, type AddWordResult } from '../../lib/dictionary';
-import { imageUrl } from '../../lib/imageName';
-import { speak } from '../../lib/speech';
+import { suggestFrenchWords, lookupFrenchWord, addWordToVocabulary, type DictionaryResult, type AddWordResult } from '../../lib/dictionary';
 import FlagIcon from './FlagIcon';
-import JapaneseRuby from './JapaneseRuby';
-import { stripRuby } from '../../lib/japanese';
+import WordTranslations from './WordTranslations';
 
 /**
  * Recherche d'un mot : on tape en français, les 5 langues se remplissent à la sortie de la saisie.
@@ -21,7 +18,6 @@ export default function SearchModal({ onClose, defaultLevel = 'A1' }: { onClose:
   const [result, setResult] = useState<DictionaryResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [playingKey, setPlayingKey] = useState<string | null>(null);
   const [addLevel, setAddLevel] = useState(defaultLevel);
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState<AddWordResult | null>(null);
@@ -122,7 +118,7 @@ export default function SearchModal({ onClose, defaultLevel = 'A1' }: { onClose:
     setAdding(true);
     setError('');
     try {
-      setAdded(await addWordToVocabulary(result, addLevel));
+      setAdded(await addWordToVocabulary(result, effectiveLevel));
     } catch (e: any) {
       setError(e?.message ?? "Ajout impossible.");
     } finally {
@@ -136,18 +132,12 @@ export default function SearchModal({ onClose, defaultLevel = 'A1' }: { onClose:
     runLookup(s);
   }
 
-  function play(code: string, entry: DictionaryEntry, bcp47: string) {
-    setPlayingKey(code);
-    if (entry.audio_url) {
-      const el = new Audio(entry.audio_url);
-      el.onended = () => setPlayingKey(null);
-      el.play().catch(() => setPlayingKey(null));
-    } else {
-      // Mot traduit à la demande : pas de fichier audio, on utilise la voix du navigateur
-      speak(entry.ruby ? stripRuby(entry.ruby) : entry.text, bcp47);
-      setTimeout(() => setPlayingKey(null), 900);
-    }
-  }
+  // État du mot par rapport au vocabulaire : inconnu / connu en partie (à compléter) / complet
+  const langLabel = (c: string) => LANGS.find((l) => l.code === c)?.label ?? c;
+  const known = !!result && result.level !== null;
+  const missingCodes = result ? LANGS.map((l) => l.code as string).filter((c) => result.entries[c]?.source !== 'base') : [];
+  const complete = known && missingCodes.length === 0;
+  const effectiveLevel = known ? result!.level! : addLevel; // un mot connu garde son niveau (le plus bas où il existe)
 
   return (
     <div className="scores-overlay" onClick={onClose}>
@@ -203,67 +193,43 @@ export default function SearchModal({ onClose, defaultLevel = 'A1' }: { onClose:
 
         {error && <p className="conv-warning">{error}</p>}
 
-        <div className="search-body">
-          <div className="search-image">
-            {result?.image ? <img src={imageUrl(result.image)} alt={result.french} /> : <span className="search-image-empty">{loading ? '…' : ''}</span>}
-          </div>
-
-          <div className="search-rows">
-            {LANGS.map((l) => {
-              const entry = result?.entries[l.code] ?? null;
-              return (
-                <div key={l.code} className="search-row">
-                  <span className="search-flag" title={l.label}>
-                    <FlagIcon code={l.code} />
-                  </span>
-                  <div className={`search-cell${entry ? '' : ' empty'}`}>
-                    {loading ? (
-                      <span className="search-wait">Traduction…</span>
-                    ) : entry ? (
-                      <>
-                        <span className="search-cell-text">
-                          {l.code === 'ja' && entry.ruby ? <JapaneseRuby ruby={entry.ruby} /> : <span lang={l.code}>{entry.text}</span>}
-                          {l.code === 'ja' && entry.romaji && <span className="search-romaji">{entry.romaji}</span>}
-                        </span>
-                        {entry.source === 'ia' && <span className="search-badge" title="Traduit à la demande : ce mot n'est pas dans ton vocabulaire">IA</span>}
-                      </>
-                    ) : null}
-                  </div>
-                  <button
-                    className={`play-btn${playingKey === l.code ? ' playing' : ''}`}
-                    onClick={() => entry && play(l.code, entry, l.bcp47)}
-                    disabled={!entry}
-                    aria-label={`Écouter en ${l.label.toLowerCase()}`}
-                  >
-                    {playingKey === l.code ? '❚❚' : '▶'}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        <WordTranslations result={result} loading={loading} />
 
         {result && !loading && Object.values(result.entries).some(Boolean) && (
           <div className="search-add">
             {added ? (
               <p className="search-add-done">
-                ✅ Ajouté au niveau {addLevel} :{' '}
-                {added.added.length > 0 ? added.added.map((c) => LANGS.find((l) => l.code === c)?.label ?? c).join(', ') : 'rien de nouveau'}
-                {added.skipped.length > 0 && (
+                ✅ {added.added.length > 0 ? `Ajouté au niveau ${effectiveLevel} : ${added.added.map(langLabel).join(', ')}` : 'Rien de nouveau à ajouter'}
+                {added.skipped.filter((x) => x.reason !== 'déjà dans le vocabulaire').length > 0 && (
                   <span className="eyebrow-free" style={{ display: 'block', margin: '0.25rem 0 0' }}>
-                    Non ajouté : {added.skipped.map((x) => `${LANGS.find((l) => l.code === x.code)?.label ?? x.code} (${x.reason})`).join(', ')}
+                    Non ajouté :{' '}
+                    {added.skipped
+                      .filter((x) => x.reason !== 'déjà dans le vocabulaire')
+                      .map((x) => `${langLabel(x.code)} (${x.reason})`)
+                      .join(', ')}
                   </span>
                 )}
                 {added.audioFailed.length > 0 && (
                   <span className="eyebrow-free" style={{ display: 'block', margin: '0.25rem 0 0' }}>
-                    Audio manquant ({added.audioFailed.map((c) => LANGS.find((l) => l.code === c)?.label ?? c).join(', ')}) : à compléter depuis l'onglet Packs.
+                    Audio manquant ({added.audioFailed.map(langLabel).join(', ')}) : à compléter depuis l'onglet Packs.
                   </span>
                 )}
               </p>
+            ) : complete ? (
+              <p className="search-add-done">✔ Déjà dans ton vocabulaire dans les 5 langues (niveau {result.level}).</p>
+            ) : known ? (
+              <>
+                <span className="search-add-label">
+                  Dans ton vocabulaire au niveau {result.level} — il manque : {missingCodes.map(langLabel).join(', ')}
+                </span>
+                <button className="primary" onClick={handleAdd} disabled={adding}>
+                  {adding ? 'Mise à jour…' : `🔄 Mettre à jour (${missingCodes.length} langue${missingCodes.length > 1 ? 's' : ''})`}
+                </button>
+              </>
             ) : (
               <>
                 <label className="search-add-label">
-                  Ajouter ce mot aux 5 langues, niveau
+                  Mot absent de ton vocabulaire. Ajouter aux 5 langues, niveau
                   <select className="cascade-select" value={addLevel} onChange={(e) => setAddLevel(e.target.value)} disabled={adding}>
                     {LEVELS.map((l) => (
                       <option key={l.code} value={l.code}>
