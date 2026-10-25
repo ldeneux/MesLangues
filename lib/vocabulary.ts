@@ -678,12 +678,12 @@ export async function getVocabularyScores(
   const packIds = await getReadyVocabularyPackIds(languageCode, levelCode);
   if (packIds.length === 0) return [];
 
-  const { data: words } = await supabaseAdmin
-    .from('vocabulary_words')
-    .select('id, target_text, translation_fr')
-    .in('pack_id', packIds);
+  // Lecture paginée : une réponse Supabase est limitée à 1000 lignes
+  const words = await fetchAllRows<{ id: string; target_text: string; translation_fr: string }>((from, to) =>
+    supabaseAdmin.from('vocabulary_words').select('id, target_text, translation_fr').in('pack_id', packIds).order('id').range(from, to)
+  );
 
-  const wordMap = new Map((words ?? []).map((w) => [w.id, w]));
+  const wordMap = new Map(words.map((w) => [w.id, w]));
 
   const { data: progress } = await supabaseAdmin
     .from('vocabulary_progress')
@@ -724,8 +724,10 @@ export async function resetAllVocabularyProgress(
   const packIds = await getReadyVocabularyPackIds(languageCode, levelCode);
   if (packIds.length === 0) return;
 
-  const { data: words } = await supabaseAdmin.from('vocabulary_words').select('id').in('pack_id', packIds);
-  const wordIds = (words ?? []).map((w) => w.id);
+  const words = await fetchAllRows<{ id: string }>((from, to) =>
+    supabaseAdmin.from('vocabulary_words').select('id').in('pack_id', packIds).order('id').range(from, to)
+  );
+  const wordIds = words.map((w) => w.id);
   if (wordIds.length === 0) return;
 
   const { data: progress } = await supabaseAdmin
@@ -755,22 +757,18 @@ export async function getVocabularyWords(
   if (packIds.length === 0) return [];
 
   // Le nom d'image enregistré en base est lu avec les mots ; si la colonne n'existe pas encore (migration 024), on s'en passe.
-  let res: { data: any[] | null; error: any } = await supabaseAdmin
-    .from('vocabulary_words')
-    .select('id, theme_code, word_type, target_text, translation_fr, audio_url, image')
-    .in('pack_id', packIds)
-    .order('theme_code');
-  if (res.error && String(res.error.message ?? '').includes('image')) {
-    res = await supabaseAdmin
-      .from('vocabulary_words')
-      .select('id, theme_code, word_type, target_text, translation_fr, audio_url')
-      .in('pack_id', packIds)
-      .order('theme_code');
+  // Lecture paginée : une réponse Supabase est limitée à 1000 lignes (au-delà, la liste s'arrêtait à 1000 mots).
+  const baseCols = 'id, theme_code, word_type, target_text, translation_fr, audio_url';
+  const readWords = (cols: string) =>
+    fetchAllRows<any>((from, to) => supabaseAdmin.from('vocabulary_words').select(cols).in('pack_id', packIds).order('id').range(from, to));
+  let words: any[];
+  try {
+    words = await readWords(`${baseCols}, image`);
+  } catch (e: any) {
+    if (!String(e?.message ?? '').includes('image')) throw e;
+    words = await readWords(baseCols);
   }
-  const { data: words, error } = res;
-
-  if (error) throw new Error(error.message);
-  if (!words || words.length === 0) return [];
+  if (words.length === 0) return [];
 
   const wordIds = new Set(words.map((w) => w.id));
 
@@ -813,20 +811,19 @@ export async function getGameItems(
 ): Promise<GameItem[]> {
   const packIds = await getReadyVocabularyPackIds(languageCode, levelCode);
 
-  const { data: words } =
+  const words =
     packIds.length > 0
-      ? await supabaseAdmin
-          .from('vocabulary_words')
-          .select('id, target_text, translation_fr, audio_url')
-          .in('pack_id', packIds)
-      : { data: [] as { id: string; target_text: string; translation_fr: string; audio_url: string | null }[] };
+      ? await fetchAllRows<{ id: string; target_text: string; translation_fr: string; audio_url: string | null }>((from, to) =>
+          supabaseAdmin.from('vocabulary_words').select('id, target_text, translation_fr, audio_url').in('pack_id', packIds).order('id').range(from, to)
+        )
+      : [];
 
   const { data: verbs } = await supabaseAdmin
     .from('conjugation_verbs')
     .select('id, infinitive, translation_fr, tense_audio')
     .eq('language_code', languageCode);
 
-  let wordItems: GameItem[] = (words ?? []).map((w) => ({
+  let wordItems: GameItem[] = words.map((w) => ({
     id: w.id,
     source: 'word',
     target_text: w.target_text,

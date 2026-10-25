@@ -305,10 +305,9 @@ export async function buildLessonPlan(
 
     const words = await fetchAllWords(languageCode, levelCode);
     if (words.length === 0) return { ok: false, error: 'Aucun mot dans les packs de vocabulaire prêts et actifs de ce niveau : va dans Packs (télécharge ou active des packs).' };
+    // Mots pas encore classés par utilité : on ne bloque plus. Ils sont placés au milieu (score 50) ; « Classer les mots »
+    // reste possible pour affiner l'ordre (les plus utiles en premier dans chaque thème).
     const unranked = words.filter((w) => w.usage_score == null).length;
-    if (unranked > words.length * 0.1) {
-      return { ok: false, error: `${unranked} mots ne sont pas encore classés par utilité : lance d'abord « Classer les mots par utilité ».` };
-    }
 
     // Verbes : on exclut ceux déjà utilisés par les leçons d'un autre niveau de la même langue.
     const allVerbs = await fetchVerbs(languageCode, levelCode);
@@ -351,6 +350,7 @@ export async function buildLessonPlan(
     });
     if (!plan.ok) return { ok: false, error: (plan as { error: string }).error };
     const { lessons, warnings } = plan as { ok: true; lessons: PlannedLesson[]; warnings: string[] };
+    if (unranked > 0) warnings.push(`${unranked} mots n'étaient pas classés par utilité (placés au milieu de leur thème).`);
 
     if (existing && existing > 0) {
       const { error: delErr } = await supabaseAdmin.from('lessons').delete().eq('language_code', languageCode).eq('level_code', levelCode);

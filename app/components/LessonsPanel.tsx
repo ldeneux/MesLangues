@@ -195,6 +195,7 @@ export default function LessonsPanel({
     } finally {
       setBuilding(false);
       await refresh();
+      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' }); // le message (succès ou erreur) est en haut
     }
   }
 
