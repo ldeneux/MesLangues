@@ -13,6 +13,7 @@ import KanjiDownload from './KanjiDownload';
 import DuplicatesCleanup from './DuplicatesCleanup';
 import ImageBoardDownload from './ImageBoardDownload';
 import WordImagesBlock from './WordImagesBlock';
+import RankWordsBlock from './RankWordsBlock';
 import LessonSentencesBlock from './LessonSentencesBlock';
 
 export default function PacksPanel({ languageCode, levelCode }: { languageCode: string; levelCode: string }) {
@@ -186,6 +187,7 @@ export default function PacksPanel({ languageCode, levelCode }: { languageCode: 
       )}
 
       <VocabularyDownload key={cleanupKey} languageCode={languageCode} levelCode={levelCode} />
+      <RankWordsBlock key={`rank-${cleanupKey}`} languageCode={languageCode} levelCode={levelCode} />
       <DuplicatesCleanup languageCode={languageCode} onCleaned={() => setCleanupKey((k) => k + 1)} />
       <ImageBoardDownload languageCode={languageCode} />
       <WordImagesBlock languageCode={languageCode} levelCode={levelCode} />

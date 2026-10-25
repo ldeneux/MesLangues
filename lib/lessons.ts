@@ -186,6 +186,21 @@ async function countUnranked(languageCode: string, levelCode: string): Promise<n
   return count ?? 0;
 }
 
+/** Combien de mots du niveau (tous packs confondus) restent à classer par utilité. */
+export async function getRankingStatus(languageCode: string, levelCode: string): Promise<Result<{ total: number; unranked: number }>> {
+  try {
+    const { count: total, error } = await supabaseAdmin
+      .from('vocabulary_words')
+      .select('*', { count: 'exact', head: true })
+      .eq('language_code', languageCode)
+      .eq('level_code', levelCode);
+    if (error) throw new Error(error.message);
+    return { ok: true, data: { total: total ?? 0, unranked: await countUnranked(languageCode, levelCode) } };
+  } catch (e: any) {
+    return { ok: false, error: explain(e?.message ?? 'Impossible de lire le classement des mots.') };
+  }
+}
+
 export async function rankVocabularyStep(languageCode: string, levelCode: string): Promise<Result<RankStepResult>> {
   try {
     const { data: todo, error } = await supabaseAdmin
@@ -823,6 +838,7 @@ export type SentenceStepResult = {
   added: number; // phrases ajoutées à ce pas
   failedLesson: number | null; // leçon que Gemini n'a pas su compléter (à ignorer ensuite)
   audioMissing: number; // phrases ajoutées sans audio (échec de la synthèse vocale)
+  reason?: string; // pourquoi la leçon n'a pas pu être complétée (affiché à l'utilisateur)
 };
 
 /** Génère les phrases manquantes de la prochaine leçon incomplète (une leçon par pas). Coût : voir estimateLessonSentencesCost. */
@@ -839,6 +855,8 @@ export async function generateSentencesStep(languageCode: string, levelCode: str
     const themeLabel = vocabThemeLabel(lesson.theme);
     const existing = gen.map((g) => g.target_text);
     const accepted: { target: string; fr: string }[] = [];
+    let geminiProblem = ''; // dernier problème rencontré avec Gemini (erreur, JSON illisible…)
+    let rejected = 0; // phrases refusées par le contrôle (moins de 2 mots de la leçon, doublon, trop longue)
 
     const system = `Tu écris des phrases d'exemple pour un cours de ${langName} (niveau ${levelCode} du CECRL) destiné à des francophones débutants.
 Règles : phrases naturelles et courtes (${languageCode === 'ja' ? '10 à 25 signes' : '5 à 9 mots'}), utiles dans la vie quotidienne, au niveau ${levelCode}.
@@ -854,22 +872,30 @@ Réponds UNIQUEMENT par un tableau JSON : [{"target":"phrase en ${langName}","fr
       let parsed: unknown;
       try {
         parsed = JSON.parse(await callGemini(system, user));
-      } catch {
+      } catch (e: any) {
+        geminiProblem = e instanceof SyntaxError ? 'réponse de Gemini illisible (JSON invalide)' : `erreur Gemini : ${e?.message ?? e}`;
         continue;
       }
-      if (!Array.isArray(parsed)) continue;
+      if (!Array.isArray(parsed)) {
+        geminiProblem = 'Gemini n\'a pas renvoyé un tableau de phrases';
+        continue;
+      }
       for (const item of parsed as any[]) {
         const text = typeof item?.target === 'string' ? item.target.trim() : '';
         const fr = typeof item?.fr === 'string' ? item.fr.trim() : '';
         if (!text || !fr || avoid.includes(text) || accepted.some((a) => a.target === text)) continue;
-        if (!validateGenerated(languageCode, mainSpecs, text)) continue; // contrôle par le code : au moins 2 mots de la leçon
+        if (!validateGenerated(languageCode, mainSpecs, text)) {
+          rejected++;
+          continue; // contrôle par le code : au moins 2 mots de la leçon
+        }
         accepted.push({ target: text, fr });
         if (accepted.length >= target.need) break;
       }
     }
 
     if (accepted.length === 0) {
-      return { ok: true, data: { remainingLessons: todo.length - 1, lessonNumber: lesson.number, added: 0, failedLesson: lesson.number, audioMissing: 0 } };
+      const reason = geminiProblem || (rejected > 0 ? `${rejected} phrases écrites par Gemini refusées (moins de 2 mots de la leçon reconnus)` : 'aucune phrase reçue');
+      return { ok: true, data: { remainingLessons: todo.length - 1, lessonNumber: lesson.number, added: 0, failedLesson: lesson.number, audioMissing: 0, reason } };
     }
 
     let position = gen.reduce((m, g) => Math.max(m, g.position), 0);
@@ -892,7 +918,7 @@ Réponds UNIQUEMENT par un tableau JSON : [{"target":"phrase en ${langName}","fr
     const stillNeeded = accepted.length < target.need; // Gemini n'a pas tout fourni : la leçon reste incomplète
     return {
       ok: true,
-      data: { remainingLessons: todo.length - 1 + (stillNeeded ? 0 : 0), lessonNumber: lesson.number, added: accepted.length, failedLesson: stillNeeded ? lesson.number : null, audioMissing },
+      data: { remainingLessons: todo.length - 1 + (stillNeeded ? 0 : 0), lessonNumber: lesson.number, added: accepted.length, failedLesson: stillNeeded ? lesson.number : null, audioMissing, reason: stillNeeded ? `seulement ${accepted.length} phrase(s) valide(s) sur ${target.need}` : undefined },
     };
   } catch (e: any) {
     return { ok: false, error: explain(e?.message ?? 'Erreur pendant la génération des phrases.') };

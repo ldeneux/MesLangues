@@ -20,9 +20,12 @@ export default function LessonSentencesBlock({ languageCode, levelCode }: { lang
     setError('');
   }, [languageCode, levelCode]);
 
-  async function computeCoverage() {
-    setError('');
-    setSentNote('');
+  // keepMessages : après une génération, on recalcule sans effacer le résultat ni l'erreur (sinon on ne voit jamais ce qui s'est passé)
+  async function computeCoverage(keepMessages = false) {
+    if (!keepMessages) {
+      setError('');
+      setSentNote('');
+    }
     setSentBusy('Calcul en cours…');
     try {
       const r = await getSentenceCoverage(languageCode, levelCode);
@@ -44,6 +47,7 @@ export default function LessonSentencesBlock({ languageCode, levelCode }: { lang
     const skip: number[] = [];
     let done = 0;
     let audioMissing = 0;
+    const reasons: string[] = [];
     setSentRun({ done: 0, total });
     try {
       for (let guard = 0; guard < 80; guard++) {
@@ -52,22 +56,24 @@ export default function LessonSentencesBlock({ languageCode, levelCode }: { lang
           setError((r as { error: string }).error);
           break;
         }
-        const d = (r as { data: { remainingLessons: number; lessonNumber: number | null; added: number; failedLesson: number | null; audioMissing: number } }).data;
+        const d = (r as { data: { remainingLessons: number; lessonNumber: number | null; added: number; failedLesson: number | null; audioMissing: number; reason?: string } }).data;
         if (d.lessonNumber === null) break; // plus rien à compléter
-        if (d.failedLesson !== null) skip.push(d.failedLesson);
-        else done++;
+        if (d.failedLesson !== null) {
+          skip.push(d.failedLesson);
+          if (d.reason && reasons.length < 3) reasons.push(`leçon ${d.failedLesson} : ${d.reason}`);
+        } else done++;
         audioMissing += d.audioMissing;
         setSentRun({ done, total });
       }
       const failed = skip.length;
       setSentNote(
-        `${done} leçon(s) complétée(s).${failed ? ` ${failed} leçon(s) n'ont pas pu être complétées (Gemini n'a pas fourni de phrases utilisables) : relance plus tard.` : ''}${audioMissing ? ` ${audioMissing} phrase(s) sans audio (synthèse vocale indisponible).` : ''}`
+        `${done} leçon(s) complétée(s).${failed ? ` ${failed} leçon(s) n'ont pas pu être complétées${reasons.length ? ` (${reasons.join(' ; ')})` : ''} : relance plus tard.` : ''}${audioMissing ? ` ${audioMissing} phrase(s) sans audio (synthèse vocale indisponible).` : ''}`
       );
     } catch (e: any) {
       setError(e?.message ?? 'La génération a été interrompue.');
     } finally {
       setSentRun(null);
-      await computeCoverage();
+      await computeCoverage(true);
     }
   }
 
@@ -96,7 +102,7 @@ export default function LessonSentencesBlock({ languageCode, levelCode }: { lang
         ) : (
           <>
             {!sentCov ? (
-              <button className="primary" onClick={computeCoverage} disabled={!!sentBusy}>
+              <button className="primary" onClick={() => computeCoverage()} disabled={!!sentBusy}>
                 {sentBusy || 'Voir la couverture (gratuit)'}
               </button>
             ) : (
@@ -128,7 +134,7 @@ export default function LessonSentencesBlock({ languageCode, levelCode }: { lang
                       <button className="primary" onClick={() => setConfirmSent(true)}>
                         Générer les {sentCov.needSentences} phrases manquantes (≈ {est.eur.toFixed(2)} €)
                       </button>
-                      <button className="conv-mini-btn" onClick={computeCoverage} disabled={!!sentBusy}>
+                      <button className="conv-mini-btn" onClick={() => computeCoverage()} disabled={!!sentBusy}>
                         Recalculer
                       </button>
                     </div>
