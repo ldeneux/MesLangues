@@ -8,14 +8,18 @@ import GameLettresMelangees from './GameLettresMelangees';
 import GameBoggle from './GameBoggle';
 import GamePhrasesATrous from './GamePhrasesATrous';
 import GameMahjongKanji from './GameMahjongKanji';
+import GameMotPlusLong from './GameMotPlusLong';
+import GameScrabble from './GameScrabble';
 
-export type WordGameId = 'mots-croises' | 'mots-caches' | 'lettres-melangees' | 'boggle' | 'phrases-a-trous' | 'mahjong';
+export type WordGameId = 'mots-croises' | 'mots-caches' | 'lettres-melangees' | 'boggle' | 'phrases-a-trous' | 'mahjong' | 'mot-plus-long' | 'scrabble';
 
 export function wordGameTabs(lang: LangCode): { id: WordGameId; label: string }[] {
   if (lang === 'ja') {
     return [
       { id: 'mahjong', label: 'Mahjong kanji' },
       { id: 'phrases-a-trous', label: 'Phrases à trous' },
+      { id: 'mot-plus-long', label: 'Le mot le plus long' },
+      { id: 'scrabble', label: 'Scrabble' },
     ];
   }
   return [
@@ -24,11 +28,13 @@ export function wordGameTabs(lang: LangCode): { id: WordGameId; label: string }[
     { id: 'lettres-melangees', label: 'Lettres mélangées' },
     { id: 'boggle', label: 'Boggle' },
     { id: 'phrases-a-trous', label: 'Phrases à trous' },
+    { id: 'mot-plus-long', label: 'Le mot le plus long' },
+    { id: 'scrabble', label: 'Scrabble' },
   ];
 }
 
 export function isWordGame(tab: string): tab is WordGameId {
-  return ['mots-croises', 'mots-caches', 'lettres-melangees', 'boggle', 'phrases-a-trous', 'mahjong'].includes(tab);
+  return ['mots-croises', 'mots-caches', 'lettres-melangees', 'boggle', 'phrases-a-trous', 'mahjong', 'mot-plus-long', 'scrabble'].includes(tab);
 }
 
 export default function WordGameView({ game, profileId, lang, level }: { game: WordGameId; profileId: string; lang: LangCode; level: LevelCode }) {
@@ -41,6 +47,8 @@ export default function WordGameView({ game, profileId, lang, level }: { game: W
     case 'lettres-melangees': return <GameLettresMelangees key={key} {...p} />;
     case 'boggle': return <GameBoggle key={key} {...p} />;
     case 'phrases-a-trous': return <GamePhrasesATrous key={key} {...p} />;
+    case 'mot-plus-long': return <GameMotPlusLong key={key} {...p} />;
+    case 'scrabble': return <GameScrabble key={key} {...p} />;
     case 'mahjong': return lang === 'ja' ? <GameMahjongKanji key={key} {...p} /> : null;
   }
 }
