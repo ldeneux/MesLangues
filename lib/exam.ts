@@ -14,6 +14,7 @@ import {
   type EpreuveKey,
 } from './examConfig';
 import { submitWriting, type WritingResult } from './writing';
+import { getUsableVocabularyPacks } from './vocabulary';
 import type { ConversationRecord } from './conversation';
 import { SCENARIOS, isAboveLevel, getScenario } from './conversationScenarios';
 import { shuffle, pickSpread, buildLexiconQuestions, gradeAnswers, computeExamTotals, type ExamQuestion } from './examLogic';
@@ -174,11 +175,10 @@ export async function getExamReadiness(languageCode: string, levelCode: string):
       .from('grammar_questions')
       .select('id', { count: 'exact', head: true })
       .eq('language_code', languageCode);
-    const { count: wordCount } = await supabaseAdmin
-      .from('vocabulary_words')
-      .select('id', { count: 'exact', head: true })
-      .eq('language_code', languageCode)
-      .eq('level_code', levelCode);
+    const usablePackIds = (await getUsableVocabularyPacks(languageCode, levelCode)).map((p) => p.id);
+    const { count: wordCount } = usablePackIds.length
+      ? await supabaseAdmin.from('vocabulary_words').select('id', { count: 'exact', head: true }).in('pack_id', usablePackIds)
+      : { count: 0 };
 
     const { count: promptCount } = await supabaseAdmin
       .from('writing_prompts')
@@ -360,12 +360,14 @@ async function pickGrammarAndLexicon(languageCode: string, levelCode: string): P
     .select('id, topic_code, question, options, correct_index')
     .eq('language_code', languageCode)
     .limit(1000);
-  const { data: words } = await supabaseAdmin
-    .from('vocabulary_words')
-    .select('id, word_type, target_text, translation_fr')
-    .eq('language_code', languageCode)
-    .eq('level_code', levelCode)
-    .limit(1000);
+  const usablePackIds = (await getUsableVocabularyPacks(languageCode, levelCode)).map((p) => p.id); // packs prêts et actifs
+  const { data: words } = usablePackIds.length
+    ? await supabaseAdmin
+        .from('vocabulary_words')
+        .select('id, word_type, target_text, translation_fr')
+        .in('pack_id', usablePackIds)
+        .limit(1000)
+    : { data: [] as any[] };
 
   const grammar: ExamQuestion[] = pickSpread<any>((gq ?? []) as any[], GRAMMAR_QUESTIONS).map((q: any) => ({
     id: q.id,

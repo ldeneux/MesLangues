@@ -275,8 +275,15 @@ async function packWithRoom(languageCode: string, levelCode: string): Promise<st
     .order('pack_number');
   if (error) throw new Error(error.message);
 
+  const { data: activeRows } = await supabaseAdmin
+    .from('vocabulary_packs')
+    .select('id, active')
+    .eq('language_code', languageCode)
+    .eq('level_code', levelCode);
+  const inactive = new Set((activeRows ?? []).filter((r: any) => r.active === false).map((r: any) => r.id as string));
+
   for (const p of packs ?? []) {
-    if (p.status !== 'ready') continue;
+    if (p.status !== 'ready' || inactive.has(p.id)) continue; // un pack inactif cacherait le mot ajouté
     const { count } = await supabaseAdmin.from('vocabulary_words').select('id', { count: 'exact', head: true }).eq('pack_id', p.id);
     if ((count ?? 0) < p.target_count) return p.id;
   }
@@ -290,6 +297,7 @@ async function packWithRoom(languageCode: string, levelCode: string): Promise<st
       pack_number: nextNumber,
       target_count: VOCAB_PACK_SIZE,
       status: 'ready',
+      active: true, // le mot ajouté doit rester visible
       generated_count: 0,
       completed_at: new Date().toISOString(),
     })

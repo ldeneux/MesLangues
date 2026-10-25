@@ -2,7 +2,8 @@
 
 import { supabaseAdmin } from './supabaseAdmin';
 import { callGemini, LANGUAGE_NAMES } from './gemini';
-import { grammarTopicsFor, vocabThemeLabel, type GrammarTopicMeta } from './constants';
+import { grammarTopicsFor, vocabThemeLabel, LEVEL_PACK_COUNT, type LevelCode, type GrammarTopicMeta } from './constants';
+import { getUsableVocabularyPacks } from './vocabulary';
 import { displayInfinitive } from './conjugationDisplay';
 import { getGrammarTopic, type GrammarTopic } from './grammar';
 import type { ConjugationVerb } from './conjugation';
@@ -48,6 +49,7 @@ export type LessonSetup = {
   total: number; // mots de vocabulaire du niveau
   unranked: number; // mots pas encore classés par utilité
   duplicates: number; // doublons exacts dans la base (ignorés par les leçons)
+  optionalWords: number; // mots des packs optionnels actifs (leçons 61 et suivantes)
 };
 
 export type LessonSummary = {
@@ -63,24 +65,30 @@ export type LessonsOverview = {
   setup: LessonSetup;
   lessons: LessonSummary[];
   verbAudioMissing: number; // verbes de la langue sans audio de l'infinitif
-  images: ImageStatus;
 };
 
-type WordRow = { id: string; theme_code: string; word_type: string; target_text: string; usage_score: number | null };
+type WordRow = { id: string; theme_code: string; word_type: string; target_text: string; usage_score: number | null; optional: boolean };
 
 // La lecture Supabase est plafonnée à 1000 lignes : on pagine.
+// Seuls les mots des packs PRÊTS (complets ou clôturés) ET ACTIFS comptent. Un pack dont le numéro dépasse le nombre de
+// packs attendus du niveau (A1/A2 : 4, B1/B2 : 5) est « optionnel » : ses mots forment les leçons 61 et suivantes.
 async function fetchAllWords(languageCode: string, levelCode: string): Promise<WordRow[]> {
+  const packs = await getUsableVocabularyPacks(languageCode, levelCode);
+  if (packs.length === 0) return [];
+  const expected = LEVEL_PACK_COUNT[levelCode as LevelCode] ?? 4;
+  const optionalPack = new Map(packs.map((p) => [p.id, p.pack_number > expected]));
   const rows: WordRow[] = [];
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabaseAdmin
       .from('vocabulary_words')
-      .select('id, theme_code, word_type, target_text, usage_score')
+      .select('id, pack_id, theme_code, word_type, target_text, usage_score')
       .eq('language_code', languageCode)
       .eq('level_code', levelCode)
+      .in('pack_id', packs.map((p) => p.id))
       .order('id')
       .range(from, from + 999);
     if (error) throw new Error(error.message);
-    rows.push(...((data ?? []) as WordRow[]));
+    for (const r of (data ?? []) as any[]) rows.push({ ...r, optional: optionalPack.get(r.pack_id) ?? false });
     if (!data || data.length < 1000) break;
   }
   return rows;
@@ -103,7 +111,7 @@ function lessonGrammarTopics(languageCode: string, levelCode: string): GrammarTo
 }
 
 function toPlanWords(words: WordRow[]): PlanWord[] {
-  return words.map((w) => ({ id: w.id, theme_code: w.theme_code, word_type: w.word_type, score: w.usage_score, text: w.target_text }));
+  return words.map((w) => ({ id: w.id, theme_code: w.theme_code, word_type: w.word_type, score: w.usage_score, text: w.target_text, optional: w.optional }));
 }
 
 function countSetup(words: WordRow[], verbCount: number): LessonSetup {
@@ -116,6 +124,7 @@ function countSetup(words: WordRow[], verbCount: number): LessonSetup {
     total: unique.length,
     unranked: words.filter((w) => w.usage_score == null).length,
     duplicates: words.length - unique.length,
+    optionalWords: words.filter((w) => w.optional).length,
   };
 }
 
@@ -152,8 +161,7 @@ export async function getLessonsOverview(profileId: string, languageCode: string
     }));
 
     const verbAudioMissing = await countVerbsWithoutAudio(languageCode);
-    const images = await imageStatus(languageCode, levelCode);
-    return { ok: true, data: { setup, lessons, verbAudioMissing, images } };
+    return { ok: true, data: { setup, lessons, verbAudioMissing } };
   } catch (e: any) {
     return { ok: false, error: explain(e?.message ?? 'Erreur de chargement des leçons.') };
   }
@@ -296,7 +304,7 @@ export async function buildLessonPlan(
     if ((existing ?? 0) > 0 && !replace) return { ok: false, error: 'Un plan de leçons existe déjà pour cette langue et ce niveau.' };
 
     const words = await fetchAllWords(languageCode, levelCode);
-    if (words.length === 0) return { ok: false, error: 'Aucun vocabulaire téléchargé pour ce niveau : va dans Packs.' };
+    if (words.length === 0) return { ok: false, error: 'Aucun mot dans les packs de vocabulaire prêts et actifs de ce niveau : va dans Packs (télécharge ou active des packs).' };
     const unranked = words.filter((w) => w.usage_score == null).length;
     if (unranked > words.length * 0.1) {
       return { ok: false, error: `${unranked} mots ne sont pas encore classés par utilité : lance d'abord « Classer les mots par utilité ».` };
@@ -1001,6 +1009,15 @@ async function imageStatus(languageCode: string, levelCode: string): Promise<Ima
   } catch (e: any) {
     if (String(e?.message ?? '').includes('image')) return { ready: false, words: 0, namesPending: 0, distinct: 0, available: 0, missing: 0 };
     throw e;
+  }
+}
+
+/** État des images d'un niveau (pour le bloc « Images des mots » de l'onglet Packs). */
+export async function getImageStatus(languageCode: string, levelCode: string): Promise<Result<ImageStatus>> {
+  try {
+    return { ok: true, data: await imageStatus(languageCode, levelCode) };
+  } catch (e: any) {
+    return { ok: false, error: explain(e?.message ?? "Impossible de lire l'état des images.") };
   }
 }
 

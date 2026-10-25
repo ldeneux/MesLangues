@@ -4,7 +4,8 @@ import { resolveImage } from './imageIndex';
 import { supabaseAdmin } from './supabaseAdmin';
 import { callGeminiWithUsage, LANGUAGE_NAMES } from './gemini';
 import { synthesizeAndStore } from './tts';
-import { VOCAB_THEMES, packThemeQuotas, VOCAB_PACK_SIZE, LEVELS } from './constants';
+import { VOCAB_THEMES, packThemeQuotas, VOCAB_PACK_SIZE, LEVELS, LEVEL_PACK_COUNT, type LevelCode } from './constants';
+import { imageBareKey } from './imageName';
 
 const CHUNK_SIZE = 25; // plus de mots par appel = moins d'appels (la liste anti-doublon n'est envoyée qu'une fois par appel)
 const MASTERY_MIN_ATTEMPTS = 1;
@@ -30,18 +31,19 @@ export type VocabularyPackInfo = {
   generated_count: number;
   target_count: number;
   missing_audio?: number; // mots du pack sans fichier audio (ajoutés à la main, TTS échoué…)
+  active: boolean; // actif = ses mots font partie des listes, jeux, leçons, scores, examen (sinon ignorés)
 };
 
 export async function getVocabularyPacks(languageCode: string, levelCode: string): Promise<VocabularyPackInfo[]> {
   const { data, error } = await supabaseAdmin
     .from('vocabulary_packs')
-    .select('id, pack_number, status, generated_count, target_count')
+    .select('id, pack_number, status, generated_count, target_count, active')
     .eq('language_code', languageCode)
     .eq('level_code', levelCode)
     .order('pack_number');
 
   if (error) throw new Error(error.message);
-  const packs = data ?? [];
+  const packs = (data ?? []) as VocabularyPackInfo[];
   if (packs.length === 0) return packs;
 
   // Nombre RÉEL de mots par pack et mots sans audio (des mots peuvent avoir été ajoutés à la main en SQL :
@@ -316,8 +318,15 @@ export async function createVocabularyPack(languageCode: string, levelCode: stri
 
   const { data, error } = await supabaseAdmin
     .from('vocabulary_packs')
-    .insert({ language_code: languageCode, level_code: levelCode, pack_number: nextNumber, target_count: VOCAB_PACK_SIZE })
-    .select('id, pack_number, status, generated_count, target_count')
+    // Pack attendu pour ce niveau (A1/A2 : 1 à 4, B1/B2 : 1 à 5) → actif ; pack supplémentaire → inactif (optionnel)
+    .insert({
+      language_code: languageCode,
+      level_code: levelCode,
+      pack_number: nextNumber,
+      target_count: VOCAB_PACK_SIZE,
+      active: nextNumber <= (LEVEL_PACK_COUNT[levelCode as LevelCode] ?? 4),
+    })
+    .select('id, pack_number, status, generated_count, target_count, active')
     .single();
 
   if (error) throw new Error(error.message);
@@ -615,14 +624,36 @@ export type VocabularyWordWithMastery = VocabularyWord & {
   mastered: boolean;
 };
 
+// Packs dont les mots sont utilisés (listes, jeux, scores…) : « prêts » (complets ou clôturés) ET actifs.
 async function getReadyVocabularyPackIds(languageCode: string, levelCode: string): Promise<string[]> {
   const { data } = await supabaseAdmin
     .from('vocabulary_packs')
     .select('id')
     .eq('language_code', languageCode)
     .eq('level_code', levelCode)
-    .eq('status', 'ready');
+    .eq('status', 'ready')
+    .eq('active', true);
   return (data ?? []).map((p) => p.id);
+}
+
+/** Packs utilisables (prêts et actifs) avec leur numéro : sert aux leçons et à l'examen. */
+export async function getUsableVocabularyPacks(languageCode: string, levelCode: string): Promise<{ id: string; pack_number: number }[]> {
+  const { data, error } = await supabaseAdmin
+    .from('vocabulary_packs')
+    .select('id, pack_number')
+    .eq('language_code', languageCode)
+    .eq('level_code', levelCode)
+    .eq('status', 'ready')
+    .eq('active', true)
+    .order('pack_number');
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+/** Active ou désactive un pack : inactif, il n'apparaît plus dans le vocabulaire, les jeux, les leçons, les scores ni l'examen. */
+export async function setVocabularyPackActive(packId: string, active: boolean): Promise<void> {
+  const { error } = await supabaseAdmin.from('vocabulary_packs').update({ active }).eq('id', packId);
+  if (error) throw new Error(error.message);
 }
 
 export type VocabularyScoreEntry = {
@@ -750,12 +781,16 @@ export async function getVocabularyWords(
 
   const progressMap = new Map((progress ?? []).filter((p) => wordIds.has(p.word_id)).map((p) => [p.word_id, p]));
 
-  return words.map((w) => {
-    const p = progressMap.get(w.id);
-    const success = p?.success_count ?? 0;
-    const fail = p?.fail_count ?? 0;
-    return { ...w, image: resolveImage(w.image, w.translation_fr), success_count: success, fail_count: fail, mastered: computeMastered(success, fail) };
-  });
+  const collator = new Intl.Collator('fr', { sensitivity: 'base', numeric: true });
+  return words
+    .map((w) => {
+      const p = progressMap.get(w.id);
+      const success = p?.success_count ?? 0;
+      const fail = p?.fail_count ?? 0;
+      return { ...w, image: resolveImage(w.image, w.translation_fr), success_count: success, fail_count: fail, mastered: computeMastered(success, fail) };
+    })
+    // Tri alphabétique en français, article ignoré : « la cuillère » et « une cuillère » se retrouvent côte à côte
+    .sort((a, b) => collator.compare(imageBareKey(a.translation_fr) || a.translation_fr, imageBareKey(b.translation_fr) || b.translation_fr) || collator.compare(a.target_text, b.target_text));
 }
 
 // ---------------------------------------------------------

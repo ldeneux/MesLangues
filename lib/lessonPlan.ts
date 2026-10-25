@@ -4,13 +4,12 @@ import { EXTRA_VOCAB_THEMES } from './constants';
 // Planificateur de leçons — module PUR (pas de base de données, pas de 'use server').
 // Entrée : les mots et verbes déjà en base ; sortie : le plan de N leçons, identique pour tous les profils.
 
-export const LESSON_MAIN_COUNT = 40; // leçons des 15 thèmes principaux (numéros 1 à 40, inchangés)
-// Thèmes supplémentaires du vocabulaire : une leçon chacun, après les 40 premières (leçons 41 et suivantes).
-export const LESSON_EXTRA_THEME_ORDER: readonly string[] = EXTRA_VOCAB_THEMES.map((t) => t.code);
-export const LESSON_TARGET_COUNT = LESSON_MAIN_COUNT + LESSON_EXTRA_THEME_ORDER.length; // nombre de leçons visé par langue et niveau
-export const LESSON_WORDS = 20; // mots nouveaux par leçon (noms + adjectifs + verbes)
-export const LESSON_VERBS = 3; // verbes par leçon
-export const LESSON_PHRASES = 3; // adverbes / expressions utiles, en plus des 20 mots
+// Plan de leçons : TOUJOURS 60 leçons « obligatoires » (les mots des packs attendus du niveau : 4 packs en A1/A2, 5 en B1/B2,
+// répartis par nature sur les 60 leçons — plus il y a de mots, plus les leçons en contiennent), puis des leçons
+// « optionnelles » (numéros 61 et suivants) avec les mots des packs optionnels actifs.
+export const LESSON_MAIN_COUNT = 60;
+export const LESSON_VERBS = 2; // 120 verbes par niveau / 60 leçons
+export const LESSON_OPTIONAL_MIN_SIZE = 15; // taille minimale d'une leçon optionnelle (mots)
 export const LESSON_REVIEW = 6; // mots de révision, en plus des 20 mots
 export const LESSON_REVIEW_WINDOW = 3; // la révision pioche dans les 3 leçons précédentes
 export const LESSON_KANJI = 4; // kanji à apprendre par leçon (japonais)
@@ -35,26 +34,7 @@ export const LESSON_THEME_ORDER = [
   'emergencies',
 ] as const;
 
-// Poids des thèmes (même valeurs que THEMES dans constants.ts) : sert à répartir les leçons entre thèmes.
-const THEME_WEIGHT: Record<string, number> = {
-  food_restaurant: 11,
-  greetings: 10,
-  transport: 9,
-  shopping: 8,
-  numbers_time: 8,
-  directions: 7,
-  work_school: 7,
-  family: 6,
-  housing: 6,
-  health: 6,
-  emotions: 6,
-  leisure: 5,
-  technology: 5,
-  emergencies: 3,
-  weather: 3,
-};
-
-export type PlanWord = { id: string; theme_code: string; word_type: string; score: number | null; text: string };
+export type PlanWord = { id: string; theme_code: string; word_type: string; score: number | null; text: string; optional?: boolean }; // optional : mot d'un pack optionnel (numéro au-dessus des packs attendus)
 export type PlanVerb = { id: string; frequency_rank: number; text?: string };
 export type ReviewItem = { k: 'w' | 'v'; id: string };
 
@@ -136,87 +116,84 @@ export function dedupeWords(words: PlanWord[], exclude: Set<string> = new Set())
   return Array.from(best.values());
 }
 
+// Ordre des thèmes : les 15 thèmes principaux (du plus indispensable au moins indispensable), puis les thèmes supplémentaires.
+const THEME_ORDER: readonly string[] = [...LESSON_THEME_ORDER, ...EXTRA_VOCAB_THEMES.map((t) => t.code)];
+
+function themeRank(code: string): number {
+  const i = THEME_ORDER.indexOf(code);
+  return i < 0 ? THEME_ORDER.length : i; // thème inconnu : à la fin
+}
+
+function sortThemes(codes: string[]): string[] {
+  return codes.slice().sort((a, b) => themeRank(a) - themeRank(b) || a.localeCompare(b));
+}
+
+/** Découpe `items` en `parts` tranches de tailles presque égales (les premiers éléments vont aux premières tranches). */
+function splitEvenly<T>(items: T[], parts: number): T[][] {
+  const out: T[][] = [];
+  for (let k = 0; k < parts; k++) out.push(items.slice(Math.round((k * items.length) / parts), Math.round(((k + 1) * items.length) / parts)));
+  return out;
+}
+
 /**
- * Répartit `total` leçons entre les thèmes : au prorata des poids, au moins 1 leçon par thème
- * (si total >= nombre de thèmes), dans l'ordre LESSON_THEME_ORDER. Retourne un thème par leçon.
+ * Répartit `total` leçons entre les thèmes au prorata de leur nombre de mots (au moins 1 leçon par thème),
+ * méthode du plus grand reste. Retourne le nombre de leçons de chaque thème.
  */
-export function lessonThemes(total: number): string[] {
-  // Au-delà de 40 leçons : les 40 premières gardent exactement la répartition d'origine, puis une leçon par thème
-  // supplémentaire (dans l'ordre de LESSON_EXTRA_THEME_ORDER, en reprenant au début s'il y a plus de leçons que de thèmes).
-  if (total > LESSON_MAIN_COUNT) {
-    const extras: string[] = [];
-    for (let i = 0; i < total - LESSON_MAIN_COUNT; i++) extras.push(LESSON_EXTRA_THEME_ORDER[i % LESSON_EXTRA_THEME_ORDER.length]);
-    return [...lessonThemes(LESSON_MAIN_COUNT), ...extras];
-  }
-  const order = LESSON_THEME_ORDER.slice();
-  if (total <= order.length) return order.slice(0, total);
-
-  const weightSum = order.reduce((s, t) => s + (THEME_WEIGHT[t] ?? 5), 0);
-  const raw = order.map((t) => ({ t, exact: ((THEME_WEIGHT[t] ?? 5) / weightSum) * total }));
-  const counts = raw.map((r) => Math.max(1, Math.floor(r.exact)));
-  let diff = total - counts.reduce((s, c) => s + c, 0);
-
-  // plus grands restes d'abord pour ajouter ; plus grands thèmes d'abord pour retirer
-  const byRemainder = raw.map((r, i) => ({ i, rem: r.exact - Math.floor(r.exact) })).sort((a, b) => b.rem - a.rem);
-  let k = 0;
+export function allocateLessons(wordsByTheme: Map<string, number>, total: number): Map<string, number> {
+  const themes = sortThemes(Array.from(wordsByTheme.keys()).filter((t) => (wordsByTheme.get(t) ?? 0) > 0));
+  const sum = themes.reduce((s, t) => s + wordsByTheme.get(t)!, 0);
+  const result = new Map<string, number>();
+  if (themes.length === 0 || sum === 0) return result;
+  const exact = new Map(themes.map((t) => [t, (wordsByTheme.get(t)! / sum) * total]));
+  for (const t of themes) result.set(t, Math.max(1, Math.floor(exact.get(t)!)));
+  let diff = total - Array.from(result.values()).reduce((s, c) => s + c, 0);
   while (diff > 0) {
-    counts[byRemainder[k % byRemainder.length].i]++;
+    // le thème le plus « sous-doté » par rapport à son poids reçoit une leçon de plus
+    const t = themes.reduce((best, cur) => (exact.get(cur)! - result.get(cur)! > exact.get(best)! - result.get(best)! ? cur : best), themes[0]);
+    result.set(t, result.get(t)! + 1);
     diff--;
-    k++;
   }
   while (diff < 0) {
-    let big = 0;
-    for (let i = 1; i < counts.length; i++) if (counts[i] > counts[big]) big = i;
-    if (counts[big] <= 1) break;
-    counts[big]--;
+    const cands = themes.filter((t) => result.get(t)! > 1);
+    if (cands.length === 0) break; // plus de thèmes que de leçons : on garde 1 leçon par thème
+    const t = cands.reduce((best, cur) => (result.get(cur)! - exact.get(cur)! > result.get(best)! - exact.get(best)! ? cur : best), cands[0]);
+    result.set(t, result.get(t)! - 1);
     diff++;
   }
-
-  const result: string[] = [];
-  order.forEach((t, i) => {
-    for (let n = 0; n < counts[i]; n++) result.push(t);
-  });
   return result;
 }
 
-type Pool = { byTheme: Map<string, PlanWord[]>; all: PlanWord[] };
+type NatureBuckets = { nouns: PlanWord[]; adjectives: PlanWord[]; fillers: PlanWord[] };
 
-function makePool(words: PlanWord[]): Pool {
+function bucketByNature(words: PlanWord[]): NatureBuckets {
   const sorted = words.slice().sort(byUsage);
-  const byTheme = new Map<string, PlanWord[]>();
-  for (const w of sorted) {
-    if (!byTheme.has(w.theme_code)) byTheme.set(w.theme_code, []);
-    byTheme.get(w.theme_code)!.push(w);
-  }
-  return { byTheme, all: sorted };
+  return {
+    nouns: sorted.filter((w) => w.word_type === 'nom'),
+    adjectives: sorted.filter((w) => w.word_type === 'adjectif'),
+    fillers: sorted.filter((w) => w.word_type !== 'nom' && w.word_type !== 'adjectif'), // adverbes + expressions
+  };
 }
 
-// Prend `n` mots non encore utilisés : d'abord ceux du thème (par utilité), puis les plus utiles de tous les thèmes.
-function take(pool: Pool, theme: string, n: number, used: Set<string>, reserved?: ReadonlySet<string>): string[] {
-  const out: string[] = [];
-  if (n <= 0) return out;
-  for (const w of pool.byTheme.get(theme) ?? []) {
-    if (out.length >= n) break;
-    if (!used.has(w.id)) {
-      used.add(w.id);
-      out.push(w.id);
-    }
+/** Répartit les mots d'UN thème sur `lessonCount` leçons, nature par nature (noms, adjectifs, adverbes/expressions). */
+function spreadByNature(words: PlanWord[], lessonCount: number): { noun_ids: string[]; adjective_ids: string[]; other_ids: string[] }[] {
+  const b = bucketByNature(words);
+  const n = splitEvenly(b.nouns, lessonCount);
+  const a = splitEvenly(b.adjectives, lessonCount);
+  const f = splitEvenly(b.fillers, lessonCount);
+  return n.map((_, k) => ({
+    noun_ids: n[k].map((w) => w.id),
+    adjective_ids: a[k].map((w) => w.id),
+    other_ids: f[k].map((w) => w.id),
+  }));
+}
+
+function groupByTheme(words: PlanWord[]): Map<string, PlanWord[]> {
+  const m = new Map<string, PlanWord[]>();
+  for (const w of words) {
+    if (!m.has(w.theme_code)) m.set(w.theme_code, []);
+    m.get(w.theme_code)!.push(w);
   }
-  // Complément avec n'importe quel mot libre ; les mots des thèmes réservés (thèmes supplémentaires, qui ont leur
-  // propre leçon plus loin) ne sont pris qu'en dernier recours.
-  for (const pass of reserved && reserved.size > 0 ? [false, true] : [true]) {
-    if (out.length >= n) break;
-    for (const w of pool.all) {
-      if (out.length >= n) break;
-      if (!pass && reserved!.has(w.theme_code)) continue;
-      if (pass && reserved && reserved.size > 0 && !reserved.has(w.theme_code)) continue;
-      if (!used.has(w.id)) {
-        used.add(w.id);
-        out.push(w.id);
-      }
-    }
-  }
-  return out;
+  return m;
 }
 
 export function planLessons(input: {
@@ -227,99 +204,98 @@ export function planLessons(input: {
   grammarTopicCodes: string[]; // fiches de grammaire utilisables à ce niveau, dans l'ordre
   excludeTexts?: string[]; // mots déjà appris à un autre niveau (écriture exacte)
   kanjiAvailable?: string[]; // japonais : kanji disponibles dans le module Kanji, déjà privés de ceux d'autres niveaux
-  targetCount?: number;
 }): PlanResult {
   const { languageCode, levelCode, verbs, grammarTopicCodes } = input;
   const exclude = new Set((input.excludeTexts ?? []).map(wordKey));
-  const target = input.targetCount ?? LESSON_TARGET_COUNT;
   const warnings: string[] = [];
 
-  const words = dedupeWords(input.words, exclude);
-  const duplicates = input.words.length - words.length;
+  // Doublons et mots déjà appris ailleurs : ignorés. Un mot présent dans un pack attendu ET un pack optionnel reste dans l'attendu.
+  const mandatoryWords = dedupeWords(input.words.filter((w) => !w.optional), exclude);
+  const mandatoryKeys = new Set(mandatoryWords.map((w) => wordKey(w.text)));
+  const optionalWords = dedupeWords(input.words.filter((w) => w.optional), new Set([...exclude, ...mandatoryKeys]));
+  const duplicates = input.words.length - mandatoryWords.length - optionalWords.length;
   if (duplicates > 0) warnings.push(`${duplicates} doublons ou mots déjà appris à un autre niveau ont été ignorés.`);
 
-  const nouns = words.filter((w) => w.word_type === 'nom');
-  const adjectives = words.filter((w) => w.word_type === 'adjectif');
-  const fillers = words.filter((w) => w.word_type !== 'nom' && w.word_type !== 'adjectif'); // adverbes + expressions
-
-  const verbsSorted = verbs.slice().sort((a, b) => a.frequency_rank - b.frequency_rank);
-
-  // Chaque leçon tire 17 mots du vocabulaire (+ 3 verbes). Le nombre de leçons est limité par les verbes et les mots.
-  const perLessonFromVocab = LESSON_WORDS - LESSON_VERBS;
-  const totalVocab = nouns.length + adjectives.length + fillers.length;
-  const maxByVerbs = Math.floor(verbsSorted.length / LESSON_VERBS);
-  const maxByWords = Math.floor(totalVocab / perLessonFromVocab);
-  // Les 40 premières leçons (15 thèmes principaux) emportent 3 verbes chacune. Les leçons suivantes (thèmes
-  // supplémentaires) n'ont des verbes que s'il en reste ; sans verbe, elles sont complétées par des mots.
-  const mainTotal = Math.min(LESSON_MAIN_COUNT, target, maxByVerbs, maxByWords);
-  const total = mainTotal < Math.min(LESSON_MAIN_COUNT, target) ? mainTotal : Math.min(target, maxByWords);
-  if (total < 1) {
+  if (mandatoryWords.length < LESSON_MAIN_COUNT) {
     return {
       ok: false,
-      error: `Pas assez de contenu pour une leçon (${nouns.length} noms, ${adjectives.length} adjectifs, ${verbsSorted.length} verbes). Télécharge d'abord les packs de vocabulaire et de conjugaison.`,
+      error: `Pas assez de mots dans les packs attendus et actifs (${mandatoryWords.length} ; il en faut au moins ${LESSON_MAIN_COUNT} pour ${LESSON_MAIN_COUNT} leçons). Télécharge les packs de vocabulaire du niveau, ou active-les dans « Packs ».`,
     };
   }
-  if (total < target) {
-    const byVerbs = total < LESSON_MAIN_COUNT && maxByVerbs <= maxByWords;
-    warnings.push(
-      byVerbs
-        ? `${total} leçons au lieu de ${target} : il n'y a que ${verbsSorted.length} verbes disponibles (3 par leçon).`
-        : `${total} leçons au lieu de ${target} : il n'y a que ${totalVocab} mots de vocabulaire (17 par leçon).`
-    );
-  }
 
-  // Si noms + adjectifs ne suffisent pas, les adverbes/expressions complètent les leçons ;
-  // ce qui reste en plus alimente la carte « mots et expressions utiles » (jusqu'à 3 par leçon, en commençant par les premières leçons).
-  const fillersNeeded = Math.max(0, perLessonFromVocab * total - (nouns.length + adjectives.length));
-  let phraseBudget = Math.max(0, fillers.length - fillersNeeded);
-  if (fillersNeeded > 0) warnings.push(`${fillersNeeded} adverbes/expressions complètent les noms et adjectifs manquants.`);
-
-  const nounPool = makePool(nouns);
-  const adjPool = makePool(adjectives);
-  const fillerPool = makePool(fillers);
-
-  const used = new Set<string>();
-  // Mots des thèmes supplémentaires : gardés pour leurs propres leçons (41+), les 40 premières n'y touchent qu'en dernier recours.
-  const reservedExtra: ReadonlySet<string> = total > LESSON_MAIN_COUNT ? new Set(LESSON_EXTRA_THEME_ORDER) : new Set<string>();
-  const themes = lessonThemes(total);
-  const A = adjectives.length;
+  const verbsSorted = verbs.slice().sort((a, b) => a.frequency_rank - b.frequency_rank);
   const lessons: PlannedLesson[] = [];
+  const blank = (number: number, theme_code: string): PlannedLesson => ({
+    number,
+    theme_code,
+    noun_ids: [],
+    adjective_ids: [],
+    other_ids: [],
+    verb_ids: [],
+    phrase_ids: [],
+    review: [],
+    kanji_chars: [],
+    grammar_topic_code: grammarTopicCodes.length > 0 ? grammarTopicCodes[(number - 1) % grammarTopicCodes.length] : null,
+  });
 
-  for (let i = 0; i < total; i++) {
-    const theme = themes[i];
-    const reserved = i < LESSON_MAIN_COUNT ? reservedExtra : undefined;
+  // --- 1) Les 60 leçons obligatoires : un thème après l'autre, mots répartis par nature, 2 verbes par leçon ---
+  const byTheme = groupByTheme(mandatoryWords);
+  const counts = allocateLessons(new Map(Array.from(byTheme.entries()).map(([t, ws]) => [t, ws.length])), LESSON_MAIN_COUNT);
+  for (const theme of sortThemes(Array.from(counts.keys()))) {
+    const parts = spreadByNature(byTheme.get(theme)!, counts.get(theme)!);
+    for (const part of parts) {
+      const l = blank(lessons.length + 1, theme);
+      l.noun_ids = part.noun_ids;
+      l.adjective_ids = part.adjective_ids;
+      l.other_ids = part.other_ids;
+      lessons.push(l);
+    }
+  }
+  lessons.forEach((l, i) => (l.verb_ids = verbsSorted.slice(i * LESSON_VERBS, (i + 1) * LESSON_VERBS).map((v) => v.id)));
+  const verbsUsed = Math.min(verbsSorted.length, lessons.length * LESSON_VERBS);
+  if (verbsUsed < lessons.length * LESSON_VERBS) {
+    warnings.push(`Seulement ${verbsSorted.length} verbes disponibles pour ${lessons.length} leçons (${LESSON_VERBS} par leçon) : les dernières leçons n'ont pas tous leurs verbes.`);
+  }
+  const mainSize = Math.ceil(mandatoryWords.length / lessons.length);
+  warnings.push(`${lessons.length} leçons obligatoires (${mandatoryWords.length} mots, environ ${mainSize} par leçon).`);
 
-    // Mots et expressions utiles : réservés d'abord, dans la limite du budget disponible.
-    const phrase_ids = take(fillerPool, theme, Math.min(LESSON_PHRASES, phraseBudget), used, reserved);
-    phraseBudget -= phrase_ids.length;
-
-    // Adjectifs : répartis régulièrement sur toutes les leçons, au plus 6 par leçon.
-    const adjCount = Math.min(6, Math.round(((i + 1) * A) / total) - Math.round((i * A) / total));
-    const verb_ids = verbsSorted.slice(i * LESSON_VERBS, (i + 1) * LESSON_VERBS).map((v) => v.id);
-    const adjective_ids = take(adjPool, theme, adjCount, used, reserved);
-
-    // Noms : de quoi compléter jusqu'à 20 mots.
-    const nounTarget = LESSON_WORDS - verb_ids.length - adjective_ids.length;
-    const noun_ids = take(nounPool, theme, nounTarget, used, reserved);
-
-    // Stock de noms épuisé : complément par des adverbes/expressions, puis par des adjectifs restants.
-    const missing = nounTarget - noun_ids.length;
-    const other_ids = missing > 0 ? take(fillerPool, theme, missing, used, reserved) : [];
-    const stillMissing = missing - other_ids.length;
-    if (stillMissing > 0) adjective_ids.push(...take(adjPool, theme, stillMissing, used, reserved));
-
-    lessons.push({
-      number: i + 1,
-      theme_code: theme,
-      noun_ids,
-      adjective_ids,
-      other_ids,
-      verb_ids,
-      phrase_ids,
-      review: [],
-      kanji_chars: [],
-      grammar_topic_code: grammarTopicCodes.length > 0 ? grammarTopicCodes[i % grammarTopicCodes.length] : null,
-    });
+  // --- 2) Leçons optionnelles (61 et suivantes) : mots des packs optionnels actifs, thème par thème ---
+  if (optionalWords.length > 0) {
+    const size = Math.max(LESSON_OPTIONAL_MIN_SIZE, mainSize); // même taille que les leçons obligatoires
+    const optByTheme = groupByTheme(optionalWords);
+    const small: PlanWord[] = []; // thèmes trop petits pour une leçon à eux seuls : regroupés
+    const startOptional = lessons.length;
+    for (const theme of sortThemes(Array.from(optByTheme.keys()))) {
+      const ws = optByTheme.get(theme)!;
+      if (ws.length < Math.ceil(size / 2)) {
+        small.push(...ws);
+        continue;
+      }
+      const parts = spreadByNature(ws, Math.max(1, Math.round(ws.length / size)));
+      for (const part of parts) {
+        const l = blank(lessons.length + 1, theme);
+        l.noun_ids = part.noun_ids;
+        l.adjective_ids = part.adjective_ids;
+        l.other_ids = part.other_ids;
+        lessons.push(l);
+      }
+    }
+    if (small.length > 0) {
+      small.sort((a, b) => themeRank(a.theme_code) - themeRank(b.theme_code));
+      const chunks = splitEvenly(small, Math.max(1, Math.round(small.length / size)));
+      for (const chunk of chunks) {
+        const tally = new Map<string, number>();
+        for (const w of chunk) tally.set(w.theme_code, (tally.get(w.theme_code) ?? 0) + 1);
+        const main = Array.from(tally.entries()).sort((a, b) => b[1] - a[1] || themeRank(a[0]) - themeRank(b[0]))[0][0];
+        const part = spreadByNature(chunk, 1)[0];
+        const l = blank(lessons.length + 1, main);
+        l.noun_ids = part.noun_ids;
+        l.adjective_ids = part.adjective_ids;
+        l.other_ids = part.other_ids;
+        lessons.push(l);
+      }
+    }
+    warnings.push(`${lessons.length - startOptional} leçons optionnelles (${optionalWords.length} mots des packs optionnels actifs).`);
   }
 
   // Japonais : kanji à apprendre, ceux qui apparaissent dans les mots (ordre d'apparition), au plus LESSON_KANJI par leçon ;
@@ -327,7 +303,7 @@ export function planLessons(input: {
   if (input.kanjiAvailable && input.kanjiAvailable.length > 0) {
     const avail = new Set(input.kanjiAvailable);
     const textById = new Map<string, string>();
-    for (const w of words) textById.set(w.id, w.text);
+    for (const w of [...mandatoryWords, ...optionalWords]) textById.set(w.id, w.text);
     for (const v of verbsSorted) if (v.text) textById.set(v.id, v.text);
     const taught = new Set<string>();
     const pending: string[] = [];

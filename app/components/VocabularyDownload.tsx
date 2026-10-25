@@ -6,6 +6,7 @@ import {
   createVocabularyPack,
   runVocabularyPackStep,
   closeVocabularyPack,
+  setVocabularyPackActive,
   reopenVocabularyPack,
   completeVocabularyAudioStep,
   type VocabularyPackInfo,
@@ -143,6 +144,20 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
     }
   }
 
+  // Actif / inactif : un pack inactif sort des listes, jeux, leçons, scores et de l'examen
+  async function handleToggleActive(pack: VocabularyPackInfo) {
+    setBusyPackId(pack.id);
+    setError('');
+    try {
+      await setVocabularyPackActive(pack.id, !pack.active);
+      await refresh();
+    } catch (e: any) {
+      setError(e?.message ?? 'Impossible de changer l\'état du pack.');
+    } finally {
+      setBusyPackId(null);
+    }
+  }
+
   async function handleReopen(pack: VocabularyPackInfo) {
     setBusyPackId(pack.id);
     setError('');
@@ -209,7 +224,7 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
         const busy = busyPackId === p.id;
         const anyJob = generatingPackId !== null || audioPackId !== null || busyPackId !== null;
         return (
-          <div key={p.id} className="pack-block">
+          <div key={p.id} className={`pack-block${p.active ? '' : ' pack-inactive'}`}>
             <div
               className="pack-row"
               title={isGeneratingThis ? undefined : 'Double-clic : voir les mots du pack'}
@@ -219,7 +234,10 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
               }}
             >
               <div>
-                <div className="pack-row-title">Pack {p.pack_number}</div>
+                <div className="pack-row-title">
+                  Pack {p.pack_number}{' '}
+                  <span className="pack-kind">{p.pack_number <= packObjective ? 'attendu' : 'optionnel'}</span>
+                </div>
                 <div className="pack-row-sub">
                   {isGeneratingThis && progress
                     ? `En cours${progress.themeLabel ? ` — ${progress.themeLabel}` : ''} — ${progress.generated} / ${progress.target} — coût réel ≈ ${progress.costEur.toFixed(2)} €`
@@ -230,6 +248,10 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
                     : `Prêt — ${p.generated_count} mots`}
                 </div>
               </div>
+              <label className="pack-active-toggle" title="Un pack inactif n'apparaît plus dans les listes, les jeux, les leçons, les scores ni l'examen">
+                <input type="checkbox" checked={p.active} onChange={() => handleToggleActive(p)} disabled={anyJob || isGeneratingThis} />
+                <span>{p.active ? 'Actif' : 'Inactif'}</span>
+              </label>
               {isGeneratingThis ? (
                 <span className="pack-status pack-status-generating">En cours</span>
               ) : closed ? (

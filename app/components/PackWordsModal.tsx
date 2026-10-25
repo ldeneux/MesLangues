@@ -8,6 +8,7 @@ import {
   type PackWord,
   type VocabularyPackInfo,
 } from '../../lib/vocabulary';
+import { imageBareKey } from '../../lib/imageName';
 import JapaneseRuby from './JapaneseRuby';
 import { useJapaneseReadings } from './useJapaneseReadings';
 
@@ -25,7 +26,7 @@ function packState(p: VocabularyPackInfo): string {
 }
 
 /**
- * Contenu d'un pack (double-clic sur le pack) : mots groupés par nature puis par ordre alphabétique de la langue étrangère,
+ * Contenu d'un pack (double-clic sur le pack) : mots groupés par nature puis par ordre alphabétique du français,
  * sélection par cases à cocher, transfert vers un autre pack du même niveau, suppression du pack.
  */
 export default function PackWordsModal({
@@ -71,7 +72,9 @@ export default function PackWordsModal({
 
   // Groupes par nature, mots triés alphabétiquement (règles de la langue étudiée)
   const groups = useMemo(() => {
-    const collator = new Intl.Collator(languageCode, { sensitivity: 'base', numeric: true });
+    // Tri alphabétique en français (article ignoré : « la cuillère » et « une cuillère » côte à côte)
+    const collator = new Intl.Collator('fr', { sensitivity: 'base', numeric: true });
+    const frKey = (w: PackWord) => imageBareKey(w.translation_fr) || w.translation_fr;
     const byType = new Map<string, PackWord[]>();
     for (const w of words ?? []) {
       const key = NATURES.some((n) => n.code === w.word_type) ? w.word_type : 'autre';
@@ -80,7 +83,7 @@ export default function PackWordsModal({
     const order = [...NATURES, { code: 'autre', label: 'Autres' }];
     return order
       .filter((n) => byType.has(n.code))
-      .map((n) => ({ ...n, words: byType.get(n.code)!.sort((a, b) => collator.compare(a.target_text, b.target_text)) }));
+      .map((n) => ({ ...n, words: byType.get(n.code)!.sort((a, b) => collator.compare(frKey(a), frKey(b)) || collator.compare(a.target_text, b.target_text)) }));
   }, [words, languageCode]);
 
   const { readings } = useJapaneseReadings(isJa && words ? words.map((w) => w.target_text) : [], isJa && !!words);

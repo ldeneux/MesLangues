@@ -12,6 +12,8 @@ import WritingDownload from './WritingDownload';
 import KanjiDownload from './KanjiDownload';
 import DuplicatesCleanup from './DuplicatesCleanup';
 import ImageBoardDownload from './ImageBoardDownload';
+import WordImagesBlock from './WordImagesBlock';
+import LessonSentencesBlock from './LessonSentencesBlock';
 
 export default function PacksPanel({ languageCode, levelCode }: { languageCode: string; levelCode: string }) {
   const [packs, setPacks] = useState<PackInfo[] | null>(null);
@@ -186,6 +188,8 @@ export default function PacksPanel({ languageCode, levelCode }: { languageCode: 
       <VocabularyDownload key={cleanupKey} languageCode={languageCode} levelCode={levelCode} />
       <DuplicatesCleanup languageCode={languageCode} onCleaned={() => setCleanupKey((k) => k + 1)} />
       <ImageBoardDownload languageCode={languageCode} />
+      <WordImagesBlock languageCode={languageCode} levelCode={levelCode} />
+      <LessonSentencesBlock languageCode={languageCode} levelCode={levelCode} />
       <ListeningDownload languageCode={languageCode} levelCode={levelCode} />
       {languageCode === 'ja' && <KanjiDownload levelCode={levelCode} />}
       <WritingDownload languageCode={languageCode} levelCode={levelCode} />
