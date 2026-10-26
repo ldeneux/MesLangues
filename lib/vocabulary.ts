@@ -899,6 +899,14 @@ export async function recordGameResult(
   source: 'word' | 'verb',
   success: boolean
 ): Promise<void> {
+  // Verbes proposés dans les jeux (lib/gameWords.ts) : leur identifiant est préfixé, la progression va aux verbes
+  if (itemId.startsWith('verb:')) {
+    source = 'verb';
+    itemId = itemId.slice('verb:'.length);
+  } else if (itemId.startsWith('verbform:')) {
+    source = 'verb';
+    itemId = itemId.split(':')[1];
+  }
   const table = source === 'word' ? 'vocabulary_progress' : 'conjugation_progress';
   const idColumn = source === 'word' ? 'word_id' : 'verb_id';
 

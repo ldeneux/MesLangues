@@ -113,17 +113,19 @@
 .sc-tile sub { font-size: 0.5em; margin-left: 2px; }
 .sc-tile.selected { transform: translateY(-4px); border-color: #2f6b4f; box-shadow: 0 4px 0 #2f6b4f; }
 
-/* ---- Maxi mots cachés 30×30 : grille à gauche, mots à trouver à droite ---- */
+/* ---- Maxi mots cachés 30×30 : grille entière à gauche (sans ascenseur), actions + mots à trouver à droite ---- */
 .mxs-layout { display: flex; gap: 1rem; align-items: flex-start; }
-.mxs-grid-wrap { flex: 1 1 auto; min-width: 0; max-height: 80vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: #f2efe6; padding: 4px; }
-.mxs-side { flex: 0 0 270px; position: sticky; top: 0.5rem; max-height: 80vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; background: #fff; padding: 0.5rem; }
-.mxs-side h4 { margin: 0 0 0.4rem; font-size: 0.9rem; }
-.mxs-word { display: block; width: 100%; padding: 0.25rem 0.5rem; margin-bottom: 0.25rem; border-radius: 6px; border: 1px solid var(--line); background: #fff; font-size: 0.88rem; line-height: 1.25; }
+.mxs-grid-wrap { flex: 0 0 auto; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: #f2efe6; }
+.mxs-side { flex: 1 1 230px; min-width: 0; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; background: #fff; padding: 0.5rem; }
+.mxs-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.mxs-words { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 0.25rem 0.4rem; align-items: start; }
+.mxs-word { padding: 0.2rem 0.45rem; border-radius: 6px; border: 1px solid var(--line); background: #fff; font-size: 0.85rem; line-height: 1.2; }
 .mxs-word.found { border-color: #2f6b4f; }
 .mxs-word .mxs-fr { color: var(--ink-soft); }
 @media (max-width: 760px) {
   .mxs-layout { flex-direction: column; }
-  .mxs-side { flex-basis: auto; width: 100%; position: static; max-height: 40vh; }
+  .mxs-grid-wrap { max-width: 100%; overflow-x: auto; }
+  .mxs-side { flex-basis: auto; width: 100%; max-height: 50vh !important; }
 }
 
 /* ---- Motus ---- */

@@ -2,7 +2,8 @@
 
 import './wordgames.css';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { getVocabularyWords, recordGameResult, type VocabularyWordWithMastery } from '../../../lib/vocabulary';
+import { recordGameResult, type VocabularyWordWithMastery } from '../../../lib/vocabulary';
+import { getGameWords } from '../../../lib/gameWords';
 import { VOCAB_THEMES, type LangCode, type LevelCode } from '../../../lib/constants';
 
 export type WordGameCtx = {
@@ -32,13 +33,14 @@ export default function WordGameShell({
   const [words, setWords] = useState<VocabularyWordWithMastery[] | null>(null);
   const [theme, setTheme] = useState('all');
   const [mastery, setMastery] = useState<Mastery>('all');
+  const [verbMode, setVerbMode] = useState<'inf' | 'forms' | 'none'>('inf'); // verbes : infinitif (par défaut), + formes conjuguées, ou aucun
 
   useEffect(() => {
     setWords(null);
-    getVocabularyWords(profileId, lang, level)
+    getGameWords(profileId, lang, level, verbMode === 'forms')
       .catch(() => [] as VocabularyWordWithMastery[])
       .then((list) => setWords(list ?? []));
-  }, [profileId, lang, level]);
+  }, [profileId, lang, level, verbMode === 'forms']); // eslint-disable-line react-hooks/exhaustive-deps
 
   const themes = useMemo(() => {
     const present = new Set((words ?? []).map((w) => w.theme_code));
@@ -49,10 +51,11 @@ export default function WordGameShell({
     () =>
       (words ?? []).filter(
         (w) =>
+          (verbMode !== 'none' || w.word_type !== 'verbe') &&
           (theme === 'all' || w.theme_code === theme) &&
           (mastery === 'all' || (mastery === 'seen' ? w.success_count + w.fail_count > 0 : !w.mastered))
       ),
-    [words, theme, mastery]
+    [words, theme, mastery, verbMode]
   );
 
   if (words === null) return <p className="eyebrow-free">Chargement…</p>;
@@ -84,6 +87,16 @@ export default function WordGameShell({
             <option value="unmastered">Seulement pas encore su (révision)</option>
           </select>
         </label>
+        {lang !== 'ja' ? (
+          <label>
+            Verbes
+            <select value={verbMode} onChange={(e) => setVerbMode(e.target.value as 'inf' | 'forms' | 'none')}>
+              <option value="inf">Avec les verbes (infinitif)</option>
+              <option value="forms">Avec les verbes conjugués</option>
+              <option value="none">Sans les verbes</option>
+            </select>
+          </label>
+        ) : null}
         <span className="wg-note">{pool.length} mot{pool.length > 1 ? 's' : ''} retenu{pool.length > 1 ? 's' : ''}</span>
       </div>
       {pool.length < minWords ? (

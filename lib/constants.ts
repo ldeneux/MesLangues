@@ -76,6 +76,7 @@ export const VOCAB_THEMES: readonly { code: string; label: string }[] = [
 ];
 
 export function vocabThemeLabel(code: string): string {
+  if (code === 'verbes') return 'Verbes';
   return VOCAB_THEMES.find((t) => t.code === code)?.label ?? code;
 }
 

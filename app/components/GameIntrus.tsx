@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getVocabularyWords, type VocabularyWordWithMastery } from '../../lib/vocabulary';
+import type { VocabularyWordWithMastery } from '../../lib/vocabulary';
+import { getGameWords } from '../../lib/gameWords';
 import { vocabThemeLabel, type LangCode, type LevelCode } from '../../lib/constants';
 
 type Round = { options: VocabularyWordWithMastery[]; oddIndex: number; themeLabel: string };
@@ -45,7 +46,7 @@ export default function GameIntrus({
 
   useEffect(() => {
     setWords(null);
-    getVocabularyWords(profileId, languageCode, levelCode)
+    getGameWords(profileId, languageCode, levelCode)
       .catch(() => [])
       .then((list) => setWords(list ?? []));
   }, [profileId, languageCode, levelCode]);

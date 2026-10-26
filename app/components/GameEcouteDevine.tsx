@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getVocabularyWords } from '../../lib/vocabulary';
+import { getGameWords } from '../../lib/gameWords';
 import { getAllReadyPhrases } from '../../lib/data';
 import type { LangCode, LevelCode } from '../../lib/constants';
 
@@ -46,7 +46,7 @@ export default function GameEcouteDevine({
   useEffect(() => {
     setPool(null);
     Promise.all([
-      getVocabularyWords(profileId, languageCode, levelCode).catch(() => []),
+      getGameWords(profileId, languageCode, levelCode).catch(() => []),
       getAllReadyPhrases(languageCode, levelCode).catch(() => []),
     ]).then(([words, phrases]) => {
       const merged: Item[] = [

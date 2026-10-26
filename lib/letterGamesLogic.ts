@@ -3,7 +3,7 @@
 // lettres latines sans accent, ou hiragana pour le japonais).
 import type { Rng } from './wordGamesLogic';
 
-export type LetterEntry = { id: string; answer: string; display: string; fr: string };
+export type LetterEntry = { id: string; answer: string; display: string; fr: string; kind?: 'word' | 'verb' | 'form' }; // form = forme conjuguée d'un verbe
 
 function shuffleArr<T>(arr: T[], rng: Rng): T[] {
   const a = arr.slice();

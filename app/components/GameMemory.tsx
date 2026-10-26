@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getVocabularyWords, type VocabularyWordWithMastery } from '../../lib/vocabulary';
+import type { VocabularyWordWithMastery } from '../../lib/vocabulary';
+import { getGameWords } from '../../lib/gameWords';
 import type { LangCode, LevelCode } from '../../lib/constants';
 
 const PAIR_COUNT = 6;
@@ -36,7 +37,7 @@ export default function GameMemory({
 
   useEffect(() => {
     setWords(null);
-    getVocabularyWords(profileId, languageCode, levelCode)
+    getGameWords(profileId, languageCode, levelCode)
       .catch(() => [])
       .then((list) => setWords(list ?? []));
   }, [profileId, languageCode, levelCode]);

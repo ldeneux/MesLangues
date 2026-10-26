@@ -1,12 +1,14 @@
 'use server';
 
-// Dictionnaire des jeux « Le mot le plus long » et « Scrabble » : TOUS les mots de la langue présents dans les packs de
-// vocabulaire prêts et actifs (tous niveaux confondus), un seul mot par orthographe. Aucun appel à l'IA, aucun coût.
+// Dictionnaire des jeux « Le mot le plus long », « Scrabble » et « Motus » : TOUS les mots de la langue présents en base (tous
+// niveaux) + les verbes (infinitifs et formes conjuguées), un seul mot par orthographe. Aucun appel à l'IA, aucun coût.
 import { supabaseAdmin } from './supabaseAdmin';
 import { fetchAllRows } from './paging';
 import { jeuAnswer } from './wordGamesLogic';
 import { readingFromRuby, toHiragana } from './japanese';
 import type { LetterEntry } from './letterGamesLogic';
+import { getConjugationVerbs } from './conjugation';
+import { TENSE_LABELS, PRONOUNS_FR, type TenseKey } from './conjugationDisplay';
 
 type Result = { ok: true; entries: LetterEntry[]; total: number } | { ok: false; error: string };
 
@@ -20,22 +22,12 @@ export async function getLetterDictionary(languageCode: string): Promise<Result>
     const hit = cache.get(languageCode);
     if (hit && Date.now() - hit.at < TTL) return { ok: true, entries: hit.entries, total: hit.total };
 
-    const { data: packs, error: packErr } = await supabaseAdmin
-      .from('vocabulary_packs')
-      .select('id')
-      .eq('language_code', languageCode)
-      .eq('status', 'ready')
-      .eq('active', true);
-    if (packErr) throw new Error(packErr.message);
-    const packIds = (packs ?? []).map((p) => p.id);
-    if (packIds.length === 0) return { ok: true, entries: [], total: 0 };
-
+    // TOUS les mots de la langue présents en base (tous niveaux, packs actifs ou non) : le dictionnaire de ces jeux est le plus large possible
     const words = await fetchAllRows<{ id: string; target_text: string; translation_fr: string }>((from, to) =>
       supabaseAdmin
         .from('vocabulary_words')
         .select('id, target_text, translation_fr')
         .eq('language_code', languageCode)
-        .in('pack_id', packIds)
         .order('id')
         .range(from, to)
     );
@@ -62,15 +54,46 @@ export async function getLetterDictionary(languageCode: string): Promise<Result>
         const kana = readings.get(w.target_text);
         if (!kana || !/^[\u3041-\u3096]+$/.test(kana) || Array.from(kana).length < 2 || Array.from(kana).length > MAX_LEN || seen.has(kana)) continue;
         seen.add(kana);
-        entries.push({ id: w.id, answer: kana, display: w.target_text, fr: w.translation_fr });
+        entries.push({ id: w.id, answer: kana, display: w.target_text, fr: w.translation_fr, kind: 'word' });
       }
     } else {
       for (const w of words) {
         const a = jeuAnswer(w.target_text, languageCode); // article retiré, accents supprimés, un seul mot
         if (!a || a.answer.length > MAX_LEN || seen.has(a.answer)) continue;
         seen.add(a.answer);
-        entries.push({ id: w.id, answer: a.answer, display: a.display, fr: w.translation_fr });
+        entries.push({ id: w.id, answer: a.answer, display: a.display, fr: w.translation_fr, kind: 'word' });
       }
+    }
+
+    // Verbes de la base : infinitifs puis formes conjuguées (présent, futur, passé composé, imparfait)
+    try {
+      const verbs = await getConjugationVerbs(languageCode); // tous niveaux
+      for (const v of verbs) {
+        if (languageCode === 'ja') {
+          const kana = toHiragana(v.ja_data?.reading ?? '');
+          if (/^[\u3041-\u3096]+$/.test(kana) && Array.from(kana).length >= 2 && Array.from(kana).length <= MAX_LEN && !seen.has(kana)) {
+            seen.add(kana);
+            entries.push({ id: `verb:${v.id}`, answer: kana, display: v.infinitive, fr: v.translation_fr, kind: 'verb' });
+          }
+          continue;
+        }
+        const inf = jeuAnswer(v.infinitive, languageCode);
+        if (inf && inf.answer.length <= MAX_LEN && !seen.has(inf.answer)) {
+          seen.add(inf.answer);
+          entries.push({ id: `verb:${v.id}`, answer: inf.answer, display: inf.display, fr: v.translation_fr, kind: 'verb' });
+        }
+        for (const tense of Object.keys(TENSE_LABELS) as TenseKey[]) {
+          (v.tenses?.[tense] ?? []).forEach((form, i) => {
+            const token = (form ?? '').trim().split(/[\s/]+/).filter(Boolean).pop() ?? '';
+            const a = jeuAnswer(token.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, ''), languageCode);
+            if (!a || a.answer.length > MAX_LEN || seen.has(a.answer)) return;
+            seen.add(a.answer);
+            entries.push({ id: `verbform:${v.id}:${tense}:${i}`, answer: a.answer, display: a.display, fr: `${v.translation_fr} — ${TENSE_LABELS[tense]} (${PRONOUNS_FR[i] ?? ''})`, kind: 'form' });
+          });
+        }
+      }
+    } catch {
+      // verbes indisponibles (table ou colonne absente) : le vocabulaire suffit
     }
 
     cache.set(languageCode, { at: Date.now(), entries, total: words.length });

@@ -22,6 +22,7 @@ export default function GameMotus({ lang }: { profileId: string; lang: LangCode;
   const lengths = useMemo(() => {
     const m = new Map<number, number>();
     for (const e of entries ?? []) {
+      if (e.kind === 'form') continue;
       const l = chars(e.answer).length;
       m.set(l, (m.get(l) ?? 0) + 1);
     }
@@ -43,7 +44,7 @@ export default function GameMotus({ lang }: { profileId: string; lang: LangCode;
 
   const newWord = useCallback(
     (n: number) => {
-      const list = (entries ?? []).filter((e) => chars(e.answer).length === n);
+      const list = (entries ?? []).filter((e) => chars(e.answer).length === n && e.kind !== 'form'); // secret : mot ou infinitif ; les formes conjuguées restent acceptées en proposition
       if (list.length === 0) return;
       const w = list[Math.floor(Math.random() * list.length)];
       setSecret(w);
