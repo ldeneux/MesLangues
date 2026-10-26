@@ -261,6 +261,48 @@ export function generateWordSearch(
   return { size, cells: out, placed };
 }
 
+/**
+ * Grand mots cachés (30×30) : jusqu'à `count` mots, dans les 8 sens si `allowReverse` (sinon 4 sens : droite, bas, deux diagonales
+ * descendante et montante). Les mots les plus longs sont placés en premier ; les cases vides sont remplies avec des lettres
+ * tirées des mots du pool (les lettres fréquentes reviennent plus souvent, comme dans un vrai jeu).
+ */
+export function generateMaxiWordSearch(pool: JeuWord[], count = 60, size = 30, allowReverse = false, rng: Rng = Math.random): WsGrid | null {
+  if (pool.length < 10) return null;
+  const chosen = shuffle(pool, rng)
+    .filter((w) => w.answer.length <= size)
+    .slice(0, count)
+    .sort((a, b) => b.answer.length - a.answer.length);
+  const grid: (string | null)[][] = Array.from({ length: size }, () => Array(size).fill(null));
+  const dirs: [number, number][] = allowReverse ? [...WS_DIRS, ...WS_DIRS.map(([a, b]) => [-a, -b] as [number, number])] : WS_DIRS;
+  const placed: WsPlaced[] = [];
+  for (const w of chosen) {
+    for (let t = 0; t < 400; t++) {
+      const [dr, dc] = dirs[Math.floor(rng() * dirs.length)];
+      const r0 = Math.floor(rng() * size);
+      const c0 = Math.floor(rng() * size);
+      const r1 = r0 + dr * (w.answer.length - 1);
+      const c1 = c0 + dc * (w.answer.length - 1);
+      if (r1 < 0 || r1 >= size || c1 < 0 || c1 >= size) continue;
+      const cells: [number, number][] = [];
+      let fits = true;
+      for (let k = 0; k < w.answer.length && fits; k++) {
+        const r = r0 + dr * k;
+        const c = c0 + dc * k;
+        if (grid[r][c] !== null && grid[r][c] !== w.answer[k]) fits = false;
+        cells.push([r, c]);
+      }
+      if (!fits) continue;
+      cells.forEach(([r, c], k) => (grid[r][c] = w.answer[k]));
+      placed.push({ id: w.id, answer: w.answer, display: w.display, cells });
+      break;
+    }
+  }
+  if (placed.length < 10) return null;
+  const letters = pool.map((w) => w.answer).join('');
+  const out = grid.map((row) => row.map((ch) => (ch ?? letters[Math.floor(rng() * letters.length)]).toUpperCase()));
+  return { size, cells: out, placed };
+}
+
 /** Cases d'une ligne droite (horizontale, verticale ou diagonale) entre deux cases, ou null. */
 export function lineCells(a: [number, number], b: [number, number]): [number, number][] | null {
   const dr = b[0] - a[0], dc = b[1] - a[1];

@@ -272,3 +272,27 @@ export function evaluateMove(board: Board, placed: Placed[], keys: Set<string>, 
   const bingo = placed.length === RACK_SIZE;
   return { ok: true, words: scored, total: scored.reduce((s, w) => s + w.points, 0) + (bingo ? BINGO_BONUS : 0), bingo };
 }
+
+// ---------------------------------------------------------
+// Motus
+// ---------------------------------------------------------
+export type MotusMark = 'good' | 'present' | 'absent'; // bien placée (rouge), mal placée (jaune), absente (bleu)
+
+/** Notation d'une proposition : d'abord les lettres bien placées, puis les mal placées (chaque lettre du mot secret ne compte qu'une fois). */
+export function motusMarks(guess: string, secret: string): MotusMark[] {
+  const g = chars(guess);
+  const s = chars(secret);
+  const res: MotusMark[] = g.map(() => 'absent');
+  const left = new Map<string, number>();
+  g.forEach((ch, i) => {
+    if (ch === s[i]) res[i] = 'good';
+    else left.set(s[i], (left.get(s[i]) ?? 0) + 1);
+  });
+  g.forEach((ch, i) => {
+    if (res[i] !== 'good' && (left.get(ch) ?? 0) > 0) {
+      res[i] = 'present';
+      left.set(ch, left.get(ch)! - 1);
+    }
+  });
+  return res;
+}

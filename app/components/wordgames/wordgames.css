@@ -113,15 +113,37 @@
 .sc-tile sub { font-size: 0.5em; margin-left: 2px; }
 .sc-tile.selected { transform: translateY(-4px); border-color: #2f6b4f; box-shadow: 0 4px 0 #2f6b4f; }
 
-/* ---- Maxi mots croisés 30×30 ---- */
-.maxi-scroll { max-height: 75vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: #f2efe6; padding: 4px; }
-.maxi-current { margin: 0.6rem 0; padding: 0.6rem 0.8rem; border: 1px solid var(--line); border-radius: 10px; background: #fff; display: flex; flex-direction: column; gap: 0.4rem; }
-.maxi-pattern { font-family: ui-monospace, monospace; font-weight: 700; letter-spacing: 0.15em; }
-.maxi-cands { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
-.maxi-chip, .maxi-word { font-family: inherit; font-size: 0.9rem; color: inherit; cursor: pointer; background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 0.2rem 0.7rem; }
-.maxi-chip:hover, .maxi-word:hover { border-color: var(--ink); }
-.maxi-bank { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 0.8rem 1.2rem; }
-.maxi-bank-title { font-size: 0.8rem; font-weight: 700; color: var(--ink-soft); margin-bottom: 0.25rem; }
-.maxi-word { display: block; width: 100%; text-align: left; border-radius: 6px; margin-bottom: 0.25rem; }
-.maxi-word.found { background: #dcebd6; border-color: #2f6b4f; }
-.maxi-word.active { box-shadow: 0 0 0 2px var(--ink); }
+/* ---- Maxi mots cachés 30×30 : grille à gauche, mots à trouver à droite ---- */
+.mxs-layout { display: flex; gap: 1rem; align-items: flex-start; }
+.mxs-grid-wrap { flex: 1 1 auto; min-width: 0; max-height: 80vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: #f2efe6; padding: 4px; }
+.mxs-side { flex: 0 0 270px; position: sticky; top: 0.5rem; max-height: 80vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; background: #fff; padding: 0.5rem; }
+.mxs-side h4 { margin: 0 0 0.4rem; font-size: 0.9rem; }
+.mxs-word { display: block; width: 100%; padding: 0.25rem 0.5rem; margin-bottom: 0.25rem; border-radius: 6px; border: 1px solid var(--line); background: #fff; font-size: 0.88rem; line-height: 1.25; }
+.mxs-word.found { border-color: #2f6b4f; }
+.mxs-word .mxs-fr { color: var(--ink-soft); }
+@media (max-width: 760px) {
+  .mxs-layout { flex-direction: column; }
+  .mxs-side { flex-basis: auto; width: 100%; position: static; max-height: 40vh; }
+}
+
+/* ---- Motus ---- */
+.mt-board { display: flex; flex-direction: column; gap: 4px; margin: 0.75rem 0; width: max-content; max-width: 100%; }
+.mt-row { display: flex; gap: 4px; }
+.mt-cell {
+  width: 2.7rem; height: 2.7rem; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; font-weight: 700; text-transform: uppercase;
+  background: #2f5fb3; color: #fff; border: 2px solid #1f4488; border-radius: 4px; position: relative;
+}
+.mt-cell.good { background: #d2362f; border-color: #a02520; }
+.mt-cell.present::before { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: #f1c232; z-index: 0; }
+.mt-cell.present span { position: relative; z-index: 1; color: #1f2a44; }
+.mt-cell.hint span { opacity: 0.45; }
+.mt-cell.cursor { box-shadow: 0 0 0 3px rgba(35, 36, 31, 0.55); }
+.mt-row.shake { animation: mt-shake 0.35s; }
+@keyframes mt-shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+.mt-kb { display: flex; flex-direction: column; gap: 4px; margin-top: 0.5rem; max-width: 560px; }
+.mt-kb-row { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; }
+.mt-key { min-width: 2.1rem; height: 2.6rem; padding: 0 0.4rem; font-family: inherit; font-weight: 700; font-size: 1rem; text-transform: uppercase; cursor: pointer; border-radius: 6px; border: 1px solid var(--line); background: #fff; color: var(--ink); }
+.mt-key.good { background: #d2362f; border-color: #a02520; color: #fff; }
+.mt-key.present { background: #f1c232; border-color: #c9a000; }
+.mt-key.absent { background: #c9ccd3; color: #7b7f88; }
+.mt-key.wide { padding: 0 0.9rem; }
