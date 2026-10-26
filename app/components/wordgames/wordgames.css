@@ -112,3 +112,16 @@
 .sc-rack { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.9rem; min-height: 3.2rem; align-items: center; }
 .sc-tile sub { font-size: 0.5em; margin-left: 2px; }
 .sc-tile.selected { transform: translateY(-4px); border-color: #2f6b4f; box-shadow: 0 4px 0 #2f6b4f; }
+
+/* ---- Maxi mots croisés 30×30 ---- */
+.maxi-scroll { max-height: 75vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: #f2efe6; padding: 4px; }
+.maxi-current { margin: 0.6rem 0; padding: 0.6rem 0.8rem; border: 1px solid var(--line); border-radius: 10px; background: #fff; display: flex; flex-direction: column; gap: 0.4rem; }
+.maxi-pattern { font-family: ui-monospace, monospace; font-weight: 700; letter-spacing: 0.15em; }
+.maxi-cands { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+.maxi-chip, .maxi-word { font-family: inherit; font-size: 0.9rem; color: inherit; cursor: pointer; background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 0.2rem 0.7rem; }
+.maxi-chip:hover, .maxi-word:hover { border-color: var(--ink); }
+.maxi-bank { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 0.8rem 1.2rem; }
+.maxi-bank-title { font-size: 0.8rem; font-weight: 700; color: var(--ink-soft); margin-bottom: 0.25rem; }
+.maxi-word { display: block; width: 100%; text-align: left; border-radius: 6px; margin-bottom: 0.25rem; }
+.maxi-word.found { background: #dcebd6; border-color: #2f6b4f; }
+.maxi-word.active { box-shadow: 0 0 0 2px var(--ink); }
