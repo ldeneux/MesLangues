@@ -36,7 +36,7 @@ export default function GameMotus({ lang }: { profileId: string; lang: LangCode;
   const [len, setLen] = useState<number | null>(null);
   const [secret, setSecret] = useState<LetterEntry | null>(null);
   const [typed, setTyped] = useState<string[]>([]); // lettres tapées pour la ligne en cours (la 1re est donnée)
-  const [rows, setRows] = useState<{ letters: string[]; marks: MotusMark[] }[]>([]);
+  const [rows, setRows] = useState<{ letters: string[]; marks: MotusMark[]; display: string; fr: string }[]>([]);
   const [msg, setMsg] = useState('');
   const [shake, setShake] = useState(false);
   const [state, setState] = useState<'play' | 'won' | 'lost'>('play');
@@ -87,7 +87,8 @@ export default function GameMotus({ lang }: { profileId: string; lang: LangCode;
       return;
     }
     const marks = motusMarks(guess, secret.answer);
-    const nextRows = [...rows, { letters: typed, marks }];
+    const entry = byAnswer.get(guess); // mot de la base : on garde son affichage (accents) et sa traduction
+    const nextRows = [...rows, { letters: typed, marks, display: entry?.display ?? guess, fr: entry?.fr ?? '' }];
     setRows(nextRows);
     setTyped([first]);
     setMsg('');
@@ -203,6 +204,11 @@ export default function GameMotus({ lang }: { profileId: string; lang: LangCode;
                   </div>
                 );
               })}
+              {done && (
+                <span className="mt-fr">
+                  <b>{done.display}</b> = {done.fr}
+                </span>
+              )}
             </div>
           );
         })}
