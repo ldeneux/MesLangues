@@ -30,12 +30,25 @@ export function paragraphRange(words: number): [number, number] {
   return [Math.max(4, Math.round(words / 170)), Math.max(6, Math.round(words / 105))];
 }
 
+// Histoire originale (aucune œuvre existante à adapter) : on invente, on n'imite aucun livre publié.
+const ORIGINAL_RULES = `Tu es un écrivain et un professeur de langues. Tu écris une histoire ORIGINALE pour des apprenants de niveau B2 (CECRL).
+
+Principes :
+- Invente l'histoire toi-même, du début à la fin (personnages, lieux, épisodes, dénouement), à partir de la consigne donnée. Ce n'est PAS l'adaptation d'un livre existant : ne reprends ni l'intrigue, ni les personnages, ni les phrases, ni les images d'une œuvre publiée.
+- Écris une vraie histoire, vivante et cohérente, avec des dialogues et des détails ; respecte la longueur indiquée à ±15 %.
+- Niveau B2 : vocabulaire riche mais clair, phrases variées avec subordonnées, temps du récit propres à chaque langue. Ni notes, ni commentaire, ni moralité ajoutée.
+- Japonais : écriture naturelle avec kanji, sans furigana ni romaji.`;
+
+function rulesFor(entry: ReadingEntry): string {
+  return entry.kind === 'histoire originale' ? ORIGINAL_RULES : ADAPTATION_RULES;
+}
+
 function lengthRule(entry: ReadingEntry, lang: ReadingLang): string {
   const u = targetUnits(entry, lang);
   return lang === 'ja' ? `environ ${u} caractères` : `environ ${u} mots`;
 }
 
-const COMMON_RULES = `Tu es un écrivain et un professeur de langues. Tu adaptes de grands récits du monde en lectures pour des apprenants de niveau B2 (CECRL).
+const ADAPTATION_RULES = `Tu es un écrivain et un professeur de langues. Tu adaptes de grands récits du monde en lectures pour des apprenants de niveau B2 (CECRL).
 
 Principes :
 - Raconte l'histoire du début à la fin, fidèlement : tous les épisodes importants, les personnages principaux, le dénouement, le ton et l'atmosphère du récit d'origine. C'est un résumé cohérent, pas un squelette : la longueur indiquée a été choisie pour cela, respecte-la à ±15 %.
@@ -44,9 +57,12 @@ Principes :
 - Japonais : écriture naturelle avec kanji, sans furigana ni romaji.`;
 
 function storyLine(entry: ReadingEntry): string {
+  if (entry.kind === 'histoire originale') {
+    return `Histoire originale à inventer : « ${entry.title} ». Consigne : ${entry.brief ?? 'une histoire pour enfants, tendre et pleine d\'imagination'}`;
+  }
   const origin = findReadingOrigin(entry.origin);
   return `Récit à adapter : « ${entry.title} » (titre d'origine : ${entry.original}) — ${entry.kind}${
-    entry.author ? ` de ${entry.author}` : ' (tradition anonyme ou orale)'
+    entry.author ? (/^Les /.test(entry.author) ? ` tiré de ${entry.author}` : ` de ${entry.author}`) : ' (tradition anonyme ou orale)'
   }. Origine : ${origin?.label ?? entry.origin}.`;
 }
 
@@ -54,7 +70,7 @@ function storyLine(entry: ReadingEntry): string {
 export function buildMasterPrompt(entry: ReadingEntry, lang: ReadingLang): { system: string; user: string } {
   const [pMin, pMax] = paragraphRange(entry.words);
   const name = LANG_NAMES[lang];
-  const system = `${COMMON_RULES}
+  const system = `${rulesFor(entry)}
 
 Tâche : écris deux versions du même récit.
 (a) La version en ${name}, ${lengthRule(entry, lang)}, écrite comme le ferait un auteur natif.
@@ -71,7 +87,7 @@ Réponds uniquement avec ce JSON :
 export function buildTranslationPrompt(entry: ReadingEntry, lang: ReadingLang, fr: StoredVersion): { system: string; user: string } {
   const name = LANG_NAMES[lang];
   const n = fr.paragraphs.length;
-  const system = `${COMMON_RULES}
+  const system = `${rulesFor(entry)}
 
 Tâche : on te donne la version française d'un récit, en ${n} paragraphes. Écris la version en ${name} : même histoire, même contenu, ${lengthRule(entry, lang)}, au niveau B2, comme le ferait un auteur natif (pas de calque du français).
 Elle contient exactement ${n} paragraphes, alignés un à un avec le français : le paragraphe i en ${name} correspond au paragraphe i du français.

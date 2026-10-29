@@ -197,7 +197,7 @@ export default function ReadingCorner({ languageCode }: { languageCode: LangCode
               </div>
               <div className="pack-row-sub">
                 {s.kind}
-                {s.author ? ` · ${s.author}` : ' · tradition'} · {s.original} · ≈ {s.words} mots
+                {s.author ? ` · ${s.author}` : s.kind === 'histoire originale' ? '' : ' · tradition'} · {s.original} · ≈ {s.words} mots
               </div>
             </div>
             <span style={{ whiteSpace: 'nowrap' }}>{busy === s.id ? 'En cours…' : readyIn(s.id) ? '✓ Lire' : '☁ À générer'}</span>

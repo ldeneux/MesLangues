@@ -1,9 +1,9 @@
-// Coin lecture : 14 origines × 10 récits = 140 lectures (contes, légendes, mythes, épopées, nouvelles, extraits de romans).
-// Choix : œuvres du domaine public ou traditions orales. Le texte lu dans l'appli n'est jamais une édition existante :
+// Coin lecture : 15 origines (dont le Monde arabe) et 151 lectures (contes, légendes, mythes, épopées, nouvelles, extraits de romans, une histoire originale).
+// Choix : œuvres du domaine public ou traditions orales ; une œuvre récente et protégée n'est JAMAIS adaptée : on écrit alors une histoire originale (kind « histoire originale »). Le texte lu dans l'appli n'est jamais une édition existante :
 // c'est une adaptation écrite à la demande par Gemini, langue par langue, dont la longueur (champ « words ») est choisie récit par récit (voir readingLogic.ts).
 // Pour changer un titre ou une origine : modifier ce fichier seulement (l'identifiant « origine-numéro » relie le récit à sa version enregistrée).
 
-export type ReadingKind = 'conte' | 'légende' | 'mythe' | 'épopée' | 'nouvelle' | 'roman' | 'théâtre';
+export type ReadingKind = 'conte' | 'légende' | 'mythe' | 'épopée' | 'nouvelle' | 'roman' | 'théâtre' | 'histoire originale';
 
 export type ReadingEntry = {
   id: string; // ex. « jp-03 » (ne pas changer une fois le récit généré)
@@ -14,6 +14,7 @@ export type ReadingEntry = {
   author: string | null; // null = tradition anonyme ou orale
   kind: ReadingKind;
   words: number; // longueur utile du résumé (en mots) : assez pour rester cohérent, au niveau B2
+  brief?: string; // « histoire originale » seulement : consigne d'écriture (pas d'œuvre existante à adapter)
 };
 
 export type ReadingOrigin = {
@@ -23,14 +24,14 @@ export type ReadingOrigin = {
   stories: ReadingEntry[];
 };
 
-type Row = [title: string, original: string, author: string | null, kind: ReadingKind, words: number];
+type Row = [title: string, original: string, author: string | null, kind: ReadingKind, words: number, brief?: string];
 
 function origin(code: string, label: string, flag: string, rows: Row[]): ReadingOrigin {
   return {
     code,
     label,
     flag,
-    stories: rows.map(([title, original, author, kind, words], i) => ({
+    stories: rows.map(([title, original, author, kind, words, brief], i) => ({
       id: `${code}-${String(i + 1).padStart(2, '0')}`,
       origin: code,
       n: i + 1,
@@ -39,6 +40,7 @@ function origin(code: string, label: string, flag: string, rows: Row[]): Reading
       author,
       kind,
       words,
+      ...(brief ? { brief } : {}),
     })),
   };
 }
@@ -115,6 +117,14 @@ export const READING_ORIGINS: ReadingOrigin[] = [
     ['Le Cadeau des Mages', 'The Gift of the Magi', 'O. Henry', 'nouvelle', 700],
     ['Le Ruban moucheté', 'The Adventure of the Speckled Band', 'Arthur Conan Doyle', 'nouvelle', 1200],
     ['Rikki-Tikki-Tavi', 'Rikki-Tikki-Tavi', 'Rudyard Kipling', 'conte', 1000],
+    [
+      'Le Magicien des couleurs',
+      'Le Magicien des couleurs',
+      null,
+      'histoire originale',
+      1500,
+      "Un conte tendre et drôle pour enfants, entièrement inventé : un magicien qui prépare les couleurs comme d'autres préparent des potions (en les mélangeant, les goûtant, les rangeant dans des pots), un village où le gris a peu à peu tout recouvert, et deux sœurs curieuses qui partent à sa rencontre. Épisodes à inventer : l'arrivée à la tour du magicien, des mélanges ratés et amusants, une couleur que personne n'a encore jamais vue, un retour joyeux au village.",
+    ],
   ]),
   origin('cn', 'Chine', '🇨🇳', [
     ['Le Bouvier et la Tisserande', '牛郎织女', null, 'légende', 600],
@@ -211,6 +221,18 @@ export const READING_ORIGINS: ReadingOrigin[] = [
     ['Faro et la création du monde', 'Faro', null, 'mythe', 800],
     ['Le Lièvre et l’hyène', 'Le Lièvre et l’hyène', null, 'conte', 500],
     ['Le Griot et le roi', 'Le Griot et le roi', null, 'conte', 600],
+  ]),
+  origin('ar', 'Monde arabe', '🕌', [
+    ['Shéhérazade et le roi Shahriyar', 'شهرزاد والملك شهريار', 'Les Mille et Une Nuits', 'conte', 1500],
+    ['Le Pêcheur et le Génie', 'حكاية الصياد والعفريت', 'Les Mille et Une Nuits', 'conte', 1500],
+    ['Sindbad le marin', 'السندباد البحري', 'Les Mille et Une Nuits', 'conte', 1500],
+    ['Ali Baba et les quarante voleurs', 'علي بابا والأربعون لصًّا', 'Les Mille et Une Nuits (Galland)', 'conte', 1500],
+    ['Aladin et la lampe merveilleuse', 'علاء الدين والمصباح السحري', 'Les Mille et Une Nuits (Galland)', 'conte', 1500],
+    ['Le Dormeur éveillé (Abou el-Hassan)', 'حكاية النائم واليقظان', 'Les Mille et Une Nuits', 'conte', 1500],
+    ['Le Cheval d’ébène', 'الحصان المسحور', 'Les Mille et Une Nuits', 'conte', 1500],
+    ['La Ville de cuivre', 'مدينة النحاس', 'Les Mille et Une Nuits', 'conte', 1500],
+    ['Les Aventures de Djeha', 'نوادر جحا', null, 'conte', 1500],
+    ['Layla et Majnoun', 'ليلى والمجنون', null, 'légende', 1500],
   ]),
 ];
 
