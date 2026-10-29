@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { getVocabularyWords, type VocabularyWordWithMastery } from '../../lib/vocabulary';
+import { getVocabularyWords, setVocabularyFavorite, type VocabularyWordWithMastery } from '../../lib/vocabulary';
+import { themeLabelIn, natureLabelIn } from '../../lib/themeLabels';
 import { VOCAB_THEMES, LANGS } from '../../lib/constants';
 import VocabularyGamePanel from './VocabularyGamePanel';
 import VocabularyStatsPanel from './VocabularyStatsPanel';
@@ -35,6 +36,10 @@ export default function VocabularyPanel({
   const [themeChoice, setThemeChoice] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [masteredOnly, setMasteredOnly] = useState(false);
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  // « Inclure les niveaux précédents » (A2 à B2) : tout le vocabulaire des niveaux d'en dessous, pour réviser en même temps
+  const [includePrevRaw, setIncludePrevRaw] = usePersistentFlag('vocab-include-previous', false);
+  const includePrev = includePrevRaw && levelCode !== 'A1';
   const [error, setError] = useState('');
   const [playingId, setPlayingId] = useState<string | null>(null);
 
@@ -50,7 +55,7 @@ export default function VocabularyPanel({
     setWords(null);
     setThemeChoice('');
     setError('');
-    getVocabularyWords(profileId, languageCode, levelCode)
+    getVocabularyWords(profileId, languageCode, levelCode, includePrev)
       .then(setWords)
       .catch((e: any) =>
         setError(
@@ -59,7 +64,7 @@ export default function VocabularyPanel({
             : e?.message ?? 'Erreur de chargement du vocabulaire.'
         )
       );
-  }, [profileId, languageCode, levelCode]);
+  }, [profileId, languageCode, levelCode, includePrev]);
 
   // Double-clic sur un mot (image ou carte) : fenêtre de suppression (ex. « la cuillère » / « une cuillère »)
   const [toDelete, setToDelete] = useState<VocabularyWordWithMastery | null>(null);
@@ -75,14 +80,33 @@ export default function VocabularyPanel({
     (w) =>
       (themeFilter === 'all' || w.theme_code === themeFilter) &&
       (typeFilter === 'all' || w.word_type === typeFilter) &&
-      (!masteredOnly || w.mastered)
+      (!masteredOnly || w.mastered) &&
+      (!favoritesOnly || w.favorite)
   );
+  const favoriteCount = (words ?? []).filter((w) => w.favorite && (themeFilter === 'all' || w.theme_code === themeFilter)).length;
+
+  // Étoile : mise à jour immédiate, annulée si l'enregistrement échoue
+  async function toggleFavorite(w: VocabularyWordWithMastery) {
+    const next = !w.favorite;
+    setWords((prev) => (prev ? prev.map((x) => (x.id === w.id ? { ...x, favorite: next } : x)) : prev));
+    try {
+      await setVocabularyFavorite(profileId, w.id, next);
+    } catch (e: any) {
+      setWords((prev) => (prev ? prev.map((x) => (x.id === w.id ? { ...x, favorite: !next } : x)) : prev));
+      setError(e?.message ?? 'Impossible de modifier le favori.');
+    }
+  }
+
+  // Titre en langue étrangère du thème et/ou de la nature choisis
+  const themeTitle = themeFilter !== 'all' ? themeLabelIn(themeFilter, languageCode) : null;
+  const natureTitle = typeFilter !== 'all' ? natureLabelIn(typeFilter, languageCode) : null;
+  const foreignTitle = [themeTitle, natureTitle].filter(Boolean).join(' — ');
 
   // Liste paginée (images chargées à la demande ; japonais : lectures chargées seulement pour les mots affichés)
   const shown = filtered.slice(0, visible);
   useEffect(() => {
     setVisible(PAGE);
-  }, [themeFilter, typeFilter, masteredOnly, words]);
+  }, [themeFilter, typeFilter, masteredOnly, favoritesOnly, words]);
   const { readings, error: readingError, loading: readingLoading } = useJapaneseReadings(
     isJa ? shown.map((w) => w.target_text) : [],
     isJa && subTab === 'list' && (furigana || romaji)
@@ -98,6 +122,16 @@ export default function VocabularyPanel({
 
   return (
     <div>
+      {levelCode !== 'A1' && (
+        <label className="switch-row" title="Affiche aussi le vocabulaire des niveaux précédents (liste, test et statistiques)">
+          <span className="switch">
+            <input type="checkbox" checked={includePrev} onChange={(e) => setIncludePrevRaw(e.target.checked)} />
+            <span className="switch-track" />
+          </span>
+          <span>Inclure les niveaux précédents</span>
+          {includePrev && <span className="eyebrow-free" style={{ margin: 0 }}>(A1 → {levelCode})</span>}
+        </label>
+      )}
       <div className="subtab-row">
         <button className={`subtab-btn${subTab === 'list' ? ' active' : ''}`} onClick={() => setSubTab('list')}>
           Liste
@@ -111,9 +145,9 @@ export default function VocabularyPanel({
       </div>
 
       {subTab === 'game' ? (
-        <VocabularyGamePanel profileId={profileId} languageCode={languageCode} levelCode={levelCode} bcp47={bcp47} />
+        <VocabularyGamePanel profileId={profileId} languageCode={languageCode} levelCode={levelCode} bcp47={bcp47} includePrevious={includePrev} />
       ) : subTab === 'stats' ? (
-        <VocabularyStatsPanel profileId={profileId} languageCode={languageCode} levelCode={levelCode} />
+        <VocabularyStatsPanel profileId={profileId} languageCode={languageCode} levelCode={levelCode} includePrevious={includePrev} />
       ) : (
         <>
           {error && <p className="conv-warning">{error}</p>}
@@ -154,6 +188,9 @@ export default function VocabularyPanel({
                 >
                   ✅ Vocabulaire acquis uniquement
                 </button>
+                <button className={`conv-mini-btn${favoritesOnly ? ' selected-mini' : ''}`} onClick={() => setFavoritesOnly((f) => !f)}>
+                  ⭐ Favoris{favoriteCount > 0 ? ` (${favoriteCount})` : ''}
+                </button>
               </div>
 
               {isJa && (
@@ -169,6 +206,11 @@ export default function VocabularyPanel({
               )}
               {readingError && <p className="conv-warning">{readingError}</p>}
 
+              {foreignTitle && (
+                <h3 className="vocab-foreign-title" lang={languageCode}>
+                  {foreignTitle}
+                </h3>
+              )}
               <p className="eyebrow-free">{filtered.length} mot(s)</p>
 
               <div className="lesson-word-grid">
@@ -182,6 +224,15 @@ export default function VocabularyPanel({
                       setToDelete(w);
                     }}
                   >
+                    <button
+                      className={`fav-star${w.favorite ? ' on' : ''}`}
+                      onClick={() => toggleFavorite(w)}
+                      onDoubleClick={(e) => e.stopPropagation()}
+                      aria-label={w.favorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                      title={w.favorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                    >
+                      {w.favorite ? '★' : '☆'}
+                    </button>
                     {w.image && (
                       <div className="lesson-word-img">
                         <img src={imageUrl(w.image)} alt="" loading="lazy" />
@@ -209,6 +260,7 @@ export default function VocabularyPanel({
                         )}
                         <div className="lesson-word-fr">{w.translation_fr}</div>
                         {w.mastered && <span className="mastery-badge">✅ Acquis</span>}
+                        {includePrev && w.level_code && w.level_code !== levelCode && <span className="level-tag">{w.level_code}</span>}
                       </div>
                     </div>
                   </div>

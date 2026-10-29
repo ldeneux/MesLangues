@@ -2266,3 +2266,21 @@ button.primary.danger { background: #a3402f; color: #fff; }
 .pack-inactive .pack-row { opacity: 0.6; }
 .pack-kind { font-size: 0.7rem; font-weight: 600; margin-left: 0.4rem; padding: 0.05rem 0.45rem; border-radius: 999px; background: color-mix(in srgb, var(--ink) 8%, white); color: var(--ink-soft); vertical-align: middle; }
 .pack-active-toggle { margin-left: auto; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; cursor: pointer; margin-right: 0.75rem; white-space: nowrap; }
+
+/* ---- Vocabulaire : titre étranger, favoris, interrupteur des niveaux précédents ---- */
+.vocab-foreign-title { margin: 0.25rem 0 0.4rem; font-family: Fraunces, Georgia, serif; font-size: 1.5rem; font-weight: 600; }
+.lesson-word-card { position: relative; }
+.fav-star {
+  position: absolute; top: 0.25rem; right: 0.3rem; z-index: 2; width: 1.9rem; height: 1.9rem; padding: 0; border: none; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85); font-size: 1.2rem; line-height: 1; color: #9a948a; cursor: pointer;
+}
+.fav-star:hover { color: #d9a400; }
+.fav-star.on { color: #e0a800; }
+.level-tag { display: inline-block; margin-left: 0.4rem; padding: 0 0.4rem; border-radius: 999px; font-size: 0.7rem; font-weight: 700; background: #e3ebf4; color: #3b5a85; }
+.switch-row { display: inline-flex; align-items: center; gap: 0.6rem; margin-bottom: 0.8rem; cursor: pointer; font-size: 0.95rem; }
+.switch { position: relative; display: inline-block; width: 2.6rem; height: 1.45rem; flex: 0 0 auto; }
+.switch input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; z-index: 1; }
+.switch-track { position: absolute; inset: 0; border-radius: 999px; background: #c9c4b8; transition: background 0.15s; }
+.switch-track::after { content: ''; position: absolute; top: 0.15rem; left: 0.15rem; width: 1.15rem; height: 1.15rem; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.3); transition: transform 0.15s; }
+.switch input:checked + .switch-track { background: #2f6b4f; }
+.switch input:checked + .switch-track::after { transform: translateX(1.15rem); }

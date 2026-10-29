@@ -17,11 +17,13 @@ export default function VocabularyGamePanel({
   languageCode,
   levelCode,
   bcp47,
+  includePrevious = false,
 }: {
   profileId: string;
   languageCode: string;
   levelCode: string;
   bcp47: string;
+  includePrevious?: boolean;
 }) {
   const [reviewMode, setReviewMode] = useState(false);
   const [items, setItems] = useState<GameItem[] | null>(null);
@@ -52,13 +54,13 @@ export default function VocabularyGamePanel({
     setAttempts(0);
     attemptsRef.current = 0;
     setScore({ correct: 0, total: 0 });
-    getGameItems(languageCode, levelCode, profileId, 20, reviewMode).then(setItems);
+    getGameItems(languageCode, levelCode, profileId, 20, reviewMode, includePrevious).then(setItems);
   }
 
   useEffect(() => {
     startGame();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [languageCode, levelCode, reviewMode]);
+  }, [languageCode, levelCode, reviewMode, includePrevious]);
 
   const item = items?.[index];
 

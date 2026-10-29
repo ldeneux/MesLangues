@@ -28,6 +28,7 @@ export default function DeleteWordModal({
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
+  levelCode = word.level_code ?? levelCode; // le mot peut venir d'un niveau précédent
   const langLabel = LANGS.find((l) => l.code === languageCode)?.label ?? languageCode;
 
   useEffect(() => {

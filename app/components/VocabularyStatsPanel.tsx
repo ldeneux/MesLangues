@@ -20,10 +20,12 @@ export default function VocabularyStatsPanel({
   profileId,
   languageCode,
   levelCode,
+  includePrevious = false,
 }: {
   profileId: string;
   languageCode: string;
   levelCode: string;
+  includePrevious?: boolean;
 }) {
   const [entries, setEntries] = useState<VocabularyScoreEntry[] | null>(null);
   const [min, setMin] = useState(0);
@@ -33,13 +35,13 @@ export default function VocabularyStatsPanel({
 
   function refresh() {
     setEntries(null);
-    getVocabularyScores(profileId, languageCode, levelCode).then(setEntries);
+    getVocabularyScores(profileId, languageCode, levelCode, includePrevious).then(setEntries);
   }
 
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profileId, languageCode, levelCode]);
+  }, [profileId, languageCode, levelCode, includePrevious]);
 
   const buckets = useMemo(() => {
     const counts = new Array(10).fill(0);
@@ -66,7 +68,7 @@ export default function VocabularyStatsPanel({
     setConfirmingClearAll(false);
     setError('');
     try {
-      await resetAllVocabularyProgress(profileId, languageCode, levelCode);
+      await resetAllVocabularyProgress(profileId, languageCode, levelCode, includePrevious);
       refresh();
     } catch (e: any) {
       setError(e.message ?? 'Erreur pendant la remise à zéro globale.');

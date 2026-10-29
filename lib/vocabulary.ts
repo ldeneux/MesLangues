@@ -622,15 +622,31 @@ export type VocabularyWordWithMastery = VocabularyWord & {
   success_count: number;
   fail_count: number;
   mastered: boolean;
+  level_code?: string; // niveau du mot (utile quand on inclut les niveaux précédents)
+  favorite?: boolean; // étoile de ce profil
 };
 
+/** Niveaux concernés : le niveau choisi, plus tous les précédents si `includePrevious` (A2 → A1 + A2, B1 → A1 + A2 + B1…). */
+function levelsUpTo(levelCode: string, includePrevious: boolean): string[] {
+  if (!includePrevious) return [levelCode];
+  const i = LEVELS.findIndex((l) => l.code === levelCode);
+  return i < 0 ? [levelCode] : LEVELS.slice(0, i + 1).map((l) => l.code as string);
+}
+
+// Progression d'un profil sur une table (lecture paginée : une réponse Supabase est limitée à 1000 lignes)
+async function readProgress<T>(table: string, cols: string, profileId: string, orderCol: string): Promise<T[]> {
+  return fetchAllRows<T>((from, to) =>
+    supabaseAdmin.from(table).select(cols).eq('profile_id', profileId).order(orderCol).range(from, to) as any
+  );
+}
+
 // Packs dont les mots sont utilisés (listes, jeux, scores…) : « prêts » (complets ou clôturés) ET actifs.
-async function getReadyVocabularyPackIds(languageCode: string, levelCode: string): Promise<string[]> {
+async function getReadyVocabularyPackIds(languageCode: string, levelCode: string, includePrevious = false): Promise<string[]> {
   const { data } = await supabaseAdmin
     .from('vocabulary_packs')
     .select('id')
     .eq('language_code', languageCode)
-    .eq('level_code', levelCode)
+    .in('level_code', levelsUpTo(levelCode, includePrevious))
     .eq('status', 'ready')
     .eq('active', true);
   return (data ?? []).map((p) => p.id);
@@ -673,9 +689,10 @@ export type VocabularyScoreEntry = {
 export async function getVocabularyScores(
   profileId: string,
   languageCode: string,
-  levelCode: string
+  levelCode: string,
+  includePrevious = false
 ): Promise<VocabularyScoreEntry[]> {
-  const packIds = await getReadyVocabularyPackIds(languageCode, levelCode);
+  const packIds = await getReadyVocabularyPackIds(languageCode, levelCode, includePrevious);
   if (packIds.length === 0) return [];
 
   // Lecture paginée : une réponse Supabase est limitée à 1000 lignes
@@ -685,12 +702,14 @@ export async function getVocabularyScores(
 
   const wordMap = new Map(words.map((w) => [w.id, w]));
 
-  const { data: progress } = await supabaseAdmin
-    .from('vocabulary_progress')
-    .select('word_id, success_count, fail_count')
-    .eq('profile_id', profileId);
+  const progress = await readProgress<{ word_id: string; success_count: number; fail_count: number }>(
+    'vocabulary_progress',
+    'word_id, success_count, fail_count',
+    profileId,
+    'word_id'
+  );
 
-  const relevantProgress = (progress ?? []).filter((p) => wordMap.has(p.word_id));
+  const relevantProgress = progress.filter((p) => wordMap.has(p.word_id));
 
   return relevantProgress
     .filter((p) => p.success_count + p.fail_count > 0)
@@ -719,9 +738,10 @@ export async function resetWordProgress(profileId: string, wordId: string): Prom
 export async function resetAllVocabularyProgress(
   profileId: string,
   languageCode: string,
-  levelCode: string
+  levelCode: string,
+  includePrevious = false
 ): Promise<void> {
-  const packIds = await getReadyVocabularyPackIds(languageCode, levelCode);
+  const packIds = await getReadyVocabularyPackIds(languageCode, levelCode, includePrevious);
   if (packIds.length === 0) return;
 
   const words = await fetchAllRows<{ id: string }>((from, to) =>
@@ -751,14 +771,15 @@ export async function resetAllVocabularyProgress(
 export async function getVocabularyWords(
   profileId: string,
   languageCode: string,
-  levelCode: string
+  levelCode: string,
+  includePrevious = false
 ): Promise<VocabularyWordWithMastery[]> {
-  const packIds = await getReadyVocabularyPackIds(languageCode, levelCode);
+  const packIds = await getReadyVocabularyPackIds(languageCode, levelCode, includePrevious);
   if (packIds.length === 0) return [];
 
   // Le nom d'image enregistré en base est lu avec les mots ; si la colonne n'existe pas encore (migration 024), on s'en passe.
   // Lecture paginée : une réponse Supabase est limitée à 1000 lignes (au-delà, la liste s'arrêtait à 1000 mots).
-  const baseCols = 'id, theme_code, word_type, target_text, translation_fr, audio_url';
+  const baseCols = 'id, theme_code, word_type, target_text, translation_fr, audio_url, level_code';
   const readWords = (cols: string) =>
     fetchAllRows<any>((from, to) => supabaseAdmin.from('vocabulary_words').select(cols).in('pack_id', packIds).order('id').range(from, to));
   let words: any[];
@@ -772,12 +793,21 @@ export async function getVocabularyWords(
 
   const wordIds = new Set(words.map((w) => w.id));
 
-  const { data: progress } = await supabaseAdmin
-    .from('vocabulary_progress')
-    .select('word_id, success_count, fail_count')
-    .eq('profile_id', profileId);
+  const progress = await readProgress<{ word_id: string; success_count: number; fail_count: number }>(
+    'vocabulary_progress',
+    'word_id, success_count, fail_count',
+    profileId,
+    'word_id'
+  );
+  const progressMap = new Map(progress.filter((p) => wordIds.has(p.word_id)).map((p) => [p.word_id, p]));
 
-  const progressMap = new Map((progress ?? []).filter((p) => wordIds.has(p.word_id)).map((p) => [p.word_id, p]));
+  // Favoris (étoiles) de ce profil ; si la table n'existe pas encore (migration 033), aucun favori
+  let favorites = new Set<string>();
+  try {
+    favorites = new Set((await readProgress<{ word_id: string }>('vocabulary_favorites', 'word_id', profileId, 'word_id')).map((f) => f.word_id));
+  } catch {
+    /* migration 033 pas encore exécutée */
+  }
 
   const collator = new Intl.Collator('fr', { sensitivity: 'base', numeric: true });
   return words
@@ -785,10 +815,21 @@ export async function getVocabularyWords(
       const p = progressMap.get(w.id);
       const success = p?.success_count ?? 0;
       const fail = p?.fail_count ?? 0;
-      return { ...w, image: resolveImage(w.image, w.translation_fr), success_count: success, fail_count: fail, mastered: computeMastered(success, fail) };
+      return { ...w, image: resolveImage(w.image, w.translation_fr), success_count: success, fail_count: fail, mastered: computeMastered(success, fail), favorite: favorites.has(w.id) };
     })
     // Tri alphabétique en français, article ignoré : « la cuillère » et « une cuillère » se retrouvent côte à côte
     .sort((a, b) => collator.compare(imageBareKey(a.translation_fr) || a.translation_fr, imageBareKey(b.translation_fr) || b.translation_fr) || collator.compare(a.target_text, b.target_text));
+}
+
+/** Ajoute ou retire un mot des favoris du profil (étoile). */
+export async function setVocabularyFavorite(profileId: string, wordId: string, favorite: boolean): Promise<void> {
+  if (favorite) {
+    const { error } = await supabaseAdmin.from('vocabulary_favorites').upsert({ profile_id: profileId, word_id: wordId }, { onConflict: 'profile_id,word_id' });
+    if (error) throw new Error(error.message.includes('vocabulary_favorites') ? 'La table des favoris n\'existe pas encore : exécute la migration 033 dans Supabase.' : error.message);
+  } else {
+    const { error } = await supabaseAdmin.from('vocabulary_favorites').delete().eq('profile_id', profileId).eq('word_id', wordId);
+    if (error) throw new Error(error.message);
+  }
 }
 
 // ---------------------------------------------------------
@@ -807,9 +848,10 @@ export async function getGameItems(
   levelCode: string,
   profileId: string,
   count = 20,
-  onlyPracticed = false
+  onlyPracticed = false,
+  includePrevious = false
 ): Promise<GameItem[]> {
-  const packIds = await getReadyVocabularyPackIds(languageCode, levelCode);
+  const packIds = await getReadyVocabularyPackIds(languageCode, levelCode, includePrevious);
 
   const words =
     packIds.length > 0
@@ -842,12 +884,12 @@ export async function getGameItems(
   }));
 
   if (onlyPracticed) {
-    const [{ data: wordProgress }, { data: verbProgress }] = await Promise.all([
-      supabaseAdmin.from('vocabulary_progress').select('word_id').eq('profile_id', profileId),
-      supabaseAdmin.from('conjugation_progress').select('verb_id').eq('profile_id', profileId),
+    const [wordProgress, verbProgress] = await Promise.all([
+      readProgress<{ word_id: string }>('vocabulary_progress', 'word_id', profileId, 'word_id'),
+      readProgress<{ verb_id: string }>('conjugation_progress', 'verb_id', profileId, 'verb_id'),
     ]);
-    const practicedWordIds = new Set((wordProgress ?? []).map((p) => p.word_id));
-    const practicedVerbIds = new Set((verbProgress ?? []).map((p) => p.verb_id));
+    const practicedWordIds = new Set(wordProgress.map((p) => p.word_id));
+    const practicedVerbIds = new Set(verbProgress.map((p) => p.verb_id));
     wordItems = wordItems.filter((w) => practicedWordIds.has(w.id));
     verbItems = verbItems.filter((v) => practicedVerbIds.has(v.id));
 
@@ -861,12 +903,12 @@ export async function getGameItems(
 
   // Mix 70% jamais pratiqué / 30% déjà pratiqué (révision), pour ancrer ce
   // qui a déjà été vu plutôt que de le laisser retomber dans l'oubli.
-  const [{ data: wordProgress }, { data: verbProgress }] = await Promise.all([
-    supabaseAdmin.from('vocabulary_progress').select('word_id').eq('profile_id', profileId),
-    supabaseAdmin.from('conjugation_progress').select('verb_id').eq('profile_id', profileId),
+  const [wordProgress, verbProgress] = await Promise.all([
+    readProgress<{ word_id: string }>('vocabulary_progress', 'word_id', profileId, 'word_id'),
+    readProgress<{ verb_id: string }>('conjugation_progress', 'verb_id', profileId, 'verb_id'),
   ]);
-  const practicedWordIds = new Set((wordProgress ?? []).map((p) => p.word_id));
-  const practicedVerbIds = new Set((verbProgress ?? []).map((p) => p.verb_id));
+  const practicedWordIds = new Set(wordProgress.map((p) => p.word_id));
+  const practicedVerbIds = new Set(verbProgress.map((p) => p.verb_id));
 
   const allItems = [...wordItems, ...verbItems];
   const isPracticed = (item: GameItem) =>
