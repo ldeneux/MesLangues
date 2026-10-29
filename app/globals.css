@@ -2284,3 +2284,14 @@ button.primary.danger { background: #a3402f; color: #fff; }
 .switch-track::after { content: ''; position: absolute; top: 0.15rem; left: 0.15rem; width: 1.15rem; height: 1.15rem; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.3); transition: transform 0.15s; }
 .switch input:checked + .switch-track { background: #2f6b4f; }
 .switch input:checked + .switch-track::after { transform: translateX(1.15rem); }
+
+/* ---- Coin lecture : infobulle de traduction d'un mot sélectionné ---- */
+.reading-pop { position: fixed; z-index: 80; background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,0.18); padding: 0.6rem 0.75rem; font-size: 0.95rem; }
+.reading-pop-head { display: flex; align-items: center; gap: 0.4rem; }
+.reading-pop-head strong { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 1.05rem; }
+.reading-pop-btn { border: none; background: none; cursor: pointer; font-size: 0.9rem; color: var(--ink-soft); padding: 0.1rem 0.35rem; border-radius: 6px; }
+.reading-pop-btn:hover { background: color-mix(in srgb, var(--ink) 8%, white); color: var(--ink); }
+.reading-pop-fr { margin-top: 0.25rem; font-weight: 600; font-size: 1.05rem; }
+.reading-pop-note { margin-top: 0.15rem; color: var(--ink-soft); font-size: 0.85rem; }
+.reading-pop-wait { margin-top: 0.25rem; color: var(--ink-soft); }
+.reading-pop-src { margin-top: 0.4rem; font-size: 0.7rem; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.04em; }

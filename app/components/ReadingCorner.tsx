@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import ReadingWordPopover, { type ReadingSelection } from './ReadingWordPopover';
 import { READING_ORIGINS, READING_TOTAL, findReadingOrigin, type ReadingEntry } from '../../lib/readingCatalog';
 import { getReadingStatus, getReadingStory, generateReadingStory } from '../../lib/readingServer';
 import type { ReadingView } from '../../lib/readingLogic';
@@ -24,6 +25,7 @@ export default function ReadingCorner({ languageCode }: { languageCode: LangCode
   const [busy, setBusy] = useState<string | null>(null); // identifiant du récit en cours de chargement ou de génération
   const [error, setError] = useState('');
   const [showFr, setShowFr] = useState(false);
+  const [wordSel, setWordSel] = useState<ReadingSelection | null>(null); // mot sélectionné dans le texte (infobulle de traduction)
 
   useEffect(() => {
     getReadingStatus().then((r) => {
@@ -46,6 +48,20 @@ export default function ReadingCorner({ languageCode }: { languageCode: LangCode
       cur.add('fr');
       return { ...(prev ?? {}), [id]: Array.from(cur) };
     });
+  }
+
+  // Sélection d'un mot (double-clic, glissé ou appui long) dans un paragraphe : infobulle de traduction
+  function onSelectInParagraph(index: number, el: HTMLElement | null) {
+    setTimeout(() => {
+      const sel = typeof window !== 'undefined' ? window.getSelection() : null;
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !el) return;
+      const range = sel.getRangeAt(0);
+      if (!el.contains(range.commonAncestorContainer)) return; // sélection hors de ce paragraphe
+      const text = sel.toString().trim().replace(/\s+/g, ' ');
+      if (!text || text.length > 80) return; // un mot ou une courte expression
+      const r = range.getBoundingClientRect();
+      setWordSel({ text, paragraph: index, rect: { left: r.left, right: r.right, top: r.top, bottom: r.bottom } });
+    }, 30);
   }
 
   async function openEntry(entry: ReadingEntry) {
@@ -89,13 +105,28 @@ export default function ReadingCorner({ languageCode }: { languageCode: LangCode
     return (
       <div>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
-          <button className="secondary" onClick={() => setOpened(null)}>
+          <button className="secondary" onClick={() => { setWordSel(null); setOpened(null); }}>
             ← Retour à la liste
           </button>
           <button className="secondary" onClick={() => setShowFr((v) => !v)}>
             {showFr ? 'Masquer la traduction française' : 'Afficher la traduction française'}
           </button>
         </div>
+
+        <p className="eyebrow-free" style={{ marginTop: 0 }}>
+          💡 Sélectionne un mot ou une expression (double-clic, ou appui long sur mobile) pour voir sa traduction.
+        </p>
+
+        {wordSel && (
+          <ReadingWordPopover
+            sel={wordSel}
+            languageCode={languageCode}
+            bcp47={LANGS.find((l) => l.code === languageCode)?.bcp47 ?? 'en-GB'}
+            paragraphText={view.version.paragraphs[wordSel.paragraph] ?? ''}
+            paragraphFr={view.fr.paragraphs[wordSel.paragraph] ?? ''}
+            onClose={() => setWordSel(null)}
+          />
+        )}
 
         <div className="phrase-card phrase-card-big">
           <div className="eyebrow-free" style={{ marginBottom: '0.25rem' }}>
@@ -109,7 +140,12 @@ export default function ReadingCorner({ languageCode }: { languageCode: LangCode
 
           {view.version.paragraphs.map((p, i) => (
             <div key={i} style={{ marginTop: '1rem' }}>
-              <p lang={languageCode} style={{ margin: 0, lineHeight: languageCode === 'ja' ? 2 : 1.65, fontSize: '1.05rem' }}>
+              <p
+                lang={languageCode}
+                style={{ margin: 0, lineHeight: languageCode === 'ja' ? 2 : 1.65, fontSize: '1.05rem' }}
+                onMouseUp={(e) => onSelectInParagraph(i, e.currentTarget)}
+                onTouchEnd={(e) => onSelectInParagraph(i, e.currentTarget)}
+              >
                 {p}
               </p>
               {showFr && view.fr.paragraphs[i] && (
