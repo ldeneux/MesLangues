@@ -18,8 +18,8 @@ function readHidden(lang: string): Set<string> {
 }
 
 /**
- * Images manquantes d'une langue (tous niveaux, A1 → B2) : prépare un prompt pour ChatGPT (20 mots), puis découpe la planche
- * reçue en 20 images .webp nommées d'après le mot français. Les fichiers sont à déposer dans public/image_webp (voir README).
+ * Images manquantes d'une langue (tous niveaux, A1 → B2) : prépare un prompt pour ChatGPT (60 mots), puis découpe la planche
+ * reçue en 60 images .webp nommées d'après le mot français. Les fichiers sont à déposer dans public/image_webp (voir README).
  */
 export default function ImageBoardDownload({ languageCode }: { languageCode: string }) {
   const langLabel = LANGS.find((l) => l.code === languageCode)?.label ?? languageCode;
@@ -31,7 +31,7 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [cards, setCards] = useState<Card[]>([]);
-  const [method, setMethod] = useState<'lines' | 'grid' | null>(null);
+  const [method, setMethod] = useState<'lines' | 'fit' | 'grid' | null>(null);
   const cardsRef = useRef<Card[]>([]);
   cardsRef.current = cards;
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -157,7 +157,7 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
               ? `${remaining.length} mot(s) sans image${
                   summary.words.length !== remaining.length ? ` (${summary.words.length - remaining.length} écarté(s))` : ''
                 } — ${['A1', 'A2', 'B1', 'B2'].map((l) => `${l} : ${summary.byLevel[l] ?? 0}`).join(' · ')}`
-              : 'Prépare une planche de 20 illustrations pour ChatGPT, puis découpe-la ici.'}
+              : `Prépare une planche de ${BOARD_SIZE} illustrations pour ChatGPT, puis découpe-la ici.`}
           </div>
         </div>
         {!summary && (
@@ -177,7 +177,7 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
             <strong>1.</strong> Les {batch.length} prochains mots (A1 → B2). Écarte (✕) ceux qu'on ne peut pas illustrer : le suivant le remplace
             (pense alors à copier de nouveau le prompt).
           </p>
-          <ol style={{ margin: '0.25rem 0 0.75rem', paddingLeft: '1.4rem', columns: '2 220px', fontSize: '0.9rem' }}>
+          <ol style={{ margin: '0.25rem 0 0.75rem', paddingLeft: '1.4rem', columns: '3 200px', fontSize: '0.85rem', maxHeight: '22rem', overflowY: 'auto' }}>
             {batch.map((w) => (
               <li key={w.name} style={{ breakInside: 'avoid' }}>
                 {w.fr} <span style={{ opacity: 0.55, fontSize: '0.75rem' }}>{w.level}</span>{' '}
@@ -201,7 +201,7 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
             ref={promptRef}
             readOnly
             value={prompt}
-            rows={6}
+            rows={8}
             style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.75rem', boxSizing: 'border-box' }}
           />
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', margin: '0.5rem 0' }}>
@@ -218,6 +218,11 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
 
           {cards.length > 0 && (
             <div style={{ marginTop: '0.75rem' }}>
+              {method === 'fit' && (
+                <p className="eyebrow-free">
+                  Quelques traits magenta n'ont pas été retrouvés : la grille a été recalculée d'après les autres traits. Jette un œil aux vignettes.
+                </p>
+              )}
               {method === 'grid' && (
                 <p className="conv-warning">
                   Les traits magenta n'ont pas été retrouvés : la découpe est approximative. Vérifie chaque vignette et décoche celles à refaire.
@@ -257,7 +262,7 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
                   Télécharger le ZIP ({includedCount} image{includedCount > 1 ? 's' : ''})
                 </button>
                 <button className="secondary" onClick={finishBatch}>
-                  Lot terminé → 20 suivants
+                  Lot terminé → {BOARD_SIZE} suivants
                 </button>
               </div>
             </div>

@@ -1,8 +1,8 @@
-// Planche de 20 illustrations (5 colonnes × 4 rangées) : prompt pour ChatGPT, découpe de l'image reçue, export ZIP.
+// Planche de 60 illustrations (5 colonnes × 12 rangées) : prompt pour ChatGPT, découpe de l'image reçue, export ZIP.
 // Module sans dépendance. Les fonctions « navigateur » (canvas) ne sont appelées que depuis un composant client.
 
 export const BOARD_COLS = 5;
-export const BOARD_ROWS = 4;
+export const BOARD_ROWS = 12;
 export const BOARD_SIZE = BOARD_COLS * BOARD_ROWS;
 
 // ---------------------------------------------------------------------
@@ -15,13 +15,14 @@ export function buildBoardPrompt(words: string[]): string {
     const cells = [];
     for (let c = 0; c < BOARD_COLS; c++) cells.push(clean[r * BOARD_COLS + c] ?? '(carte vide)');
     rows.push(`Rangée ${r + 1} : ${cells.join(';')}`);
+    if ((r + 1) % 4 === 0 && r + 1 < BOARD_ROWS) rows.push(''); // ligne vide tous les 4 rangs : aide ChatGPT à ne pas perdre le fil
   }
   const empty =
     clean.length < BOARD_SIZE
       ? `\n* Les cartes marquées « (carte vide) » gardent le même cadre magenta et la même ligne de séparation, mais restent entièrement vides : aucune illustration, aucun texte.`
       : '';
 
-  return `Crée une planche éducative de vocabulaire français de ${BOARD_SIZE} cartes illustrées, au format paysage 3:2 (1536 × 1024 px, ou la plus haute résolution disponible dans ce même rapport), sur un fond blanc pur (#FFFFFF).
+  return `Crée une planche éducative de vocabulaire français de ${BOARD_SIZE} cartes illustrées, au format paysage  (1536 × 3072 ou la plus haute résolution disponible dans ce même rapport), sur un fond blanc pur (#FFFFFF).
 
 MISE EN PAGE (précision géométrique impérative)
 
@@ -53,7 +54,9 @@ ${rows.join('\n')}`;
 export type Rect = { x: number; y: number; w: number; h: number };
 export type GridResult = {
   rects: Rect[]; // zones d'illustration, de gauche à droite puis de haut en bas
-  method: 'lines' | 'grid'; // 'lines' = traits magenta retrouvés ; 'grid' = découpe approximative d'après la mise en page demandée
+  // 'lines' = tous les traits magenta retrouvés ; 'fit' = quelques traits manquent, la grille est recalculée d'après les autres ;
+  // 'grid' = aucun trait retrouvé, découpe approximative d'après la mise en page demandée
+  method: 'lines' | 'fit' | 'grid';
 };
 
 function isMagenta(r: number, g: number, b: number): boolean {
@@ -119,35 +122,51 @@ export function detectGrid(data: ArrayLike<number>, w: number, h: number): GridR
     if (rects.every((r) => r.w > 10 && r.h > 10)) return { rects, method: 'lines' };
   }
 
-  // Repli : grille régulière déduite de la mise en page demandée (marge ≈ 3 %, espace ≈ 1 %, séparation à 78 %)
-  let x0 = 0.03 * w;
-  let x1 = 0.97 * w;
-  let y0 = 0.03 * h;
-  let y1 = 0.97 * h;
-  if (vl.length >= 2 && hl.length >= 2) {
-    x0 = vl[0].c;
-    x1 = vl[vl.length - 1].c;
-    y0 = hl[0].c;
-    y1 = hl[hl.length - 1].c;
+  // Colonnes : positions exactes si les 10 traits verticaux sont là, sinon grille régulière entre les traits extrêmes (ou les marges de 3 %)
+  const exactCols = vl.length === BOARD_COLS * 2;
+  let colsX: { l: number; r: number }[];
+  let gap: number;
+  if (exactCols) {
+    colsX = Array.from({ length: BOARD_COLS }, (_, i) => ({ l: vl[2 * i].c, r: vl[2 * i + 1].c }));
+    // espace entre deux cartes voisines, mesuré sur l'image (la même valeur sert entre deux rangées)
+    const gaps = colsX.slice(1).map((c, i) => c.l - colsX[i].r);
+    gap = gaps.reduce((s2, g) => s2 + g, 0) / Math.max(1, gaps.length);
+  } else {
+    const x0 = vl.length >= 2 ? vl[0].c : 0.03 * w;
+    const x1 = vl.length >= 2 ? vl[vl.length - 1].c : 0.97 * w;
+    gap = 0.01 * w;
+    const cw = (x1 - x0 - (BOARD_COLS - 1) * gap) / BOARD_COLS;
+    colsX = Array.from({ length: BOARD_COLS }, (_, i) => ({ l: x0 + i * (cw + gap), r: x0 + i * (cw + gap) + cw }));
   }
-  const gap = 0.01 * w;
-  const cw = (x1 - x0 - (BOARD_COLS - 1) * gap) / BOARD_COLS;
+
+  // Rangées : de la 1re ligne du haut à la dernière ligne du bas, réparties régulièrement ; la ligne de séparation de chaque carte
+  // est celle retrouvée près de 78 % de la hauteur (sinon 78 % exactement). Un trait manquant ou en trop ne décale donc plus rien.
+  const y0 = hl.length >= 2 ? hl[0].c : 0.03 * h;
+  const y1 = hl.length >= 2 ? hl[hl.length - 1].c : 0.97 * h;
   const ch = (y1 - y0 - (BOARD_ROWS - 1) * gap) / BOARD_ROWS;
-  const pad = Math.max(4, 0.006 * w);
+  const pad = Math.max(3, Math.min(0.006 * w, ch * 0.03));
   const rects: Rect[] = [];
   for (let j = 0; j < BOARD_ROWS; j++) {
+    const top = y0 + j * (ch + gap);
+    const target = top + 0.78 * ch;
+    let sepY = target;
+    let bestD = 0.07 * ch; // tolérance : ± 7 % de la hauteur d'une carte
+    for (const line of hl) {
+      const d = Math.abs(line.c - target);
+      if (d < bestD) {
+        bestD = d;
+        sepY = line.c;
+      }
+    }
     for (let i = 0; i < BOARD_COLS; i++) {
-      const cx = x0 + i * (cw + gap);
-      const cy = y0 + j * (ch + gap);
-      rects.push({
-        x: Math.round(cx + pad),
-        y: Math.round(cy + pad),
-        w: Math.round(cw - 2 * pad),
-        h: Math.round(ch * 0.78 - 2 * pad),
-      });
+      const x = colsX[i].l + pad + 1.5;
+      const wd = colsX[i].r - colsX[i].l - 2 * pad - 3;
+      const y = top + pad + 1.5;
+      rects.push({ x: Math.round(x), y: Math.round(y), w: Math.round(wd), h: Math.round(sepY - y - pad - 1.5) });
     }
   }
-  return { rects, method: 'grid' };
+  const usedLines = hasLines && hl.length >= 2 && vl.length >= 2;
+  return { rects, method: usedLines ? 'fit' : 'grid' };
 }
 
 // ---------------------------------------------------------------------
