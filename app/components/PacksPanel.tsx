@@ -14,6 +14,7 @@ import DuplicatesCleanup from './DuplicatesCleanup';
 import ImageBoardDownload from './ImageBoardDownload';
 import WordImagesBlock from './WordImagesBlock';
 import RankWordsBlock from './RankWordsBlock';
+import AudioPurgeBlock from './AudioPurgeBlock';
 import LessonSentencesBlock from './LessonSentencesBlock';
 
 export default function PacksPanel({ languageCode, levelCode }: { languageCode: string; levelCode: string }) {
@@ -190,6 +191,7 @@ export default function PacksPanel({ languageCode, levelCode }: { languageCode: 
       <RankWordsBlock key={`rank-${cleanupKey}`} languageCode={languageCode} levelCode={levelCode} />
       <DuplicatesCleanup languageCode={languageCode} onCleaned={() => setCleanupKey((k) => k + 1)} />
       <ImageBoardDownload languageCode={languageCode} />
+      <AudioPurgeBlock />
       <WordImagesBlock languageCode={languageCode} levelCode={levelCode} />
       <LessonSentencesBlock languageCode={languageCode} levelCode={levelCode} />
       <ListeningDownload languageCode={languageCode} levelCode={levelCode} />
