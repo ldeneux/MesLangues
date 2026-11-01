@@ -6,7 +6,7 @@ import { supabaseAdmin } from './supabaseAdmin';
 
 export const AUDIO_BUCKET = 'phrase-audio';
 
-type R2Config = { client: S3Client; bucket: string; publicBase: string };
+export type R2Config = { client: S3Client; bucket: string; publicBase: string };
 let cached: R2Config | null | undefined;
 
 /** Configuration R2, ou null si elle n'est pas (entièrement) renseignée. */
@@ -27,6 +27,11 @@ function r2(): R2Config | null {
     publicBase: R2_PUBLIC_BASE_URL.replace(/\/+$/, ''),
   };
   return cached;
+}
+
+/** Configuration R2 (client S3, bucket, adresse publique), ou null si les variables R2_* manquent. */
+export function r2Client(): R2Config | null {
+  return r2();
 }
 
 export function audioBackend(): 'r2' | 'supabase' {
