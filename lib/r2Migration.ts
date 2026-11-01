@@ -9,8 +9,9 @@ import { FUNCTIONS_SCHEMA } from './dbSchema';
 import { r2Client, AUDIO_BUCKET, type R2Config } from './audioStorage';
 
 type Result<T> = { ok: true; data: T } | { ok: false; error: string };
-const BATCH = 100;
-const CONCURRENCY = 12;
+const BATCH = 80;
+// Peu de lectures simultanées : chaque lecture d'un fichier ouvre une connexion à la base de Supabase (plan gratuit : « Too many connections » au-delà)
+const CONCURRENCY = 4;
 const R2_VARS = ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET', 'R2_PUBLIC_BASE_URL'];
 
 const fail = (error: string): { ok: false; error: string } => ({ ok: false, error });
@@ -30,6 +31,39 @@ async function pool<T>(items: T[], n: number, fn: (item: T) => Promise<void>): P
       while (i < items.length) await fn(items[i++]);
     })
   );
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Réessaie avec une attente croissante : Supabase renvoie parfois « Too many connections » quand la base est saturée. */
+async function withRetry<T>(fn: () => Promise<T>, tries = 5): Promise<T> {
+  let last: unknown;
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      last = e;
+      await sleep(600 * 2 ** i + Math.floor(Math.random() * 300)); // 0,6 s, 1,2 s, 2,4 s, 4,8 s…
+    }
+  }
+  throw last;
+}
+
+/** Contenu d'un fichier du bucket : lecture authentifiée, puis par l'adresse publique si elle échoue. */
+async function readSupabaseFile(path: string): Promise<Buffer> {
+  try {
+    return await withRetry(async () => {
+      const { data, error } = await supabaseAdmin.storage.from(AUDIO_BUCKET).download(path);
+      if (error || !data) throw new Error(error?.message ?? 'téléchargement impossible');
+      return Buffer.from(await data.arrayBuffer());
+    }, 4);
+  } catch {
+    return withRetry(async () => {
+      const res = await fetch(`${oldBase()}/${path.split('/').map(encodeURIComponent).join('/')}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`lecture publique ${res.status}`);
+      return Buffer.from(await res.arrayBuffer());
+    }, 4);
+  }
 }
 
 async function r2Size(cfg: R2Config, key: string): Promise<number | null> {
@@ -171,9 +205,7 @@ export async function copyAudioStep(after: string): Promise<Result<CopyStep>> {
           skipped++;
           return;
         }
-        const { data: blob, error: dlError } = await supabaseAdmin.storage.from(AUDIO_BUCKET).download(it.name);
-        if (dlError || !blob) throw new Error(dlError?.message ?? 'téléchargement impossible');
-        const body = Buffer.from(await blob.arrayBuffer());
+        const body = await readSupabaseFile(it.name);
         await cfg.client.send(new PutObjectCommand({ Bucket: cfg.bucket, Key: it.name, Body: body, ContentType: 'audio/mpeg', CacheControl: 'public, max-age=31536000' }));
         copied++;
       } catch (e: any) {

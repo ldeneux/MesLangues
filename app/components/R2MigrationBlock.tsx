@@ -181,6 +181,12 @@ export default function R2MigrationBlock() {
                   <div className="pack-progress-fill" style={{ width: `${copyState.finished ? 100 : pct(copyState.done, total)}%` }} />
                 </div>
                 {copyState.firstError && <p className="conv-warning">Premier échec : {copyState.firstError}</p>}
+                {copyState.finished && copyState.failed > 0 && (
+                  <p className="conv-warning">
+                    {copyState.failed} fichier(s) n'ont pas pu être copiés (souvent une saturation passagère de Supabase). Clique de nouveau sur « Copier les fichiers » : les fichiers déjà copiés sont
+                    ignorés, seuls les manquants sont refaits.
+                  </p>
+                )}
               </div>
             )}
             <div className="conv-bubble-actions">
