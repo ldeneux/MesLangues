@@ -3,6 +3,7 @@
 import { supabaseAdmin } from './supabaseAdmin';
 import { FUNCTIONS_SCHEMA } from './dbSchema';
 import { LANGS } from './constants';
+import { removeAudio } from './audioStorage';
 
 // ---------------------------------------------------------------------------------------------------------------
 // Ménage des doublons de vocabulaire (bouton de l'onglet Packs) — voir supabase/migrations/027_menage_doublons.sql.
@@ -144,7 +145,7 @@ export async function deleteAudioBatch(): Promise<{ deleted: number; kept: numbe
   for (const r of toRemove) byBucket.set(r.bucket, [...(byBucket.get(r.bucket) ?? []), { id: r.id, path: r.path }]);
 
   for (const [bucket, items] of byBucket) {
-    const { error: rmError } = await supabaseAdmin.storage.from(bucket).remove(items.map((i) => i.path));
+    const rmError = await removeAudio(items.map((i) => i.path), bucket);
     if (rmError) {
       failed += items.length;
       continue;

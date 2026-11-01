@@ -1,4 +1,4 @@
-import { supabaseAdmin } from './supabaseAdmin';
+import { putAudio } from './audioStorage';
 
 const TTS_ENDPOINT = 'https://texttospeech.googleapis.com/v1/text:synthesize';
 
@@ -14,8 +14,8 @@ const DEFAULT_VOICE: Record<string, { languageCode: string; name: string }> = {
 
 /**
  * Synthétise `text` dans la langue donnée via Google Cloud TTS (simple appel
- * HTTPS, pas de WebSocket — fiable en environnement serverless), upload le
- * MP3 résultant dans le bucket Supabase Storage "phrase-audio", et retourne
+ * HTTPS, pas de WebSocket — fiable en environnement serverless), enregistre le
+ * MP3 résultant (Cloudflare R2 ou Supabase Storage, voir audioStorage.ts), et retourne
  * l'URL publique + le nom de la voix utilisée.
  */
 export async function synthesizeAndStore(
@@ -47,13 +47,8 @@ export async function synthesizeAndStore(
   const { audioContent } = (await res.json()) as { audioContent: string };
   const audioBuffer = Buffer.from(audioContent, 'base64');
 
-  const { error: uploadError } = await supabaseAdmin.storage
-    .from('phrase-audio')
-    .upload(storagePath, audioBuffer, { contentType: 'audio/mpeg', upsert: true });
+  // Cloudflare R2 si configuré (variables R2_*), sinon Supabase Storage
+  const audioUrl = await putAudio(storagePath, audioBuffer);
 
-  if (uploadError) throw uploadError;
-
-  const { data: publicUrl } = supabaseAdmin.storage.from('phrase-audio').getPublicUrl(storagePath);
-
-  return { audioUrl: publicUrl.publicUrl, voice: voice.name };
+  return { audioUrl, voice: voice.name };
 }

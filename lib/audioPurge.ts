@@ -5,6 +5,7 @@
 // ce qui est payant au-delà du quota gratuit). Travail par petits lots : le client enchaîne les appels jusqu'à « fini ».
 import { supabaseAdmin } from './supabaseAdmin';
 import { fetchAllRows } from './paging';
+import { removeAudio, audioPathFromUrl } from './audioStorage';
 
 export type PurgeScope = { languages: string[]; levels: string[]; vocabulary: boolean; verbs: boolean };
 export type PurgeCounts = {
@@ -14,7 +15,6 @@ export type PurgeCounts = {
 };
 type Result<T> = { ok: true; data: T } | { ok: false; error: string };
 
-const BUCKET = 'phrase-audio';
 const CHUNK = 40; // jamais .in() sur des centaines d'identifiants
 const VOCAB_BATCH = 120;
 const VERB_BATCH = 30;
@@ -23,14 +23,6 @@ function clean(scope: PurgeScope): PurgeScope {
   const langs = scope.languages.filter((l) => ['it', 'es', 'en', 'ja', 'de'].includes(l));
   const levels = scope.levels.filter((l) => ['A1', 'A2', 'B1', 'B2'].includes(l));
   return { languages: langs, levels, vocabulary: !!scope.vocabulary, verbs: !!scope.verbs };
-}
-
-// URL publique → chemin dans le bucket (null si l'URL ne vient pas de ce bucket)
-function pathFromUrl(url: unknown): string | null {
-  if (typeof url !== 'string') return null;
-  const marker = `/object/public/${BUCKET}/`;
-  const i = url.indexOf(marker);
-  return i < 0 ? null : decodeURIComponent(url.slice(i + marker.length).split('?')[0]);
 }
 
 // Fichiers audio d'un verbe (tense_audio : un lien par temps, plus « infinitive » / « basic » ; la clé « rev » n'est pas un lien)
@@ -125,10 +117,10 @@ export async function purgeAudioStep(input: PurgeScope): Promise<Result<PurgeSte
         }
         keptShared = protectedUrls.size;
 
-        const paths = urls.filter((u) => !protectedUrls.has(u)).map(pathFromUrl).filter((p): p is string => !!p);
+        const paths = urls.filter((u) => !protectedUrls.has(u)).map(audioPathFromUrl).filter((p): p is string => !!p);
         if (paths.length > 0) {
-          const { error: rmErr } = await supabaseAdmin.storage.from(BUCKET).remove(paths);
-          if (rmErr) throw new Error(`Suppression des fichiers impossible : ${rmErr.message}`);
+          const rmErr = await removeAudio(paths);
+          if (rmErr) throw new Error(`Suppression des fichiers impossible : ${rmErr}`);
           removedFiles += paths.length;
         }
         const ids = batch.map((w) => w.id);
@@ -143,10 +135,10 @@ export async function purgeAudioStep(input: PurgeScope): Promise<Result<PurgeSte
     if (scope.verbs) {
       const rows = (await verbRowsInScope(scope)).slice(0, VERB_BATCH);
       if (rows.length > 0) {
-        const paths = rows.flatMap((r) => verbUrls(r.tense_audio).map(pathFromUrl)).filter((p): p is string => !!p);
+        const paths = rows.flatMap((r) => verbUrls(r.tense_audio).map(audioPathFromUrl)).filter((p): p is string => !!p);
         for (let i = 0; i < paths.length; i += 100) {
-          const { error: rmErr } = await supabaseAdmin.storage.from(BUCKET).remove(paths.slice(i, i + 100));
-          if (rmErr) throw new Error(`Suppression des fichiers impossible : ${rmErr.message}`);
+          const rmErr = await removeAudio(paths.slice(i, i + 100));
+          if (rmErr) throw new Error(`Suppression des fichiers impossible : ${rmErr}`);
         }
         removedFiles += paths.length;
         for (let i = 0; i < rows.length; i += CHUNK) {

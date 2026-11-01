@@ -4,6 +4,7 @@ import { resolveImage } from './imageIndex';
 import { supabaseAdmin } from './supabaseAdmin';
 import { callGeminiWithUsage, LANGUAGE_NAMES } from './gemini';
 import { synthesizeAndStore } from './tts';
+import { removeAudio } from './audioStorage';
 import { VOCAB_THEMES, packThemeQuotas, VOCAB_PACK_SIZE, LEVELS, LEVEL_PACK_COUNT, type LevelCode } from './constants';
 import { imageBareKey } from './imageName';
 
@@ -108,10 +109,7 @@ export async function deleteVocabularyWord(wordId: string): Promise<{ packId: st
   if (error) throw new Error(error.message);
 
   // Fichier audio (non bloquant : un orphelin dans le stockage ne gêne rien)
-  await supabaseAdmin.storage
-    .from('phrase-audio')
-    .remove([`${word.language_code}/${word.level_code}/vocabulary/${word.id}.mp3`])
-    .catch(() => {});
+  await removeAudio([`${word.language_code}/${word.level_code}/vocabulary/${word.id}.mp3`]).catch(() => {});
 
   let remaining = 0;
   if (word.pack_id) {
@@ -227,10 +225,7 @@ export async function deleteVocabularyPack(packId: string): Promise<{ deletedWor
 
   // Fichiers audio (non bloquant)
   for (let i = 0; i < words.length; i += 100) {
-    await supabaseAdmin.storage
-      .from('phrase-audio')
-      .remove(words.slice(i, i + 100).map((w) => `${pack.language_code}/${pack.level_code}/vocabulary/${w.id}.mp3`))
-      .catch(() => {});
+    await removeAudio(words.slice(i, i + 100).map((w) => `${pack.language_code}/${pack.level_code}/vocabulary/${w.id}.mp3`)).catch(() => {});
   }
   return { deletedWords: words.length };
 }
