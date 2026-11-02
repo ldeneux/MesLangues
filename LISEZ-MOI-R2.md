@@ -31,7 +31,7 @@ SQL Editor → colle et exécute `supabase/migrations/034_audio_vers_r2.sql` (3 
 ## 4. Dans l'application : onglet Packs → « Migrer les audios vers Cloudflare R2 »
 
 1. **Tester R2** : l'application écrit un petit fichier, le relit par l'adresse publique, puis l'efface. Le message dit exactement ce qui manque, le cas échéant.
-2. **Copier les fichiers** : garde la page ouverte (environ 15 à 25 minutes pour ~45 000 fichiers). Tu peux mettre en pause et reprendre : les fichiers déjà copiés sont ignorés.
+2. **Copier les fichiers** : garde la page ouverte. La progression est enregistrée dans R2 après chaque lot : si ça s'arrête (erreur, fermeture, autre navigateur), « Reprendre la copie » repart du dernier fichier traité, jamais de zéro. La vitesse s'adapte toute seule (plus de lectures en parallèle tant que Supabase accepte, moins dès qu'il refuse). Les fichiers en échec sont mémorisés : « Refaire les échecs » ne reprend qu'eux.
 3. **Vérifier**, puis **Basculer les liens** : vérifie que R2 contient au moins autant de fichiers que Supabase, puis remplace les adresses audio dans toute la base.
    Ensuite, écoute des mots, des phrases, des verbes et un article d'écoute : tout doit sonner comme avant.
 4. **Supprimer les copies de Supabase** : ne supprime que les fichiers dont la copie R2 a la même taille, et seulement quand plus aucun lien ne pointe vers Supabase.

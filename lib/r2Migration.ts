@@ -3,15 +3,20 @@
 // Migration des fichiers audio de Supabase Storage vers Cloudflare R2, pilotée par les boutons du bloc
 // « Migrer les audios vers Cloudflare R2 » (onglet Packs). Chaque appel traite un petit lot : le navigateur enchaîne les appels.
 // Ordre : tester R2 → copier → vérifier et basculer les liens en base → supprimer les copies de Supabase.
-import { HeadObjectCommand, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { HeadObjectCommand, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { supabaseAdmin } from './supabaseAdmin';
 import { FUNCTIONS_SCHEMA } from './dbSchema';
 import { r2Client, AUDIO_BUCKET, type R2Config } from './audioStorage';
 
 type Result<T> = { ok: true; data: T } | { ok: false; error: string };
 const BATCH = 80;
-// Peu de lectures simultanées : chaque lecture d'un fichier ouvre une connexion à la base de Supabase (plan gratuit : « Too many connections » au-delà)
-const CONCURRENCY = 4;
+// Lectures simultanées : chaque lecture d'un fichier ouvre une connexion à la base de Supabase (plan gratuit : « Too many connections » au-delà).
+// Le navigateur choisit le nombre à chaque lot (il s'adapte tout seul) ; ces bornes protègent la base.
+const MIN_CONCURRENCY = 1;
+const MAX_CONCURRENCY = 12;
+const CONCURRENCY = 4; // pour les étapes qui ne l'adaptent pas
+const STATE_KEY = '_state/copy.json'; // progression de la copie, enregistrée dans R2 lui-même : reprise possible depuis n'importe quel navigateur
+const FAILED_CAP = 5000;
 const R2_VARS = ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET', 'R2_PUBLIC_BASE_URL'];
 
 const fail = (error: string): { ok: false; error: string } => ({ ok: false, error });
@@ -36,13 +41,14 @@ async function pool<T>(items: T[], n: number, fn: (item: T) => Promise<void>): P
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Réessaie avec une attente croissante : Supabase renvoie parfois « Too many connections » quand la base est saturée. */
-async function withRetry<T>(fn: () => Promise<T>, tries = 5): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T>, tries = 5, counter?: { n: number }): Promise<T> {
   let last: unknown;
   for (let i = 0; i < tries; i++) {
     try {
       return await fn();
     } catch (e) {
       last = e;
+      if (counter) counter.n++; // nombre de refus essuyés : sert à ralentir ou accélérer le lot suivant
       await sleep(600 * 2 ** i + Math.floor(Math.random() * 300)); // 0,6 s, 1,2 s, 2,4 s, 4,8 s…
     }
   }
@@ -50,19 +56,19 @@ async function withRetry<T>(fn: () => Promise<T>, tries = 5): Promise<T> {
 }
 
 /** Contenu d'un fichier du bucket : lecture authentifiée, puis par l'adresse publique si elle échoue. */
-async function readSupabaseFile(path: string): Promise<Buffer> {
+async function readSupabaseFile(path: string, counter?: { n: number }): Promise<Buffer> {
   try {
     return await withRetry(async () => {
       const { data, error } = await supabaseAdmin.storage.from(AUDIO_BUCKET).download(path);
       if (error || !data) throw new Error(error?.message ?? 'téléchargement impossible');
       return Buffer.from(await data.arrayBuffer());
-    }, 4);
+    }, 4, counter);
   } catch {
     return withRetry(async () => {
       const res = await fetch(`${oldBase()}/${path.split('/').map(encodeURIComponent).join('/')}`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`lecture publique ${res.status}`);
       return Buffer.from(await res.arrayBuffer());
-    }, 4);
+    }, 4, counter);
   }
 }
 
@@ -83,7 +89,7 @@ async function countR2(cfg: R2Config): Promise<{ files: number; bytes: number }>
   do {
     const res = await cfg.client.send(new ListObjectsV2Command({ Bucket: cfg.bucket, MaxKeys: 1000, ContinuationToken: token }));
     for (const o of res.Contents ?? []) {
-      if (o.Key?.startsWith('_ping/')) continue;
+      if (o.Key?.startsWith('_ping/') || o.Key?.startsWith('_state/')) continue;
       files++;
       bytes += o.Size ?? 0;
     }
@@ -115,6 +121,7 @@ export type R2Status = {
   supabaseMo: number;
   linksToRewrite: number;
   links: LinkRow[];
+  copy: CopyState | null; // progression de la copie (reprise possible)
 };
 
 /** État de la migration : configuration, fichiers encore chez Supabase, liens en base qui pointent encore vers Supabase. */
@@ -135,6 +142,7 @@ export async function getR2Status(): Promise<Result<R2Status>> {
         supabaseMo: Math.round(sb.bytes / 1048576),
         linksToRewrite: links.reduce((s, l) => s + l.n_rows, 0),
         links,
+        copy: cfg ? await readState(cfg) : null,
       },
     };
   } catch (e) {
@@ -183,37 +191,116 @@ export async function testR2(): Promise<Result<R2Test>> {
   return { ok: true, data: { writeOk: true, publicStatus: status, publicOk, message } };
 }
 
-export type CopyStep = { processed: number; copied: number; skipped: number; failed: number; firstError?: string; last: string; done: boolean };
+export type CopyState = {
+  cursor: string; // nom du dernier fichier traité (ordre alphabétique)
+  done: number; // fichiers traités depuis le début
+  copied: number;
+  skipped: number;
+  failed: number; // échecs encore à refaire
+  failedNames: string[]; // noms des fichiers en échec (jusqu'à 5000)
+  finished: boolean;
+  updatedAt: string;
+};
 
-/** Copie un lot de fichiers Supabase → R2 (les fichiers déjà présents avec la même taille sont ignorés). `after` : nom du dernier fichier traité. */
-export async function copyAudioStep(after: string): Promise<Result<CopyStep>> {
+const freshState = (): CopyState => ({ cursor: '', done: 0, copied: 0, skipped: 0, failed: 0, failedNames: [], finished: false, updatedAt: new Date().toISOString() });
+
+async function readState(cfg: R2Config): Promise<CopyState | null> {
+  try {
+    const res = await cfg.client.send(new GetObjectCommand({ Bucket: cfg.bucket, Key: STATE_KEY }));
+    const text = await res.Body?.transformToString();
+    const s = text ? (JSON.parse(text) as CopyState) : null;
+    return s && typeof s.cursor === 'string' ? { ...freshState(), ...s } : null;
+  } catch {
+    return null; // pas encore d'état (ou illisible) : on repart de zéro
+  }
+}
+
+async function writeState(cfg: R2Config, state: CopyState): Promise<void> {
+  state.updatedAt = new Date().toISOString();
+  state.failed = state.failedNames.length;
+  try {
+    await cfg.client.send(new PutObjectCommand({ Bucket: cfg.bucket, Key: STATE_KEY, Body: JSON.stringify(state), ContentType: 'application/json' }));
+  } catch {
+    /* si l'état ne s'écrit pas, la copie continue : on perd seulement la reprise automatique */
+  }
+}
+
+/** Copie un fichier Supabase → R2 : « skipped » s'il est déjà présent (même taille si connue), sinon « copied ». Lève une erreur en cas d'échec. */
+async function copyOne(cfg: R2Config, name: string, size: number | null, counter: { n: number }): Promise<'copied' | 'skipped'> {
+  const existing = await withRetry(() => r2Size(cfg, name), 3, counter);
+  if (existing !== null && (size === null || existing === size)) return 'skipped';
+  const body = await readSupabaseFile(name, counter);
+  await withRetry(
+    () => cfg.client.send(new PutObjectCommand({ Bucket: cfg.bucket, Key: name, Body: body, ContentType: 'audio/mpeg', CacheControl: 'public, max-age=31536000' })),
+    3,
+    counter
+  );
+  return 'copied';
+}
+
+const clampConcurrency = (n: unknown) => Math.max(MIN_CONCURRENCY, Math.min(MAX_CONCURRENCY, Math.round(Number(n) || CONCURRENCY)));
+
+export type CopyStepResult = { state: CopyState; processed: number; throttled: number; firstError?: string };
+
+/**
+ * Copie un lot de fichiers Supabase → R2 à partir de l'endroit où la copie s'est arrêtée (état enregistré dans R2).
+ * `reset` : repartir de zéro. `throttled` = nombre de refus de Supabase essuyés pendant le lot : le navigateur s'en sert pour adapter `concurrency`.
+ */
+export async function copyAudioStep(opts: { reset?: boolean; concurrency?: number } = {}): Promise<Result<CopyStepResult>> {
   try {
     const cfg = r2Client();
     if (!cfg) return fail('R2 n\'est pas configuré.');
-    const { data, error } = await rpc().rpc('list_audio_objects', { p_after: after, p_limit: BATCH });
+    const state = opts.reset ? freshState() : (await readState(cfg)) ?? freshState();
+    const { data, error } = await rpc().rpc('list_audio_objects', { p_after: state.cursor, p_limit: BATCH });
     if (error) return fail(rpcHint(error.message));
     const items = (data ?? []) as { name: string; size: number }[];
 
-    let copied = 0;
-    let skipped = 0;
-    let failed = 0;
+    const counter = { n: 0 };
     let firstError: string | undefined;
-    await pool(items, CONCURRENCY, async (it) => {
+    await pool(items, clampConcurrency(opts.concurrency), async (it) => {
       try {
-        const existing = await r2Size(cfg, it.name);
-        if (existing !== null && existing === Number(it.size)) {
-          skipped++;
-          return;
-        }
-        const body = await readSupabaseFile(it.name);
-        await cfg.client.send(new PutObjectCommand({ Bucket: cfg.bucket, Key: it.name, Body: body, ContentType: 'audio/mpeg', CacheControl: 'public, max-age=31536000' }));
-        copied++;
+        const r = await copyOne(cfg, it.name, Number(it.size), counter);
+        if (r === 'copied') state.copied++;
+        else state.skipped++;
       } catch (e: any) {
-        failed++;
+        if (state.failedNames.length < FAILED_CAP) state.failedNames.push(it.name);
         firstError ??= `${it.name} : ${e?.message ?? e}`;
       }
     });
-    return { ok: true, data: { processed: items.length, copied, skipped, failed, firstError, last: items.length ? items[items.length - 1].name : after, done: items.length < BATCH } };
+
+    state.done += items.length;
+    if (items.length > 0) state.cursor = items[items.length - 1].name;
+    state.finished = items.length < BATCH;
+    await writeState(cfg, state);
+    return { ok: true, data: { state, processed: items.length, throttled: counter.n, firstError } };
+  } catch (e) {
+    return fail((e as Error).message);
+  }
+}
+
+/** Refait uniquement les fichiers qui avaient échoué (liste enregistrée dans l'état), par lots, sans reparcourir tout le bucket. */
+export async function retryFailedStep(opts: { concurrency?: number } = {}): Promise<Result<CopyStepResult>> {
+  try {
+    const cfg = r2Client();
+    if (!cfg) return fail('R2 n\'est pas configuré.');
+    const state = (await readState(cfg)) ?? freshState();
+    const todo = state.failedNames.slice(0, 60);
+    const counter = { n: 0 };
+    let firstError: string | undefined;
+    const stillFailing: string[] = [];
+    await pool(todo, clampConcurrency(opts.concurrency), async (name) => {
+      try {
+        const r = await copyOne(cfg, name, null, counter);
+        if (r === 'copied') state.copied++;
+        else state.skipped++;
+      } catch (e: any) {
+        stillFailing.push(name);
+        firstError ??= `${name} : ${e?.message ?? e}`;
+      }
+    });
+    state.failedNames = [...state.failedNames.slice(todo.length), ...stillFailing];
+    await writeState(cfg, state);
+    return { ok: true, data: { state, processed: todo.length, throttled: counter.n, firstError } };
   } catch (e) {
     return fail((e as Error).message);
   }
