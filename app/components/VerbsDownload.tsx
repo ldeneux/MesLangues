@@ -34,7 +34,7 @@ export default function VerbsDownload({ languageCode, levelCode }: { languageCod
         if (!r.ok) throw new Error((r as { error: string }).error);
         remaining = r.data.remaining;
       }
-      setAudioNote(cleared > 0 ? `Audio mis à jour (${cleared} fichier(s) régénéré(s)).` : 'Audio déjà à jour.');
+      setAudioNote(cleared > 0 ? `Audio mis à jour (${cleared} fichier(s) anciens régénérés).` : 'Terminé. Le détail des audios manquants (par niveau, y compris le japonais) est dans le bloc « Audios des verbes manquants » plus bas.');
     } catch (e: any) {
       setError(e?.message ?? "Erreur pendant la mise à jour de l'audio.");
     } finally {
