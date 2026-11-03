@@ -2,6 +2,9 @@
 
 import { FUNCTIONS_SCHEMA } from './dbSchema';
 import { supabaseAdmin } from './supabaseAdmin';
+import { ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { r2Client } from './audioStorage';
+import { fetchAllRows } from './paging';
 import {
   LANGS,
   LEVELS,
@@ -182,7 +185,19 @@ export type StorageStats = {
   storageUsedBytes: number;
   storageQuotaBytes: number;
   dbByLevel: { level: string; bytes: number }[];
-  storageByLevel: { level: string; bytes: number }[];
+  storageByLevel: { level: string; bytes: number }[]; // audios par niveau : R2 + Supabase, verbes et leçons rattachés à leur niveau
+  r2: R2Stats | null; // null si R2 n'est pas configuré
+};
+
+export type R2Stats = {
+  usedBytes: number; // tout le bucket (toutes langues)
+  quotaBytes: number; // 10 Go gratuits
+  objects: number;
+  selectedBytes: number; // pour la langue choisie
+  otherBytes: number; // audios sans niveau (écoute enregistrée, divers)
+  byType: { type: string; bytes: number }[];
+  byLanguage: { language: string; bytes: number }[];
+  error?: string;
 };
 
 const DB_QUOTA_BYTES = 1024 * 1024 * 1024; // 1 Go (plan Free)
@@ -206,7 +221,7 @@ const TABLE_LEVEL_SCOPE: Record<string, 'level' | 'language'> = {
   writing_results: 'language',
   grammar_topics: 'language',
   grammar_questions: 'language',
-  conjugation_verbs: 'language',
+  conjugation_verbs: 'level', // un verbe appartient à une langue ET à un niveau (migration 030)
   user_phrase_progress: 'language',
   vocabulary_progress: 'language',
   conjugation_progress: 'language',
@@ -222,6 +237,72 @@ const TABLE_LEVEL_SCOPE: Record<string, 'level' | 'language'> = {
 const JA_ONLY = new Set(['kanji', 'kanji_progress', 'ja_readings']);
 // Tables « langue » qui ont une colonne language_code : on peut les attribuer exactement à une langue
 const LANG_COL_TABLES = new Set(['grammar_topics', 'grammar_questions', 'conjugation_verbs']);
+
+// ---------------------------------------------------------
+// Audios sur Cloudflare R2 : poids exact par langue / niveau / type, calculé en listant le bucket (mis en cache 5 minutes).
+// Chemins : « langue/niveau/{vocabulary|packs|articles}/… », « langue/conjugation/<id verbe>/… » (niveau d'après la table des verbes),
+// « langue/lessons/<id leçon>/… » (niveau d'après la table des leçons), le reste = sans niveau.
+// ---------------------------------------------------------
+const R2_QUOTA_BYTES = 10 * 1024 * 1024 * 1024; // 10 Go gratuits
+type R2Agg = { at: number; objects: number; bytes: number; cells: Map<string, number> }; // clé « langue\tniveau\ttype » → octets
+let r2Cache: R2Agg | null = null;
+const LANG_CODES_SET = new Set<string>(['it', 'es', 'en', 'ja', 'de']);
+const LEVEL_CODES_SET = new Set<string>(LEVELS.map((l) => l.code));
+
+async function aggregateR2(): Promise<R2Agg | null> {
+  const cfg = r2Client();
+  if (!cfg) return null;
+  if (r2Cache && Date.now() - r2Cache.at < 5 * 60 * 1000) return r2Cache;
+
+  const cells = new Map<string, number>();
+  const verbBytes = new Map<string, number>(); // « langue\tidVerbe » → octets
+  const lessonBytes = new Map<string, number>(); // « langue\tidLeçon » → octets
+  const add = (m: Map<string, number>, k: string, n: number) => m.set(k, (m.get(k) ?? 0) + n);
+  let objects = 0;
+  let bytes = 0;
+  let token: string | undefined;
+  do {
+    const res = await cfg.client.send(new ListObjectsV2Command({ Bucket: cfg.bucket, MaxKeys: 1000, ContinuationToken: token }));
+    for (const o of res.Contents ?? []) {
+      const key = o.Key ?? '';
+      if (key.startsWith('_')) continue; // fichiers techniques (_state, _ping)
+      const size = o.Size ?? 0;
+      objects++;
+      bytes += size;
+      const p = key.split('/');
+      if (!LANG_CODES_SET.has(p[0])) add(cells, `\t\tautre`, size);
+      else if (LEVEL_CODES_SET.has(p[1])) add(cells, `${p[0]}\t${p[1]}\t${p[2] ?? 'autre'}`, size);
+      else if (p[1] === 'conjugation' && p[2]) add(verbBytes, `${p[0]}\t${p[2]}`, size);
+      else if (p[1] === 'lessons' && p[2]) add(lessonBytes, `${p[0]}\t${p[2]}`, size);
+      else add(cells, `${p[0]}\t\tautre`, size);
+    }
+    token = res.IsTruncated ? res.NextContinuationToken : undefined;
+  } while (token);
+
+  // Verbes et leçons : le chemin ne contient pas le niveau, on le retrouve dans la base
+  if (verbBytes.size > 0) {
+    const rows = await fetchAllRows<{ id: string; level_code: string | null }>((from, to) =>
+      supabaseAdmin.from('conjugation_verbs').select('id, level_code').order('id').range(from, to) as any
+    );
+    const levelOf = new Map(rows.map((r) => [r.id, r.level_code ?? '']));
+    for (const [k, n] of Array.from(verbBytes)) {
+      const [lang, id] = k.split('\t');
+      add(cells, `${lang}\t${levelOf.get(id) ?? ''}\tconjugation`, n);
+    }
+  }
+  if (lessonBytes.size > 0) {
+    const rows = await fetchAllRows<{ id: string; level_code: string | null }>((from, to) =>
+      supabaseAdmin.from('lessons').select('id, level_code').order('id').range(from, to) as any
+    );
+    const levelOf = new Map(rows.map((r) => [r.id, r.level_code ?? '']));
+    for (const [k, n] of Array.from(lessonBytes)) {
+      const [lang, id] = k.split('\t');
+      add(cells, `${lang}\t${levelOf.get(id) ?? ''}\tlessons`, n);
+    }
+  }
+  r2Cache = { at: Date.now(), objects, bytes, cells };
+  return r2Cache;
+}
 
 async function buildStorageStats(languageCode: string): Promise<StorageStats> {
   const filterLang = languageCode !== 'all' ? languageCode : null;
@@ -310,6 +391,38 @@ async function buildStorageStats(languageCode: string): Promise<StorageStats> {
     );
   }
 
+  // --- Audios sur R2 : exact, verbes et leçons rattachés à leur niveau ; s'ajoute au reste éventuel de Supabase
+  let r2Info: R2Stats | null = null;
+  try {
+    const agg = await aggregateR2();
+    if (agg) {
+      const byType = new Map<string, number>();
+      const byLanguage = new Map<string, number>();
+      let selected = 0;
+      let other = 0;
+      for (const [k, n] of Array.from(agg.cells)) {
+        const [lang, level, type] = k.split('	');
+        byLanguage.set(lang, (byLanguage.get(lang) ?? 0) + n);
+        if (filterLang && lang !== filterLang) continue;
+        selected += n;
+        byType.set(type, (byType.get(type) ?? 0) + n);
+        if (level && LEVEL_CODES_SET.has(level)) storageByLevel.set(level, (storageByLevel.get(level) ?? 0) + n);
+        else other += n;
+      }
+      r2Info = {
+        usedBytes: agg.bytes,
+        quotaBytes: R2_QUOTA_BYTES,
+        objects: agg.objects,
+        selectedBytes: selected,
+        otherBytes: other,
+        byType: Array.from(byType, ([type, bytes]) => ({ type, bytes })).sort((a, b) => b.bytes - a.bytes),
+        byLanguage: Array.from(byLanguage, ([language, bytes]) => ({ language, bytes })).sort((a, b) => b.bytes - a.bytes),
+      };
+    }
+  } catch (e: any) {
+    r2Info = { usedBytes: 0, quotaBytes: R2_QUOTA_BYTES, objects: 0, selectedBytes: 0, otherBytes: 0, byType: [], byLanguage: [], error: e?.message ?? 'Lecture de R2 impossible.' };
+  }
+
   const dbByLevel = new Map<string, number>(LEVELS.map((l) => [l.code, 0]));
   for (const c of contributions) for (const [lvl, v] of Array.from(c)) dbByLevel.set(lvl, (dbByLevel.get(lvl) ?? 0) + v);
 
@@ -326,6 +439,7 @@ async function buildStorageStats(languageCode: string): Promise<StorageStats> {
     storageQuotaBytes: STORAGE_QUOTA_BYTES,
     dbByLevel: dbLevels,
     storageByLevel: storageLevels,
+    r2: r2Info,
   };
 }
 

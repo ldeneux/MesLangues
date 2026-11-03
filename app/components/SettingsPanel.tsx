@@ -5,6 +5,15 @@ import { getInventory, getStorageStats, type Inventory, type StorageStats } from
 import { LANGS, LEVELS } from '../../lib/constants';
 import FlagIcon from './FlagIcon';
 
+const STORAGE_TYPE_LABELS: Record<string, string> = {
+  vocabulary: 'Vocabulaire',
+  packs: 'Phrases',
+  articles: 'Écoute',
+  conjugation: 'Verbes',
+  lessons: 'Leçons',
+  autre: 'Autres',
+};
+
 function formatMB(bytes: number): string {
   return (bytes / (1024 * 1024)).toFixed(1);
 }
@@ -218,15 +227,35 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
               ))}
             </div>
 
-            <div className="sidebar-label" style={{ marginTop: '1.5rem' }}>
-              Stockage audio/fichiers — {formatMB(storage.storageUsedBytes)} Mo / {formatMB(storage.storageQuotaBytes)}{' '}
-              Mo utilisés ({formatMB(storage.storageQuotaBytes - storage.storageUsedBytes)} Mo restants)
+            {storage.r2 && (
+              <div className="sidebar-label" style={{ marginTop: '1.5rem' }}>
+                Audios sur Cloudflare R2 — {storage.r2.error ? 'indisponible' : `${formatMB(storage.r2.usedBytes)} Mo / ${formatMB(storage.r2.quotaBytes)} Mo utilisés (${formatMB(storage.r2.quotaBytes - storage.r2.usedBytes)} Mo restants, ${storage.r2.objects} fichiers)`}
+              </div>
+            )}
+            {storage.r2?.error && <p className="conv-warning">Lecture de R2 impossible : {storage.r2.error}</p>}
+            <div className="sidebar-label" style={{ marginTop: storage.r2 ? '0.6rem' : '1.5rem' }}>
+              {storage.r2 ? 'Fichiers restants sur Supabase Storage' : 'Stockage audio/fichiers'} — {formatMB(storage.storageUsedBytes)} Mo / {formatMB(storage.storageQuotaBytes)} Mo utilisés (
+              {formatMB(storage.storageQuotaBytes - storage.storageUsedBytes)} Mo restants)
             </div>
             <p className="eyebrow-free">
-              Répartition par niveau exacte (basée sur les chemins réels des fichiers) — {filterLabel} :{' '}
-              {formatMB(storage.storageLanguageBytes)} Mo{storageLoading ? ' (mise à jour…)' : ''}. Les audios de conjugaison et de
-              réécoute hors niveau ne figurent pas dans les barres.
+              Audios par niveau (R2 + Supabase ; verbes et leçons rattachés à leur niveau) — {filterLabel} : {formatMB(storage.storageLanguageBytes)} Mo
+              {storage.r2 && storage.r2.otherBytes > 0 ? `, plus ${formatMB(storage.r2.otherBytes)} Mo sans niveau (écoute enregistrée, divers)` : ''}
+              {storageLoading ? ' (mise à jour…)' : ''}.
             </p>
+            {storage.r2 && !storage.r2.error && storage.r2.byType.length > 0 && (
+              <p className="eyebrow-free">
+                Par type ({filterLabel}) :{' '}
+                {storage.r2.byType.map((t) => `${STORAGE_TYPE_LABELS[t.type] ?? t.type} ${formatMB(t.bytes)} Mo`).join(' · ')}
+              </p>
+            )}
+            {storage.r2 && !storage.r2.error && filterLang === 'all' && storage.r2.byLanguage.length > 1 && (
+              <p className="eyebrow-free">
+                Par langue :{' '}
+                {storage.r2.byLanguage
+                  .map((l) => `${LANGS.find((x) => x.code === l.language)?.label ?? 'Autres'} ${formatMB(l.bytes)} Mo`)
+                  .join(' · ')}
+              </p>
+            )}
             <div className="storage-bar-row">
               {storage.storageByLevel.map((l) => (
                 <div key={l.level} className="storage-bar-col">
