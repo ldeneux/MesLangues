@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getMissingImageWords, type BoardWord, type MissingImageSummary } from '../../lib/imageBoardServer';
 import { generateBoardImage } from '../../lib/imageGenServer';
+import { saveWordImages } from '../../lib/imageStorageServer';
 import { AUTO_BOARD_CHOICES, BOARD_COST_USD, BOARD_SIZE, buildBoardPrompt, cropToWebp, loadBoard, makeZip } from '../../lib/imageBoard';
 import { LANGS } from '../../lib/constants';
 import { USD_TO_EUR } from '../../lib/pricing';
@@ -10,12 +11,22 @@ import { USD_TO_EUR } from '../../lib/pricing';
 type Card = { name: string; url: string; blob: Blob; include: boolean; approx?: boolean };
 type GridMethod = 'lines' | 'fit' | 'grid';
 type BoardWordLite = Pick<BoardWord, 'fr' | 'name'>;
+type SendState = { sent: number; total: number; failed: number; running: boolean; lastError: string };
 type AutoState = { done: number; total: number; failed: number; running: boolean; lastError: string };
 
 const AUTO_CONCURRENCY = 2; // planches générées en même temps (au-delà, OpenAI refuse souvent : limite de débit)
 const AUTO_RETRIES = 3; // tentatives par planche en cas de limite de débit ou de panne passagère
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const worstMethod = (a: GridMethod | null, b: GridMethod): GridMethod => (a === 'grid' || b === 'grid' ? 'grid' : a === 'fit' || b === 'fit' ? 'fit' : 'lines');
+
+function blobToB64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result).split(',')[1] ?? '');
+    fr.onerror = () => reject(new Error('Lecture de la vignette impossible.'));
+    fr.readAsDataURL(blob);
+  });
+}
 
 // Image PNG en base64 (reçue du serveur) → fichier lisible par loadBoard
 function b64ToFile(b64: string): File {
@@ -39,7 +50,7 @@ function readHidden(lang: string): Set<string> {
  * Images manquantes d'une langue (tous niveaux, A1 → B2), par planches de 20 mots.
  *  - Automatique : génère n planches avec gpt-image-1-mini (qualité medium), les découpe en .webp nommés d'après le mot français.
  *  - Manuel : prépare le prompt d'une planche pour ChatGPT, puis découpe l'image reçue.
- * Les fichiers sont à déposer dans public/image_webp (voir README).
+ * Les images sont envoyées sur Cloudflare R2 (table word_images), ou téléchargées en ZIP.
  */
 export default function ImageBoardDownload({ languageCode }: { languageCode: string }) {
   const langLabel = LANGS.find((l) => l.code === languageCode)?.label ?? languageCode;
@@ -55,6 +66,7 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
   const [autoCount, setAutoCount] = useState(10); // nombre de planches à générer au lancement
   const [auto, setAuto] = useState<AutoState | null>(null);
   const cancelRef = useRef(false);
+  const [sending, setSending] = useState<SendState | null>(null);
   const cardsRef = useRef<Card[]>([]);
   cardsRef.current = cards;
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -68,6 +80,7 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
   useEffect(() => {
     cancelRef.current = true; // changement de langue : on arrête une génération en cours
     setAuto(null);
+    setSending(null);
     setSummary(null);
     setError('');
     setHidden(readHidden(languageCode));
@@ -139,7 +152,7 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
     for (let attempt = 1; attempt <= AUTO_RETRIES; attempt++) {
       if (cancelRef.current) throw new Error('Annulé');
       const res = await generateBoardImage(words.map((w) => w.fr));
-      if (res.ok) {
+      if (res.ok && res.b64) {
         const { canvas, grid } = await loadBoard(b64ToFile(res.b64));
         if (grid.rects.length < words.length) throw new Error('Grille non reconnue sur cette planche.');
         const out: Card[] = [];
@@ -149,7 +162,7 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
         }
         return { cards: out, method: grid.method };
       }
-      lastError = res.error;
+      lastError = res.error ?? '';
       if (!res.retryable) break;
       await sleep(8000 * attempt);
     }
@@ -228,6 +241,40 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
     }
   }
 
+  // Envoie les vignettes cochées sur Cloudflare R2 (10 par 10) et les enregistre dans la table word_images : elles sont utilisables tout de suite,
+  // sans ZIP, sans GitHub ni redéploiement. Les vignettes envoyées disparaissent de l'écran et leurs mots ne sont plus proposés.
+  async function sendToR2() {
+    const chosen = cards.filter((c) => c.include);
+    if (chosen.length === 0) return;
+    const savedNames = new Set<string>();
+    let failed = 0;
+    let lastError = '';
+    setSending({ sent: 0, total: chosen.length, failed: 0, running: true, lastError: '' });
+    for (let i = 0; i < chosen.length; i += 10) {
+      const part = chosen.slice(i, i + 10);
+      try {
+        const items = await Promise.all(part.map(async (c) => ({ name: c.name, b64: await blobToB64(c.blob) })));
+        const r = await saveWordImages(items);
+        if (!r.ok || !r.data) {
+          failed += part.length;
+          lastError = r.error ?? 'Erreur';
+        } else {
+          r.data.saved.forEach((n) => savedNames.add(n));
+          failed += r.data.failed.length;
+          if (r.data.failed.length) lastError = `${r.data.failed[0].name} : ${r.data.failed[0].error}`;
+        }
+      } catch (e: any) {
+        failed += part.length;
+        lastError = e?.message ?? 'Erreur';
+      }
+      setSending({ sent: savedNames.size, total: chosen.length, failed, running: true, lastError });
+    }
+    cardsRef.current.filter((c) => savedNames.has(c.name)).forEach((c) => URL.revokeObjectURL(c.url));
+    setCards((prev) => prev.filter((c) => !savedNames.has(c.name)));
+    persistHidden(new Set([...Array.from(hidden), ...Array.from(savedNames)]));
+    setSending({ sent: savedNames.size, total: chosen.length, failed, running: false, lastError });
+  }
+
   async function downloadZip() {
     const chosen = cards.filter((c) => c.include);
     if (chosen.length === 0) return;
@@ -247,6 +294,7 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
 
   const includedCount = cards.filter((c) => c.include).length;
   const autoRunning = auto?.running ?? false;
+  const sendingNow = sending?.running ?? false;
   const autoBoards = Math.min(autoCount, Math.ceil(remaining.length / BOARD_SIZE));
   const autoUsd = autoBoards * BOARD_COST_USD;
 
@@ -401,17 +449,26 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
               </div>
 
               <p className="eyebrow-free" style={{ marginTop: '0.75rem' }}>
-                <strong>4.</strong> Télécharge le ZIP, dépose les fichiers dans <code>public/image_webp</code> et pousse sur GitHub : la liste des
-                images se met à jour au déploiement.
+                <strong>4.</strong> Envoie les images cochées sur Cloudflare R2 : elles sont utilisables tout de suite (rien à déployer). Le ZIP reste
+                disponible si tu préfères les garder sur ton ordinateur.
               </p>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <button className="primary" onClick={downloadZip} disabled={includedCount === 0 || autoRunning}>
-                  Télécharger le ZIP ({includedCount} image{includedCount > 1 ? 's' : ''})
+                <button className="primary" onClick={sendToR2} disabled={includedCount === 0 || autoRunning || sendingNow}>
+                  Envoyer sur R2 ({includedCount} image{includedCount > 1 ? 's' : ''})
                 </button>
-                <button className="secondary" onClick={finishBatch} disabled={autoRunning}>
+                <button className="secondary" onClick={downloadZip} disabled={includedCount === 0 || autoRunning || sendingNow}>
+                  Télécharger le ZIP
+                </button>
+                <button className="secondary" onClick={finishBatch} disabled={autoRunning || sendingNow}>
                   Lot terminé → mots suivants
                 </button>
               </div>
+              {sending && (
+                <p className={sending.failed > 0 ? 'conv-warning' : 'eyebrow-free'}>
+                  {sending.running ? 'Envoi…' : 'Envoi terminé.'} {sending.sent}/{sending.total} image(s) enregistrée(s) sur R2
+                  {sending.failed > 0 ? ` — ${sending.failed} en échec (${sending.lastError}) : elles restent à l’écran, tu peux relancer l’envoi` : ''}
+                </p>
+              )}
             </div>
           )}
         </div>

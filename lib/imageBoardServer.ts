@@ -5,7 +5,7 @@
 
 import { supabaseAdmin } from './supabaseAdmin';
 import { imageBareKey, imageFileName } from './imageName';
-import { resolveImage } from './imageIndex';
+import { resolveImage, ensureImageIndex } from './imageIndex';
 
 export type BoardWord = {
   fr: string; // traduction française telle qu'écrite (sert de légende sur la planche)
@@ -55,6 +55,7 @@ export async function getMissingImageWords(languageCode: string): Promise<Missin
     else throw e;
   }
 
+  await ensureImageIndex();
   const found = new Set<string>();
   const missing = new Map<string, BoardWord>();
   for (const r of rows) {

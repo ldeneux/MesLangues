@@ -131,8 +131,8 @@ export default function WordImagesBlock({ languageCode, levelCode }: { languageC
                 )}
               </div>
               <p className="eyebrow-free" style={{ marginTop: '0.6rem', marginBottom: 0 }}>
-                Pour ajouter des images : dépose les .webp dans public/image_webp, nommés comme le mot français (« un fromage.webp », accents et espaces autorisés), puis pousse sur
-                GitHub : le compteur se met à jour au déploiement.
+                Pour ajouter des images : génère-les par planches (bloc « Images manquantes ») puis envoie-les sur R2. Sinon, dépose des .webp nommés comme le mot
+                français (« un fromage.webp », accents et espaces autorisés) dans public/image_webp et pousse sur GitHub.
               </p>
             </>
           )

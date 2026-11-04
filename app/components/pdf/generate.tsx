@@ -25,6 +25,7 @@ export type PdfOptions = {
 async function webpToJpeg(url: string, maxWidth = 480): Promise<string | null> {
   try {
     const img = new Image();
+    img.crossOrigin = 'anonymous'; // images hébergées sur R2 (autre domaine) : sans cela le canvas est « souillé » et le JPEG est refusé
     img.src = url;
     await img.decode();
     const scale = Math.min(1, maxWidth / img.naturalWidth);

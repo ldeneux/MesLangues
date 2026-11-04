@@ -16,6 +16,7 @@ import WordImagesBlock from './WordImagesBlock';
 import RankWordsBlock from './RankWordsBlock';
 import AudioPurgeBlock from './AudioPurgeBlock';
 import R2MigrationBlock from './R2MigrationBlock';
+import R2ImagesBlock from './R2ImagesBlock';
 import VerbAudioRepairBlock from './VerbAudioRepairBlock';
 import LessonSentencesBlock from './LessonSentencesBlock';
 
@@ -196,6 +197,7 @@ export default function PacksPanel({ languageCode, levelCode }: { languageCode: 
       <VerbAudioRepairBlock languageCode={languageCode} />
       <AudioPurgeBlock />
       <R2MigrationBlock />
+      <R2ImagesBlock />
       <WordImagesBlock languageCode={languageCode} levelCode={levelCode} />
       <LessonSentencesBlock languageCode={languageCode} levelCode={levelCode} />
       <ListeningDownload languageCode={languageCode} levelCode={levelCode} />

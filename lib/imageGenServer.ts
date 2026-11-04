@@ -6,9 +6,14 @@
 
 import { BOARD_IMAGE_QUALITY, BOARD_IMAGE_SIZE, BOARD_SIZE, buildBoardPrompt } from './imageBoard';
 
-export type GenerateBoardResult =
-  | { ok: true; b64: string } // image PNG encodée en base64
-  | { ok: false; error: string; retryable: boolean }; // retryable : limite de débit ou panne passagère, on peut réessayer
+// Type volontairement « plat » (pas d'union ok: true / ok: false) : le projet compile sans « strict », et TypeScript ne sait
+// alors pas distinguer les deux cas, ce qui faisait échouer le build (« Property 'error' does not exist »).
+export type GenerateBoardResult = {
+  ok: boolean;
+  b64?: string; // image PNG encodée en base64 (si ok)
+  error?: string; // message d'erreur (si !ok)
+  retryable?: boolean; // limite de débit ou panne passagère : on peut réessayer
+};
 
 // Le modèle peut être changé sans toucher au code (OPENAI_IMAGE_MODEL), par exemple quand gpt-image-1-mini sera retiré de l'API.
 const DEFAULT_MODEL = 'gpt-image-1-mini';

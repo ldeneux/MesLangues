@@ -2,7 +2,7 @@
 
 import { supabaseAdmin } from './supabaseAdmin';
 import { callGemini, LANGUAGE_NAMES } from './gemini';
-import { resolveImage } from './imageIndex';
+import { resolveImage, ensureImageIndex } from './imageIndex';
 import { imageBareKey } from './imageName';
 import { stripRuby, readingFromRuby } from './japanese';
 import { synthesizeAndStore } from './tts';
@@ -176,6 +176,7 @@ async function lookupInternal(input: string, withAi: boolean): Promise<Dictionar
   }
 
   // 3) Image : la saisie, la forme canonique, puis les autres formes françaises trouvées
+  await ensureImageIndex();
   let image: string | null = resolveImage(null, french) ?? resolveImage(null, q);
   if (!image) {
     for (const r of rows) {

@@ -1,6 +1,6 @@
 'use server';
 
-import { resolveImage } from './imageIndex';
+import { resolveImage, ensureImageIndex } from './imageIndex';
 import { supabaseAdmin } from './supabaseAdmin';
 import { callGeminiWithUsage, LANGUAGE_NAMES } from './gemini';
 import { synthesizeAndStore } from './tts';
@@ -807,6 +807,7 @@ export async function getVocabularyWords(
     /* migration 033 pas encore exécutée */
   }
 
+  await ensureImageIndex(); // liste des images disponibles (R2 + fichiers du dépôt)
   const collator = new Intl.Collator('fr', { sensitivity: 'base', numeric: true });
   return words
     .map((w) => {

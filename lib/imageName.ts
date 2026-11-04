@@ -9,7 +9,9 @@
 //  - en dernier recours l'ARTICLE est ignoré : « la pharmacie » trouve « une pharmacie.webp » (nom exact toujours prioritaire).
 // Un fichier presque identique mais aux accents différents n'est pas utilisé : il est signalé dans la liste des images manquantes.
 // Module pur (client et serveur).
-export const IMAGE_DIR = '/image_webp';
+// Où se trouvent les images : par défaut le dossier public/image_webp du site ; après la migration vers Cloudflare R2, définir
+// NEXT_PUBLIC_IMAGE_BASE_URL (ex. https://pub-xxxx.r2.dev/images, sans « / » final) dans Vercel puis redéployer (valeur lue à la construction).
+export const IMAGE_DIR = (process.env.NEXT_PUBLIC_IMAGE_BASE_URL || '').replace(/\/+$/, '') || '/image_webp';
 
 const ARTICLE = /^(?:de la|de l|du|des|au|aux|le|la|les|l|un|une|d) (.+)$/;
 

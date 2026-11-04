@@ -10,7 +10,7 @@ import type { ConjugationVerb } from './conjugation';
 import { planLessons, dedupeWords, wordKey, grammarExampleIndex, CONJUGATION_RECAP_EVERY, type PlanWord, type PlannedLesson, type ReviewItem } from './lessonPlan';
 import { synthesizeAndStore } from './tts';
 import { imageFileName, imageBareKey } from './imageName';
-import { resolveImage, nearImage } from './imageIndex';
+import { resolveImage, nearImage, ensureImageIndex } from './imageIndex';
 import type { KanjiItem } from './kanji';
 import { pickSentences, countGoodSentences, validateGenerated, SENTENCES_PER_LESSON, type MatchWordSpec, type MatchSpan, type SentenceCandidate } from './lessonMatch';
 
@@ -479,6 +479,7 @@ export async function getLesson(profileId: string, languageCode: string, levelCo
       if (!imErr) for (const r of imRows ?? []) if ((r as any).image) dbImageById.set((r as any).id, (r as any).image);
     }
 
+    await ensureImageIndex();
     const wordMap = new Map<string, LessonWord>(
       (wordRows ?? []).map((w: any) => [
         w.id,
@@ -1008,6 +1009,7 @@ export type ImageStatus = {
 
 async function imageStatus(languageCode: string, levelCode: string): Promise<ImageStatus> {
   try {
+    await ensureImageIndex();
     let words = 0;
     let namesPending = 0;
     const groups = new Map<string, boolean>(); // mot français (clé) → a une image ?
@@ -1098,6 +1100,7 @@ export type MissingImage = { name: string; fr: string; near: string | null }; //
 /** Images à fournir (aucun fichier trouvé), une par mot français. `name` = nom de fichier à créer (sans .webp). Sans paramètres : toutes les langues et tous les niveaux. */
 export async function listMissingImages(languageCode: string | null, levelCode: string | null): Promise<Result<MissingImage[]>> {
   try {
+    await ensureImageIndex();
     const found = new Map<string, boolean>();
     const names = new Map<string, MissingImage>();
     for (let from = 0; ; from += 1000) {
