@@ -1,5 +1,7 @@
 # Frasi — apprendre l'italien, l'espagnol et l'anglais au quotidien
 
+DELETE IMAGES
+
 30 phrases de vraie vie générées par IA (Gemini, gratuit) chaque jour,
 prononcées en audio (Google Cloud TTS, gratuit dans la limite), niveaux
 A1/A2 pour commencer, puis tests de niveau en QCM. Stack quasi 100%
