@@ -20,6 +20,7 @@ const NATURES = [
 ];
 
 function packState(p: VocabularyPackInfo): string {
+  if (p.status === 'extension') return 'extension';
   if (p.status === 'ready' && p.generated_count < p.target_count) return 'clôturé';
   if (p.generated_count < p.target_count) return 'incomplet';
   return 'prêt';
@@ -88,7 +89,7 @@ export default function PackWordsModal({
 
   const { readings } = useJapaneseReadings(isJa && words ? words.map((w) => w.target_text) : [], isJa && !!words);
 
-  const destinations = allPacks.filter((p) => p.id !== pack.id);
+  const destinations = allPacks.filter((p) => p.id !== pack.id && p.status !== 'extension'); // on ne verse pas de mots dans une extension
   const total = words?.length ?? 0;
 
   function toggle(id: string) {

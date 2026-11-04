@@ -288,7 +288,7 @@ async function packWithRoom(languageCode: string, levelCode: string): Promise<st
     if ((count ?? 0) < p.target_count) return p.id;
   }
 
-  const nextNumber = Math.max(0, ...(packs ?? []).map((p) => p.pack_number)) + 1;
+  const nextNumber = Math.max(0, ...(packs ?? []).filter((p) => p.status !== 'extension').map((p) => p.pack_number)) + 1;
   const created = await supabaseAdmin
     .from('vocabulary_packs')
     .insert({

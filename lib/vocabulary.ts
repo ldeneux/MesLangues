@@ -28,7 +28,9 @@ function computeMastered(success: number, fail: number): boolean {
 export type VocabularyPackInfo = {
   id: string;
   pack_number: number;
-  status: 'pending' | 'generating' | 'ready';
+  // « extension » : pack thématique ajouté hors parcours (chargé par script). Ses mots sont utilisés comme ceux d'un pack prêt (s'il est actif),
+  // mais il n'entre ni dans la numérotation, ni dans l'objectif de packs, ni dans les packs « incomplets ».
+  status: 'pending' | 'generating' | 'ready' | 'extension';
   generated_count: number;
   target_count: number;
   missing_audio?: number; // mots du pack sans fichier audio (ajoutés à la main, TTS échoué…)
@@ -306,6 +308,7 @@ export async function createVocabularyPack(languageCode: string, levelCode: stri
     .select('pack_number')
     .eq('language_code', languageCode)
     .eq('level_code', levelCode)
+    .neq('status', 'extension') // les extensions (numéro 91…) ne comptent pas dans la numérotation des packs
     .order('pack_number', { ascending: false })
     .limit(1);
 
@@ -642,7 +645,7 @@ async function getReadyVocabularyPackIds(languageCode: string, levelCode: string
     .select('id')
     .eq('language_code', languageCode)
     .in('level_code', levelsUpTo(levelCode, includePrevious))
-    .eq('status', 'ready')
+    .in('status', ['ready', 'extension'])
     .eq('active', true);
   return (data ?? []).map((p) => p.id);
 }
@@ -654,7 +657,7 @@ export async function getUsableVocabularyPacks(languageCode: string, levelCode: 
     .select('id, pack_number')
     .eq('language_code', languageCode)
     .eq('level_code', levelCode)
-    .eq('status', 'ready')
+    .in('status', ['ready', 'extension'])
     .eq('active', true)
     .order('pack_number');
   if (error) throw new Error(error.message);

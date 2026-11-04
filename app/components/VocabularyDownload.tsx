@@ -123,7 +123,7 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
 
   // Clôturé = pack marqué « prêt » alors qu'il n'a pas atteint son objectif : ses mots sont disponibles, on peut le rouvrir.
   const isClosed = (p: VocabularyPackInfo) => p.status === 'ready' && p.generated_count < p.target_count;
-  const isIncomplete = (p: VocabularyPackInfo) => p.generated_count < p.target_count && !isClosed(p);
+  const isIncomplete = (p: VocabularyPackInfo) => p.status !== 'extension' && p.generated_count < p.target_count && !isClosed(p);
 
   async function handleClose(pack: VocabularyPackInfo) {
     if (
@@ -205,9 +205,12 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
 
   if (packs === null) return <p className="eyebrow-free">Chargement du vocabulaire…</p>;
 
-  const hasIncomplete = packs.some(isIncomplete); // un pack clôturé ne bloque plus le téléchargement du suivant
+  // Les extensions (packs thématiques ajoutés hors parcours) sont présentées à part et ne comptent pas dans l'objectif
+  const regularPacks = packs.filter((p) => p.status !== 'extension');
+  const extensionPacks = packs.filter((p) => p.status === 'extension');
+  const hasIncomplete = regularPacks.some(isIncomplete); // un pack clôturé ne bloque plus le téléchargement du suivant
   const packObjective = LEVEL_PACK_COUNT[levelCode as LevelCode] ?? 4;
-  const objectiveReached = packs.length >= packObjective;
+  const objectiveReached = regularPacks.length >= packObjective;
 
   return (
     <div className="pack-list" style={{ marginTop: '1.5rem' }}>
@@ -215,7 +218,7 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
         Vocabulaire ({VOCAB_PACK_SIZE} mots/pack, comme les packs de phrases)
       </div>
 
-      {packs.map((p) => {
+      {regularPacks.map((p) => {
         const closed = isClosed(p);
         const incomplete = isIncomplete(p);
         const isGeneratingThis = generatingPackId === p.id;
@@ -292,7 +295,7 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
         );
       })}
 
-      {packs.length === 0 && <p className="eyebrow-free">Aucun pack de vocabulaire téléchargé pour ce niveau.</p>}
+      {regularPacks.length === 0 && <p className="eyebrow-free">Aucun pack de vocabulaire téléchargé pour ce niveau.</p>}
 
       {error && <p className="conv-warning">{error}</p>}
 
@@ -335,6 +338,56 @@ export default function VocabularyDownload({ languageCode, levelCode }: { langua
           </div>
         </div>
       )}
+      {extensionPacks.length > 0 && (
+        <div style={{ marginTop: '1.2rem' }}>
+          <div className="pack-row-title" style={{ marginBottom: '0.5rem' }}>
+            Extensions (packs thématiques ajoutés hors parcours)
+          </div>
+          {extensionPacks.map((p) => {
+            const missing = p.missing_audio ?? 0;
+            const audioBusy = audioPackId === p.id;
+            const anyJob = generatingPackId !== null || audioPackId !== null || busyPackId !== null;
+            return (
+              <div key={p.id} className={`pack-block${p.active ? '' : ' pack-inactive'}`}>
+                <div
+                  className="pack-row"
+                  title="Double-clic : voir les mots du pack"
+                  onDoubleClick={(e) => {
+                    if ((e.target as HTMLElement).closest('button, label')) return;
+                    setOpenPackId(p.id);
+                  }}
+                >
+                  <div>
+                    <div className="pack-row-title">
+                      Extension {p.pack_number} <span className="pack-kind">extension</span>
+                    </div>
+                    <div className="pack-row-sub">{p.generated_count} mots — utilisés dans les listes, jeux et leçons quand le pack est actif</div>
+                  </div>
+                  <label className="pack-active-toggle" title="Un pack inactif n'apparaît plus dans les listes, les jeux, les leçons, les scores ni l'examen">
+                    <input type="checkbox" checked={p.active} onChange={() => handleToggleActive(p)} disabled={anyJob} />
+                    <span>{p.active ? 'Actif' : 'Inactif'}</span>
+                  </label>
+                  <span className="pack-status pack-status-ready">Extension</span>
+                </div>
+                {(missing > 0 || audioBusy) && (
+                  <div className="pack-audio-line">
+                    {audioBusy && audioProgress ? (
+                      <span>
+                        🔊 Création des audios… {audioProgress.done} / {audioProgress.total}
+                      </span>
+                    ) : (
+                      <button className="pack-audio-link" onClick={() => handleCompleteAudio(p)} disabled={anyJob}>
+                        🔊 Compléter les audios ({missing} manquant{missing > 1 ? 's' : ''})
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {openPackId && packs.find((x) => x.id === openPackId) && (
         <PackWordsModal
           pack={packs.find((x) => x.id === openPackId)!}
