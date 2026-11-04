@@ -1,9 +1,15 @@
-// Planche de 60 illustrations (5 colonnes × 12 rangées) : prompt pour ChatGPT, découpe de l'image reçue, export ZIP.
+// Planche de 20 illustrations (5 colonnes × 4 rangées) : prompt, génération automatique (gpt-image-1-mini), découpe, export ZIP.
 // Module sans dépendance. Les fonctions « navigateur » (canvas) ne sont appelées que depuis un composant client.
 
 export const BOARD_COLS = 5;
-export const BOARD_ROWS = 12;
-export const BOARD_SIZE = BOARD_COLS * BOARD_ROWS;
+export const BOARD_ROWS = 4;
+export const BOARD_SIZE = BOARD_COLS * BOARD_ROWS; // 20 cartes par planche
+
+// Génération automatique par l'API OpenAI (voir lib/imageGenServer.ts)
+export const BOARD_IMAGE_SIZE = '1536x1024'; // paysage 3:2 : cartes d'environ 277 × 233 px (le portrait 1024x1536 donnerait des cartes étroites)
+export const BOARD_IMAGE_QUALITY = 'medium';
+export const BOARD_COST_USD = 0.015; // prix OpenAI d'une planche 1536x1024 en qualité medium (gpt-image-1-mini)
+export const AUTO_BOARD_CHOICES = [1, 5, 10, 20, 30, 40, 50]; // nombres de planches proposés au lancement
 
 // ---------------------------------------------------------------------
 // Prompt
@@ -15,18 +21,18 @@ export function buildBoardPrompt(words: string[]): string {
     const cells = [];
     for (let c = 0; c < BOARD_COLS; c++) cells.push(clean[r * BOARD_COLS + c] ?? '(carte vide)');
     rows.push(`Rangée ${r + 1} : ${cells.join(';')}`);
-    if ((r + 1) % 4 === 0 && r + 1 < BOARD_ROWS) rows.push(''); // ligne vide tous les 4 rangs : aide ChatGPT à ne pas perdre le fil
   }
   const empty =
     clean.length < BOARD_SIZE
       ? `\n* Les cartes marquées « (carte vide) » gardent le même cadre magenta et la même ligne de séparation, mais restent entièrement vides : aucune illustration, aucun texte.`
       : '';
 
-  return `Crée une planche éducative de vocabulaire français de ${BOARD_SIZE} cartes illustrées, au format paysage  (1536 × 3072 ou la plus haute résolution disponible dans ce même rapport), sur un fond blanc pur (#FFFFFF).
+  return `Crée une planche éducative de vocabulaire français de ${BOARD_SIZE} cartes illustrées, au format paysage 3:2 (${BOARD_IMAGE_SIZE.replace('x', ' × ')} px), sur un fond blanc pur (#FFFFFF).
 
 MISE EN PAGE (précision géométrique impérative)
 
 * Grille de ${BOARD_COLS} colonnes × ${BOARD_ROWS} rangées = ${BOARD_SIZE} cartes, toutes exactement de la même taille, parfaitement alignées en colonnes et en rangées, y compris sur la dernière rangée (jamais de cartes plus petites, plus grandes ou décalées).
+* Chaque carte est un rectangle un peu plus large que haut (environ 277 × 233 px), jamais aplati ni étiré.
 * Marge extérieure identique sur les 4 côtés (environ 3 %) et espace identique entre les cartes (environ 1 %).
 * Chaque carte est entourée d'un rectangle à angles droits (pas de coins arrondis), en trait plein magenta pur (#FF00FF) de 3 px d'épaisseur. Pas de pointillés, pas d'ombre, pas de dégradé.
 * Dans chaque carte, une ligne horizontale magenta pure (#FF00FF), de même épaisseur, sépare la zone d'illustration (environ 78 % de la hauteur) de la zone de texte (environ 22 %). Cette ligne est à la même hauteur relative dans les ${BOARD_SIZE} cartes.
@@ -103,7 +109,7 @@ export function detectGrid(data: ArrayLike<number>, w: number, h: number): GridR
   const vl = hasLines ? clusters(colSum, maxC * 0.5) : [];
   const hl = hasLines ? clusters(rowSum, maxR * 0.5) : [];
 
-  // Cas normal : 10 traits verticaux (gauche + droite de chaque carte) et 12 horizontaux (haut, séparation, bas)
+  // Cas normal : 10 traits verticaux (gauche + droite de chaque carte) et 12 horizontaux (haut, séparation, bas de chaque rangée)
   if (vl.length === BOARD_COLS * 2 && hl.length === BOARD_ROWS * 3) {
     const rects: Rect[] = [];
     for (let j = 0; j < BOARD_ROWS; j++) {

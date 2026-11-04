@@ -1,11 +1,29 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { getMissingImageWords, type MissingImageSummary } from '../../lib/imageBoardServer';
-import { BOARD_SIZE, buildBoardPrompt, cropToWebp, loadBoard, makeZip } from '../../lib/imageBoard';
+import { getMissingImageWords, type BoardWord, type MissingImageSummary } from '../../lib/imageBoardServer';
+import { generateBoardImage } from '../../lib/imageGenServer';
+import { AUTO_BOARD_CHOICES, BOARD_COST_USD, BOARD_SIZE, buildBoardPrompt, cropToWebp, loadBoard, makeZip } from '../../lib/imageBoard';
 import { LANGS } from '../../lib/constants';
+import { USD_TO_EUR } from '../../lib/pricing';
 
-type Card = { name: string; url: string; blob: Blob; include: boolean };
+type Card = { name: string; url: string; blob: Blob; include: boolean; approx?: boolean };
+type GridMethod = 'lines' | 'fit' | 'grid';
+type BoardWordLite = Pick<BoardWord, 'fr' | 'name'>;
+type AutoState = { done: number; total: number; failed: number; running: boolean; lastError: string };
+
+const AUTO_CONCURRENCY = 2; // planches générées en même temps (au-delà, OpenAI refuse souvent : limite de débit)
+const AUTO_RETRIES = 3; // tentatives par planche en cas de limite de débit ou de panne passagère
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const worstMethod = (a: GridMethod | null, b: GridMethod): GridMethod => (a === 'grid' || b === 'grid' ? 'grid' : a === 'fit' || b === 'fit' ? 'fit' : 'lines');
+
+// Image PNG en base64 (reçue du serveur) → fichier lisible par loadBoard
+function b64ToFile(b64: string): File {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new File([bytes], 'planche.png', { type: 'image/png' });
+}
 
 const hiddenKey = (lang: string) => `imgboard-hidden-${lang}`;
 
@@ -18,8 +36,10 @@ function readHidden(lang: string): Set<string> {
 }
 
 /**
- * Images manquantes d'une langue (tous niveaux, A1 → B2) : prépare un prompt pour ChatGPT (60 mots), puis découpe la planche
- * reçue en 60 images .webp nommées d'après le mot français. Les fichiers sont à déposer dans public/image_webp (voir README).
+ * Images manquantes d'une langue (tous niveaux, A1 → B2), par planches de 20 mots.
+ *  - Automatique : génère n planches avec gpt-image-1-mini (qualité medium), les découpe en .webp nommés d'après le mot français.
+ *  - Manuel : prépare le prompt d'une planche pour ChatGPT, puis découpe l'image reçue.
+ * Les fichiers sont à déposer dans public/image_webp (voir README).
  */
 export default function ImageBoardDownload({ languageCode }: { languageCode: string }) {
   const langLabel = LANGS.find((l) => l.code === languageCode)?.label ?? languageCode;
@@ -31,7 +51,10 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [cards, setCards] = useState<Card[]>([]);
-  const [method, setMethod] = useState<'lines' | 'fit' | 'grid' | null>(null);
+  const [method, setMethod] = useState<GridMethod | null>(null);
+  const [autoCount, setAutoCount] = useState(10); // nombre de planches à générer au lancement
+  const [auto, setAuto] = useState<AutoState | null>(null);
+  const cancelRef = useRef(false);
   const cardsRef = useRef<Card[]>([]);
   cardsRef.current = cards;
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -43,6 +66,8 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
   }
 
   useEffect(() => {
+    cancelRef.current = true; // changement de langue : on arrête une génération en cours
+    setAuto(null);
     setSummary(null);
     setError('');
     setHidden(readHidden(languageCode));
@@ -83,10 +108,13 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
     persistHidden(new Set(hidden).add(name));
   }
 
-  // Lot terminé : ces mots ne sont plus proposés (ils disparaissent de toute façon de la liste au prochain déploiement).
+  // Lot terminé : les images cochées ne sont plus proposées (elles disparaissent de toute façon de la liste au prochain déploiement).
+  // Les vignettes décochées (« à refaire ») restent dans la liste pour le lot suivant.
   function finishBatch() {
+    const done = cards.length > 0 ? cards.filter((c) => c.include).map((c) => c.name) : batch.map((w) => w.name);
     clearCards();
-    persistHidden(new Set([...Array.from(hidden), ...batch.map((w) => w.name)]));
+    setAuto(null);
+    persistHidden(new Set([...Array.from(hidden), ...done]));
   }
 
   function resetHidden() {
@@ -103,6 +131,78 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  // Une planche : génération (avec nouvelles tentatives) puis découpe en vignettes
+  async function makeBoard(words: BoardWordLite[]): Promise<{ cards: Card[]; method: GridMethod }> {
+    let lastError = '';
+    for (let attempt = 1; attempt <= AUTO_RETRIES; attempt++) {
+      if (cancelRef.current) throw new Error('Annulé');
+      const res = await generateBoardImage(words.map((w) => w.fr));
+      if (res.ok) {
+        const { canvas, grid } = await loadBoard(b64ToFile(res.b64));
+        if (grid.rects.length < words.length) throw new Error('Grille non reconnue sur cette planche.');
+        const out: Card[] = [];
+        for (let i = 0; i < words.length; i++) {
+          const blob = await cropToWebp(canvas, grid.rects[i]);
+          out.push({ name: words[i].name, url: URL.createObjectURL(blob), blob, include: true, approx: grid.method === 'grid' });
+        }
+        return { cards: out, method: grid.method };
+      }
+      lastError = res.error;
+      if (!res.retryable) break;
+      await sleep(8000 * attempt);
+    }
+    throw new Error(lastError || 'Échec de la génération.');
+  }
+
+  // Génère n planches de 20 mots à la suite (2 en parallèle), les découpe, et affiche les vignettes au fur et à mesure.
+  async function runAuto() {
+    const n = Math.max(1, Math.floor(autoCount));
+    const words = remaining.slice(0, n * BOARD_SIZE);
+    if (words.length === 0) return;
+    const chunks: BoardWordLite[][] = [];
+    for (let i = 0; i < words.length; i += BOARD_SIZE) chunks.push(words.slice(i, i + BOARD_SIZE));
+    const usd = chunks.length * BOARD_COST_USD;
+    if (
+      !window.confirm(
+        `Générer ${chunks.length} planche(s) de ${BOARD_SIZE} mots (${words.length} images) avec gpt-image-1-mini, qualité medium ?\n\nCoût estimé : ≈ ${usd.toFixed(2)} $ (≈ ${(usd * USD_TO_EUR).toFixed(2)} €).\nGarde cet onglet ouvert pendant la génération.`
+      )
+    ) {
+      return;
+    }
+
+    clearCards();
+    setError('');
+    cancelRef.current = false;
+    let next = 0;
+    let done = 0;
+    let failed = 0;
+    let lastError = '';
+    let worst: GridMethod | null = null;
+    setAuto({ done: 0, total: chunks.length, failed: 0, running: true, lastError: '' });
+
+    async function worker() {
+      while (!cancelRef.current) {
+        const idx = next++;
+        if (idx >= chunks.length) return;
+        try {
+          const r = await makeBoard(chunks[idx]);
+          worst = worstMethod(worst, r.method);
+          setMethod(worst);
+          setCards((prev) => [...prev, ...r.cards]);
+        } catch (e: any) {
+          if (e?.message !== 'Annulé') {
+            failed++;
+            lastError = e?.message ?? 'Erreur';
+          }
+        }
+        done++;
+        setAuto({ done, total: chunks.length, failed, running: true, lastError });
+      }
+    }
+    await Promise.all(Array.from({ length: AUTO_CONCURRENCY }, worker));
+    setAuto({ done, total: chunks.length, failed, running: false, lastError });
   }
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -146,6 +246,9 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
   }
 
   const includedCount = cards.filter((c) => c.include).length;
+  const autoRunning = auto?.running ?? false;
+  const autoBoards = Math.min(autoCount, Math.ceil(remaining.length / BOARD_SIZE));
+  const autoUsd = autoBoards * BOARD_COST_USD;
 
   return (
     <div className="pack-list" style={{ marginTop: '2rem' }}>
@@ -157,7 +260,7 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
               ? `${remaining.length} mot(s) sans image${
                   summary.words.length !== remaining.length ? ` (${summary.words.length - remaining.length} écarté(s))` : ''
                 } — ${['A1', 'A2', 'B1', 'B2'].map((l) => `${l} : ${summary.byLevel[l] ?? 0}`).join(' · ')}`
-              : `Prépare une planche de ${BOARD_SIZE} illustrations pour ChatGPT, puis découpe-la ici.`}
+              : `Génère des planches de ${BOARD_SIZE} illustrations (automatiquement ou via ChatGPT), puis découpe-les ici.`}
           </div>
         </div>
         {!summary && (
@@ -173,8 +276,50 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
 
       {summary && batch.length > 0 && (
         <div>
+          <div style={{ border: '1px solid rgba(128,128,128,.4)', borderRadius: 6, padding: '0.6rem 0.75rem', marginTop: '0.75rem' }}>
+            <p className="eyebrow-free" style={{ marginTop: 0 }}>
+              <strong>Génération automatique</strong> — gpt-image-1-mini, qualité medium, {BOARD_SIZE} mots par planche (A1 → B2). Les planches sont
+              générées, découpées et rassemblées dans un seul ZIP.
+            </p>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <label>
+                Planches à générer{' '}
+                <select value={autoCount} onChange={(e) => setAutoCount(Number(e.target.value))} disabled={autoRunning}>
+                  {AUTO_BOARD_CHOICES.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <span style={{ fontSize: '0.85rem', opacity: 0.8 }}>
+                ≈ {Math.min(autoCount * BOARD_SIZE, remaining.length)} images · ≈ {autoUsd.toFixed(2)} $ (≈ {(autoUsd * USD_TO_EUR).toFixed(2)} €)
+              </span>
+              {!autoRunning ? (
+                <button className="primary" onClick={runAuto}>
+                  Générer {autoBoards} planche{autoBoards > 1 ? 's' : ''}
+                </button>
+              ) : (
+                <button
+                  className="secondary"
+                  onClick={() => {
+                    cancelRef.current = true;
+                  }}
+                >
+                  Arrêter (les planches en cours se terminent)
+                </button>
+              )}
+            </div>
+            {auto && (
+              <p className="eyebrow-free" style={{ marginBottom: 0 }}>
+                {auto.running ? 'Génération…' : 'Terminé.'} Planche {auto.done}/{auto.total}
+                {auto.failed > 0 ? ` — ${auto.failed} en échec (${auto.lastError}) : leurs mots restent dans la liste` : ''}
+              </p>
+            )}
+          </div>
+
           <p className="eyebrow-free" style={{ marginTop: '0.75rem' }}>
-            <strong>1.</strong> Les {batch.length} prochains mots (A1 → B2). Écarte (✕) ceux qu'on ne peut pas illustrer : le suivant le remplace
+            <strong>Manuel (ChatGPT) — 1.</strong> Les {batch.length} prochains mots (A1 → B2). Écarte (✕) ceux qu'on ne peut pas illustrer : le suivant le remplace
             (pense alors à copier de nouveau le prompt).
           </p>
           <ol style={{ margin: '0.25rem 0 0.75rem', paddingLeft: '1.4rem', columns: '3 200px', fontSize: '0.85rem', maxHeight: '22rem', overflowY: 'auto' }}>
@@ -184,6 +329,7 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
                 <button
                   className="conv-mini-btn"
                   onClick={() => skipWord(w.name)}
+                  disabled={autoRunning}
                   title="Écarter ce mot"
                   aria-label={`Écarter « ${w.fr} »`}
                   style={{ padding: '0 0.4rem' }}
@@ -213,7 +359,7 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
           <p className="eyebrow-free">
             <strong>3.</strong> Dépose la planche reçue : elle est découpée en {batch.length} image(s) .webp.
           </p>
-          <input type="file" accept="image/*" onChange={handleFile} disabled={busy} />
+          <input type="file" accept="image/*" onChange={handleFile} disabled={busy || autoRunning} />
           {busy && <p className="eyebrow-free">Découpe en cours…</p>}
 
           {cards.length > 0 && (
@@ -232,8 +378,9 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
                 {cards.map((c, i) => (
                   <label
                     key={c.name}
+                    title={c.approx ? 'Découpe approximative : vérifie cette vignette' : undefined}
                     style={{
-                      border: '1px solid rgba(128,128,128,.4)',
+                      border: c.approx ? '2px solid #e08a00' : '1px solid rgba(128,128,128,.4)',
                       borderRadius: 6,
                       padding: '0.3rem',
                       opacity: c.include ? 1 : 0.4,
@@ -258,11 +405,11 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
                 images se met à jour au déploiement.
               </p>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <button className="primary" onClick={downloadZip} disabled={includedCount === 0}>
+                <button className="primary" onClick={downloadZip} disabled={includedCount === 0 || autoRunning}>
                   Télécharger le ZIP ({includedCount} image{includedCount > 1 ? 's' : ''})
                 </button>
-                <button className="secondary" onClick={finishBatch}>
-                  Lot terminé → {BOARD_SIZE} suivants
+                <button className="secondary" onClick={finishBatch} disabled={autoRunning}>
+                  Lot terminé → mots suivants
                 </button>
               </div>
             </div>
