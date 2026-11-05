@@ -59,6 +59,7 @@ ${rows.join('\n')}`;
 // ---------------------------------------------------------------------
 export type Rect = { x: number; y: number; w: number; h: number };
 export type GridResult = {
+  suspect?: boolean[]; // par carte : true si la vignette découpée contient des traits magenta (découpe douteuse)
   rects: Rect[]; // zones d'illustration, de gauche à droite puis de haut en bas
   // 'lines' = tous les traits magenta retrouvés ; 'fit' = quelques traits manquent, la grille est recalculée d'après les autres ;
   // 'grid' = aucun trait retrouvé, découpe approximative d'après la mise en page demandée
@@ -88,7 +89,206 @@ function clusters(sum: number[], threshold: number): Cluster[] {
   return out;
 }
 
-export function detectGrid(data: ArrayLike<number>, w: number, h: number): GridResult {
+// ---------------------------------------------------------------------
+// Détection carte par carte (méthode principale)
+// Les planches générées par l'IA ne sont jamais parfaitement régulières (rangées de hauteurs différentes, colonnes qui bougent d'une rangée à
+// l'autre) : on ne cherche donc pas de grille globale. On repère chaque ZONE FERMÉE par les traits magenta (une zone d'illustration est un
+// rectangle blanc entouré de magenta), puis on les classe en rangées et en colonnes.
+// ---------------------------------------------------------------------
+type Comp = { x0: number; y0: number; x1: number; y1: number; area: number }; // x1, y1 inclus
+
+function medianOf(v: number[]): number {
+  const a = [...v].sort((p, q) => p - q);
+  return a.length ? a[Math.floor(a.length / 2)] : 0;
+}
+
+function detectCardCells(data: ArrayLike<number>, w: number, h: number, cols: number, rows: number): { rects: Rect[]; suspect: boolean[] } | null {
+  const n = w * h;
+  // « Mur » = pixels magenta, avec un seuil tolérant (les traits dessinés par l'IA sont souvent un peu pâles ou mangés par le dessin)
+  let wall = new Uint8Array(n);
+  for (let p = 0, i = 0; p < n; p++, i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    if (r > 140 && b > 140 && r - g > 50 && b - g > 50) wall[p] = 1;
+  }
+  // Dilatation de 2 pixels (deux passes 3 × 3) : referme les petits trous dans les traits
+  for (let pass = 0; pass < 2; pass++) {
+    const tmp = new Uint8Array(n);
+    for (let y = 0; y < h; y++) {
+      const o = y * w;
+      for (let x = 0; x < w; x++) tmp[o + x] = wall[o + x] | (x > 0 ? wall[o + x - 1] : 0) | (x < w - 1 ? wall[o + x + 1] : 0);
+    }
+    const out = new Uint8Array(n);
+    for (let y = 0; y < h; y++) {
+      const o = y * w;
+      for (let x = 0; x < w; x++) out[o + x] = tmp[o + x] | (y > 0 ? tmp[o - w + x] : 0) | (y < h - 1 ? tmp[o + w + x] : 0);
+    }
+    wall = out;
+  }
+
+  // Zones connexes de pixels non magenta
+  const seen = new Uint8Array(n);
+  const stack = new Int32Array(n);
+  const comps: Comp[] = [];
+  for (let start = 0; start < n; start++) {
+    if (wall[start] || seen[start]) continue;
+    let sp = 0;
+    stack[sp++] = start;
+    seen[start] = 1;
+    const c: Comp = { x0: w, y0: h, x1: 0, y1: 0, area: 0 };
+    while (sp > 0) {
+      const p = stack[--sp];
+      const x = p % w;
+      const y = (p - x) / w;
+      c.area++;
+      if (x < c.x0) c.x0 = x;
+      if (x > c.x1) c.x1 = x;
+      if (y < c.y0) c.y0 = y;
+      if (y > c.y1) c.y1 = y;
+      if (x > 0 && !wall[p - 1] && !seen[p - 1]) { seen[p - 1] = 1; stack[sp++] = p - 1; }
+      if (x < w - 1 && !wall[p + 1] && !seen[p + 1]) { seen[p + 1] = 1; stack[sp++] = p + 1; }
+      if (y > 0 && !wall[p - w] && !seen[p - w]) { seen[p - w] = 1; stack[sp++] = p - w; }
+      if (y < h - 1 && !wall[p + w] && !seen[p + w]) { seen[p + w] = 1; stack[sp++] = p + w; }
+    }
+    comps.push(c);
+  }
+
+  // Zones qui ont la largeur d'une carte (le fond blanc extérieur, les petits morceaux et les zones d'illustration à l'intérieur des cartes sont triés par la largeur et le remplissage)
+  const nomW = (0.94 * w - (cols - 1) * 0.01 * w) / cols;
+  const nomH = (0.94 * h - (rows - 1) * 0.01 * h) / rows;
+  const cand = comps.filter((c) => {
+    const bw = c.x1 - c.x0 + 1;
+    const bh = c.y1 - c.y0 + 1;
+    return bw >= 0.6 * nomW && bw <= 1.4 * nomW && bh >= 8 && bh <= 2 * nomH && c.area / (bw * bh) >= 0.8;
+  });
+
+  // Zone de texte = zone étroite juste sous une zone d'illustration (séparée par le trait du milieu)
+  const isText = new Array<boolean>(cand.length).fill(false);
+  const hasText = new Array<boolean>(cand.length).fill(false);
+  const ratios: number[] = [];
+  for (let a = 0; a < cand.length; a++) {
+    for (let b = 0; b < cand.length; b++) {
+      if (a === b) continue;
+      const A = cand[a];
+      const B = cand[b];
+      const gap = B.y0 - A.y1;
+      if (gap > 0 && gap <= 14 && Math.abs(B.x0 - A.x0) <= 0.1 * nomW && Math.abs(B.x1 - A.x1) <= 0.1 * nomW && B.y1 - B.y0 < A.y1 - A.y0) {
+        isText[b] = true;
+        hasText[a] = true;
+        ratios.push((A.y1 - A.y0 + 1) / (B.y1 - A.y0 + 1)); // part de l'illustration dans la carte entière
+      }
+    }
+  }
+  const ratio = ratios.length ? medianOf(ratios) : 0.78;
+  const pairedH = cand.filter((_, i) => hasText[i]).map((c) => c.y1 - c.y0 + 1);
+  const typicalH = pairedH.length ? medianOf(pairedH) : 0;
+
+  const cells: Comp[] = [];
+  cand.forEach((c, i) => {
+    if (isText[i]) return;
+    const ch = c.y1 - c.y0 + 1;
+    // Zone de texte « orpheline » (son illustration n'a pas été retrouvée) : ce n'est pas une carte, on la déduira plus loin
+    if (!hasText[i] && ch < (typicalH > 0 ? 0.45 * typicalH : 0.3 * nomH)) return;
+    // Zone d'illustration fusionnée avec la zone de texte (le trait du milieu est caché par le dessin) : on ne garde que le haut
+    if (!hasText[i] && typicalH > 0 && ch > 1.2 * typicalH) {
+      cells.push({ ...c, y1: c.y0 + Math.round(ch * ratio) - 1 });
+    } else if (!hasText[i] && typicalH === 0 && ch > 0.9 * nomH) {
+      cells.push({ ...c, y1: c.y0 + Math.round(ch * ratio) - 1 });
+    } else {
+      cells.push(c);
+    }
+  });
+  if (cells.length < Math.ceil(0.5 * cols * rows) || cells.length > cols * rows) return null;
+
+  // Rangées : on regroupe les cartes par hauteur de départ (les planches IA ont des rangées de hauteurs différentes)
+  const byY = [...cells].sort((p, q) => p.y0 - q.y0);
+  const rowOf = new Map<Comp, number>();
+  let rowCount = 0;
+  let prevY = -1e9;
+  for (const c of byY) {
+    if (c.y0 - prevY > 0.3 * nomH) rowCount++;
+    rowOf.set(c, rowCount - 1);
+    prevY = c.y0;
+  }
+  // Colonnes : même principe sur la position gauche
+  const byX = [...cells].sort((p, q) => p.x0 - q.x0);
+  const colOf = new Map<Comp, number>();
+  let colCount = 0;
+  let prevX = -1e9;
+  for (const c of byX) {
+    if (c.x0 - prevX > 0.5 * nomW) colCount++;
+    colOf.set(c, colCount - 1);
+    prevX = c.x0;
+  }
+  if (rowCount !== rows || colCount !== cols) return null;
+
+  const grid: (Comp | null)[][] = Array.from({ length: rows }, () => new Array<Comp | null>(cols).fill(null));
+  for (const c of cells) {
+    const r = rowOf.get(c)!;
+    const k = colOf.get(c)!;
+    if (grid[r][k]) return null; // deux zones pour la même case : on ne devine pas
+    grid[r][k] = c;
+  }
+
+  // Cartes dont les traits sont trop abîmés pour être retrouvées : position déduite des autres cartes de la même colonne / rangée
+  const colX0: number[] = [];
+  const colW: number[] = [];
+  for (let k = 0; k < cols; k++) {
+    const col = grid.map((row) => row[k]).filter((c): c is Comp => !!c);
+    colX0.push(medianOf(col.map((c) => c.x0)));
+    colW.push(medianOf(col.map((c) => c.x1 - c.x0 + 1)));
+  }
+  const allH = medianOf(cells.map((c) => c.y1 - c.y0 + 1));
+  const rowY0: number[] = [];
+  const rowH: number[] = [];
+  for (let r = 0; r < rows; r++) {
+    const line = grid[r].filter((c): c is Comp => !!c);
+    rowY0.push(medianOf(line.map((c) => c.y0)));
+    rowH.push(medianOf(line.map((c) => c.y1 - c.y0 + 1)) || allH);
+  }
+
+  const rects: Rect[] = [];
+  const suspect: boolean[] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let k = 0; k < cols; k++) {
+      const c = grid[r][k];
+      const inferred = !c;
+      const x0 = c ? c.x0 : Math.round(colX0[k]);
+      const y0 = c ? c.y0 : Math.round(rowY0[r]);
+      const x1 = c ? c.x1 : Math.round(colX0[k] + colW[k] - 1);
+      const y1 = c ? c.y1 : Math.round(rowY0[r] + rowH[r] - 1);
+      const rect: Rect = {
+        x: Math.max(0, x0 + 1),
+        y: Math.max(0, y0 + 1),
+        w: Math.min(w, x1) - Math.max(0, x0 + 1) - 1,
+        h: Math.min(h, y1) - Math.max(0, y0 + 1) - 1,
+      };
+      // Contrôle : une vignette correcte ne contient (presque) aucun trait magenta
+      let mag = 0;
+      if (rect.w > 10 && rect.h > 10) {
+        for (let y = rect.y; y < rect.y + rect.h; y++) {
+          for (let x = rect.x; x < rect.x + rect.w; x++) {
+            const i4 = (y * w + x) * 4;
+            if (isMagenta(data[i4], data[i4 + 1], data[i4 + 2])) mag++;
+          }
+        }
+      }
+      rects.push(rect);
+      suspect.push(inferred || rect.w <= 10 || rect.h <= 10 || mag / Math.max(1, rect.w * rect.h) > 0.01);
+    }
+  }
+  return { rects, suspect };
+}
+
+export function detectGrid(data: ArrayLike<number>, w: number, h: number, cols: number = BOARD_COLS, rows: number = BOARD_ROWS): GridResult {
+  // Méthode principale : une zone fermée par carte (supporte les planches irrégulières)
+  const cells = detectCardCells(data, w, h, cols, rows);
+  if (cells) return { rects: cells.rects, suspect: cells.suspect, method: 'lines' };
+
+  // Secours : grille globale d'après les traits (planche très régulière), puis grille théorique
+  
+  
   const colSum = new Array<number>(w).fill(0);
   const rowSum = new Array<number>(h).fill(0);
   for (let y = 0; y < h; y++) {
@@ -110,10 +310,10 @@ export function detectGrid(data: ArrayLike<number>, w: number, h: number): GridR
   const hl = hasLines ? clusters(rowSum, maxR * 0.5) : [];
 
   // Cas normal : 10 traits verticaux (gauche + droite de chaque carte) et 12 horizontaux (haut, séparation, bas de chaque rangée)
-  if (vl.length === BOARD_COLS * 2 && hl.length === BOARD_ROWS * 3) {
+  if (vl.length === cols * 2 && hl.length === rows * 3) {
     const rects: Rect[] = [];
-    for (let j = 0; j < BOARD_ROWS; j++) {
-      for (let i = 0; i < BOARD_COLS; i++) {
+    for (let j = 0; j < rows; j++) {
+      for (let i = 0; i < cols; i++) {
         const l = vl[2 * i];
         const r = vl[2 * i + 1];
         const top = hl[3 * j];
@@ -129,11 +329,11 @@ export function detectGrid(data: ArrayLike<number>, w: number, h: number): GridR
   }
 
   // Colonnes : positions exactes si les 10 traits verticaux sont là, sinon grille régulière entre les traits extrêmes (ou les marges de 3 %)
-  const exactCols = vl.length === BOARD_COLS * 2;
+  const exactCols = vl.length === cols * 2;
   let colsX: { l: number; r: number }[];
   let gap: number;
   if (exactCols) {
-    colsX = Array.from({ length: BOARD_COLS }, (_, i) => ({ l: vl[2 * i].c, r: vl[2 * i + 1].c }));
+    colsX = Array.from({ length: cols }, (_, i) => ({ l: vl[2 * i].c, r: vl[2 * i + 1].c }));
     // espace entre deux cartes voisines, mesuré sur l'image (la même valeur sert entre deux rangées)
     const gaps = colsX.slice(1).map((c, i) => c.l - colsX[i].r);
     gap = gaps.reduce((s2, g) => s2 + g, 0) / Math.max(1, gaps.length);
@@ -141,18 +341,18 @@ export function detectGrid(data: ArrayLike<number>, w: number, h: number): GridR
     const x0 = vl.length >= 2 ? vl[0].c : 0.03 * w;
     const x1 = vl.length >= 2 ? vl[vl.length - 1].c : 0.97 * w;
     gap = 0.01 * w;
-    const cw = (x1 - x0 - (BOARD_COLS - 1) * gap) / BOARD_COLS;
-    colsX = Array.from({ length: BOARD_COLS }, (_, i) => ({ l: x0 + i * (cw + gap), r: x0 + i * (cw + gap) + cw }));
+    const cw = (x1 - x0 - (cols - 1) * gap) / cols;
+    colsX = Array.from({ length: cols }, (_, i) => ({ l: x0 + i * (cw + gap), r: x0 + i * (cw + gap) + cw }));
   }
 
   // Rangées : de la 1re ligne du haut à la dernière ligne du bas, réparties régulièrement ; la ligne de séparation de chaque carte
   // est celle retrouvée près de 78 % de la hauteur (sinon 78 % exactement). Un trait manquant ou en trop ne décale donc plus rien.
   const y0 = hl.length >= 2 ? hl[0].c : 0.03 * h;
   const y1 = hl.length >= 2 ? hl[hl.length - 1].c : 0.97 * h;
-  const ch = (y1 - y0 - (BOARD_ROWS - 1) * gap) / BOARD_ROWS;
+  const ch = (y1 - y0 - (rows - 1) * gap) / rows;
   const pad = Math.max(3, Math.min(0.006 * w, ch * 0.03));
   const rects: Rect[] = [];
-  for (let j = 0; j < BOARD_ROWS; j++) {
+  for (let j = 0; j < rows; j++) {
     const top = y0 + j * (ch + gap);
     const target = top + 0.78 * ch;
     let sepY = target;
@@ -164,7 +364,7 @@ export function detectGrid(data: ArrayLike<number>, w: number, h: number): GridR
         sepY = line.c;
       }
     }
-    for (let i = 0; i < BOARD_COLS; i++) {
+    for (let i = 0; i < cols; i++) {
       const x = colsX[i].l + pad + 1.5;
       const wd = colsX[i].r - colsX[i].l - 2 * pad - 3;
       const y = top + pad + 1.5;

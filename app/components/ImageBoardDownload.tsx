@@ -158,7 +158,9 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
         const out: Card[] = [];
         for (let i = 0; i < words.length; i++) {
           const blob = await cropToWebp(canvas, grid.rects[i]);
-          out.push({ name: words[i].name, url: URL.createObjectURL(blob), blob, include: true, approx: grid.method === 'grid' });
+          // Vignette douteuse (cadre orange) : décochée d'office, à vérifier avant tout envoi
+          const approx = grid.method === 'grid' || !!grid.suspect?.[i];
+          out.push({ name: words[i].name, url: URL.createObjectURL(blob), blob, include: !approx, approx });
         }
         return { cards: out, method: grid.method };
       }
@@ -230,7 +232,8 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
       const out: Card[] = [];
       for (let i = 0; i < batch.length; i++) {
         const blob = await cropToWebp(canvas, grid.rects[i]);
-        out.push({ name: batch[i].name, url: URL.createObjectURL(blob), blob, include: true });
+        const approx = grid.method === 'grid' || !!grid.suspect?.[i];
+        out.push({ name: batch[i].name, url: URL.createObjectURL(blob), blob, include: !approx, approx });
       }
       setCards(out);
       setMethod(grid.method);
@@ -412,6 +415,12 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
 
           {cards.length > 0 && (
             <div style={{ marginTop: '0.75rem' }}>
+              {cards.some((c) => c.approx) && (
+                <p className="conv-warning">
+                  {cards.filter((c) => c.approx).length} vignette(s) douteuse(s) (cadre orange, décochées d’office) : traits magenta dans la découpe ou carte
+                  déduite. Regarde-les : recoche celles qui sont bonnes, laisse les autres pour un prochain lot.
+                </p>
+              )}
               {method === 'fit' && (
                 <p className="eyebrow-free">
                   Quelques traits magenta n'ont pas été retrouvés : la grille a été recalculée d'après les autres traits. Jette un œil aux vignettes.

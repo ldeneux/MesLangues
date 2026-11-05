@@ -14,7 +14,7 @@ Fonctionnement : le fichier est dans R2 sous `images/<mot>.webp` ; la table Supa
 2. **Supabase** → SQL Editor : exécute `supabase/migrations/036_word_images.sql` (une fois).
 3. **Cloudflare → ton bucket → Settings → CORS policy** : ajoute cette règle (nécessaire pour que le PDF des leçons puisse lire les images) :
    ```json
-   [{ "AllowedOrigins": ["https://mes-langues-puce.vercel.app/"], "AllowedMethods": ["GET", "HEAD"], "AllowedHeaders": ["*"] }]
+   [{ "AllowedOrigins": ["https://TON-SITE.vercel.app"], "AllowedMethods": ["GET", "HEAD"], "AllowedHeaders": ["*"] }]
    ```
    (remplace par l'adresse réelle de ton application ; ajoute `http://localhost:3000` pour tester en local.)
 4. **Application → onglet Packs → « Images des mots sur Cloudflare R2 » → Copier les images vers R2.** Garde la page ouverte ; si ça s'arrête, relance :
