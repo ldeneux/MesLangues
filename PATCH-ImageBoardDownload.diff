@@ -1,0 +1,55 @@
+--- a/app/components/ImageBoardDownload.tsx	2026-10-30 18:17:22.000000000 +0000
++++ b/app/components/ImageBoardDownload.tsx	2026-11-05 20:52:29.316025300 +0000
+@@ -32,6 +32,7 @@
+   const [busy, setBusy] = useState(false);
+   const [cards, setCards] = useState<Card[]>([]);
+   const [method, setMethod] = useState<'lines' | 'fit' | 'grid' | null>(null);
++  const [boardNote, setBoardNote] = useState('');
+   const cardsRef = useRef<Card[]>([]);
+   cardsRef.current = cards;
+   const promptRef = useRef<HTMLTextAreaElement>(null);
+@@ -40,6 +41,7 @@
+     cardsRef.current.forEach((c) => URL.revokeObjectURL(c.url));
+     setCards([]);
+     setMethod(null);
++    setBoardNote('');
+   }
+ 
+   useEffect(() => {
+@@ -86,7 +88,8 @@
+   // Lot terminé : ces mots ne sont plus proposés (ils disparaissent de toute façon de la liste au prochain déploiement).
+   function finishBatch() {
+     clearCards();
+-    persistHidden(new Set([...Array.from(hidden), ...batch.map((w) => w.name)]));
++    // seuls les mots réellement associés à une carte sont marqués « traités » (une planche de 20 cartes ne doit pas écarter 40 autres mots)
++    persistHidden(new Set([...Array.from(hidden), ...(cards.length > 0 ? cards.map((c) => c.name) : batch.map((w) => w.name))]));
+   }
+ 
+   function resetHidden() {
+@@ -113,9 +116,16 @@
+     setError('');
+     clearCards();
+     try {
+-      const { canvas, grid } = await loadBoard(file);
++      // La grille est lue sur la planche elle-même (traits magenta) : 20 cartes, 60 cartes… ChatGPT ne respecte pas toujours le nombre demandé
++      const { canvas, grid } = await loadBoard(file, { cols: 5, rows: Math.ceil(batch.length / 5) });
+       const out: Card[] = [];
+-      for (let i = 0; i < batch.length; i++) {
++      const usable = Math.min(batch.length, grid.rects.length);
++      if (grid.rects.length < batch.length) {
++        setBoardNote(`La planche contient ${grid.rects.length} cartes (${grid.cols} × ${grid.rows}) pour ${batch.length} mots demandés : seuls les ${usable} premiers mots sont associés. Les autres restent dans la liste pour la prochaine planche.`);
++      } else if (grid.rects.length > batch.length) {
++        setBoardNote(`La planche contient ${grid.rects.length} cartes pour ${batch.length} mots : les cartes en trop sont ignorées.`);
++      }
++      for (let i = 0; i < usable; i++) {
+         const blob = await cropToWebp(canvas, grid.rects[i]);
+         out.push({ name: batch[i].name, url: URL.createObjectURL(blob), blob, include: true });
+       }
+@@ -218,6 +228,7 @@
+ 
+           {cards.length > 0 && (
+             <div style={{ marginTop: '0.75rem' }}>
++              {boardNote && <p className="conv-warning">{boardNote}</p>}
+               {method === 'fit' && (
+                 <p className="eyebrow-free">
+                   Quelques traits magenta n'ont pas été retrouvés : la grille a été recalculée d'après les autres traits. Jette un œil aux vignettes.

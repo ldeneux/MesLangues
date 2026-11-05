@@ -55,3 +55,24 @@ from langues.vocabulary_words group by 1 order by 2 desc;
 - Le ménage des doublons (SQL) ne sait lire que les anciens liens Supabase.
 - Aucune configuration CORS n'est nécessaire pour lire les mp3 avec la balise audio habituelle.
 - `scripts/migrate-audio-to-r2.mjs` fait la même copie en ligne de commande (nécessite Node.js) : facultatif, le bouton suffit.
+
+## Images sur R2 : règle CORS (nécessaire pour les PDF)
+
+Un navigateur affiche une image venant d'un autre site (R2) sans autorisation, mais **ne peut pas la copier** (canvas) sans que ce site l'autorise.
+Or la génération des PDF convertit chaque image en JPEG avec un canvas : sans règle CORS, les images manquent dans les PDF.
+
+Cloudflare → R2 → ton bucket → **Settings → CORS Policy → Add CORS policy**, colle (remplace l'adresse par celle de ton application,
+sans « / » final ; garde `http://localhost:3000` seulement si tu testes en local) :
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://TON-APPLICATION.vercel.app", "http://localhost:3000"],
+    "AllowedMethods": ["GET", "HEAD"],
+    "AllowedHeaders": ["*"],
+    "MaxAgeSeconds": 86400
+  }
+]
+```
+Si ton application a aussi un nom de domaine personnalisé, ajoute-le dans `AllowedOrigins`. Rien d'autre à changer : le code des PDF demande
+désormais les images en mode CORS.

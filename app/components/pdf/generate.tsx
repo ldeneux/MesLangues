@@ -21,12 +21,17 @@ export type PdfOptions = {
   onProgress?: (message: string) => void;
 };
 
-// .webp → JPEG (le moteur PDF ne lit pas le WebP), fond blanc (comme la page), 480 px de large au plus
+// .webp → JPEG (le moteur PDF ne lit pas le WebP), fond blanc (comme la page), 480 px de large au plus.
+// Image hébergée sur un AUTRE site (Cloudflare R2) : sans l'autorisation CORS du site d'origine, le navigateur « salit » le canvas et
+// toDataURL échoue (l'image manque alors dans le PDF). On demande donc l'image en mode CORS ; « ?cors=1 » évite de réutiliser une copie
+// du navigateur chargée auparavant sans CORS. Le bucket R2 doit autoriser l'origine de l'application (voir LISEZ-MOI-R2.md).
+let corsWarned = false;
 async function webpToJpeg(url: string, maxWidth = 480): Promise<string | null> {
   try {
+    const external = /^https?:\/\//i.test(url) && typeof window !== 'undefined' && !url.startsWith(window.location.origin);
     const img = new Image();
-    img.crossOrigin = 'anonymous'; // images hébergées sur R2 (autre domaine) : sans cela le canvas est « souillé » et le JPEG est refusé
-    img.src = url;
+    if (external) img.crossOrigin = 'anonymous';
+    img.src = external ? `${url}${url.includes('?') ? '&' : '?'}cors=1` : url;
     await img.decode();
     const scale = Math.min(1, maxWidth / img.naturalWidth);
     const canvas = document.createElement('canvas');
@@ -39,6 +44,10 @@ async function webpToJpeg(url: string, maxWidth = 480): Promise<string | null> {
     c.drawImage(img, 0, 0, canvas.width, canvas.height);
     return canvas.toDataURL('image/jpeg', 0.86);
   } catch {
+    if (!corsWarned) {
+      corsWarned = true;
+      console.warn('PDF : une image n\'a pas pu être lue (' + url + '). Si les images sont sur Cloudflare R2, vérifie la règle CORS du bucket.');
+    }
     return null;
   }
 }
@@ -124,6 +133,8 @@ export async function downloadLessonsPdf(o: PdfOptions & { numbers: number[] }):
     done++;
     if (done % 8 === 0 || done === names.length) say(`Images ${done} / ${names.length}…`);
   });
+  const missingImages = names.filter((n) => !ctx.images[n]).length;
+  if (missingImages > 0) say(`${missingImages} image(s) sur ${names.length} illisibles : si elles sont sur Cloudflare R2, vérifie la règle CORS du bucket.`);
 
   // 4) japonais : tracés des kanji (KanjiVG)
   if (o.languageCode === 'ja') {
