@@ -62,7 +62,7 @@ Un navigateur affiche une image venant d'un autre site (R2) sans autorisation, m
 Or la génération des PDF convertit chaque image en JPEG avec un canvas : sans règle CORS, les images manquent dans les PDF.
 
 Cloudflare → R2 → ton bucket → **Settings → CORS Policy → Add CORS policy**, colle (remplace l'adresse par celle de ton application,
-sans « / » final ; garde `http://localhost:3000` seulement si tu testes en local) :
+**sans « / » à la fin**, sinon la règle ne s'applique pas : `https://mon-site.vercel.app` et non `https://mon-site.vercel.app/` ; garde `http://localhost:3000` seulement si tu testes en local) :
 
 ```json
 [

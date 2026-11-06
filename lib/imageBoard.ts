@@ -84,6 +84,27 @@ function clusters(sum: number[], threshold: number): Cluster[] {
   return out;
 }
 
+type Line = { c: number; t: number };
+
+/**
+ * Regroupe les traits d'un axe en paires (début, fin) de carte : le début est tout trait dont la distance au trait suivant est « grande »
+ * (au moins 60 % de la grande distance typique, mesurée au 80ᵉ percentile des distances entre traits voisins).
+ */
+function pairLines(lines: Line[]): { a: Line; b: Line }[] {
+  if (lines.length < 2) return [];
+  const d = lines.slice(1).map((l, i) => l.c - lines[i].c);
+  const sorted = d.slice().sort((x, y) => x - y);
+  const ref = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.8))];
+  const out: { a: Line; b: Line }[] = [];
+  for (let i = 0; i < d.length; i++) {
+    if (d[i] >= 0.6 * ref) {
+      out.push({ a: lines[i], b: lines[i + 1] });
+      i++; // le trait de fin appartient à cette carte : il ne peut pas être le début de la suivante
+    }
+  }
+  return out;
+}
+
 /**
  * Lit la grille RÉELLE de la planche d'après les traits magenta : nombre de colonnes = traits verticaux / 2, nombre de rangées =
  * traits horizontaux / 3 (haut, séparation, bas de chaque carte). La planche peut donc faire 20 cartes (5 × 4), 60 (5 × 12) ou autre chose :
@@ -110,25 +131,30 @@ export function detectGrid(data: ArrayLike<number>, w: number, h: number, hint: 
   const vl = hasLines ? clusters(colSum, maxC * 0.5) : [];
   const hl = hasLines ? clusters(rowSum, maxR * 0.5) : [];
 
-  // Cas normal : tous les traits sont retrouvés (2 par colonne, 3 par rangée) → grille exacte, quel que soit le nombre de cartes
-  if (vl.length >= 2 && vl.length % 2 === 0 && hl.length >= 3 && hl.length % 3 === 0) {
-    const cols = vl.length / 2;
-    const rows = hl.length / 3;
+  // Lecture par « grandes distances » : sur un axe, la plus grande distance entre deux traits voisins est la zone d'illustration (rangées)
+  // ou la largeur d'une carte (colonnes) ; les petites distances sont la zone de texte et l'espace entre cartes. Un trait manquant, en trop
+  // ou dédoublé ne décale donc plus toutes les cartes suivantes (le comptage « 3 traits par rangée » se décalait au premier accroc).
+  const colPairs = pairLines(vl);
+  const rowPairs = pairLines(hl);
+  if (colPairs.length >= 1 && rowPairs.length >= 1) {
     const rects: Rect[] = [];
-    for (let j = 0; j < rows; j++) {
-      for (let i = 0; i < cols; i++) {
-        const l = vl[2 * i];
-        const r = vl[2 * i + 1];
-        const top = hl[3 * j];
-        const sep = hl[3 * j + 1];
-        const x0 = Math.round(l.c + l.t / 2 + 4);
-        const x1 = Math.round(r.c - r.t / 2 - 4);
-        const y0 = Math.round(top.c + top.t / 2 + 4);
-        const y1 = Math.round(sep.c - sep.t / 2 - 4);
+    for (const rp of rowPairs) {
+      for (const cp of colPairs) {
+        const x0 = Math.round(cp.a.c + cp.a.t / 2 + 4);
+        const x1 = Math.round(cp.b.c - cp.b.t / 2 - 4);
+        const y0 = Math.round(rp.a.c + rp.a.t / 2 + 4);
+        const y1 = Math.round(rp.b.c - rp.b.t / 2 - 4);
         rects.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
       }
     }
-    if (rects.every((r) => r.w > 10 && r.h > 10)) return { rects, method: 'lines', cols, rows };
+    const med = (arr: number[]) => arr.slice().sort((x, y) => x - y)[Math.floor(arr.length / 2)];
+    const mw = med(rects.map((r) => r.w));
+    const mh = med(rects.map((r) => r.h));
+    const regular = rects.every((r) => r.w > 10 && r.h > 10 && Math.abs(r.w - mw) <= 0.15 * mw && Math.abs(r.h - mh) <= 0.18 * mh);
+    if (regular) {
+      const exact = vl.length === colPairs.length * 2 && hl.length === rowPairs.length * 3;
+      return { rects, method: exact ? 'lines' : 'fit', cols: colPairs.length, rows: rowPairs.length };
+    }
   }
 
   // Traits incomplets : on estime les dimensions (traits ÷ 2 ou ÷ 3, à un trait près), sinon celles attendues par l'appelant
@@ -198,6 +224,7 @@ export async function loadBoard(file: File, hint?: { cols: number; rows: number 
 }
 
 export async function cropToWebp(canvas: HTMLCanvasElement, rect: Rect, quality = 0.9): Promise<Blob> {
+  if (!rect) throw new Error("La planche contient moins de cartes que de mots attendus : demande à ChatGPT le nombre exact de cartes, ou découpe seulement les premiers mots.");
   const x = Math.max(0, rect.x);
   const y = Math.max(0, rect.y);
   const w = Math.min(canvas.width - x, rect.w);
