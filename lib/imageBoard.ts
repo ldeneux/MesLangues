@@ -1,35 +1,61 @@
-// Planche de 60 illustrations (5 colonnes × 12 rangées) : prompt pour ChatGPT, découpe de l'image reçue, export ZIP.
+// Planche d'illustrations (5 colonnes × 4 rangées = 20 cartes par défaut) : prompt, découpe de l'image reçue, export ZIP.
 // Module sans dépendance. Les fonctions « navigateur » (canvas) ne sont appelées que depuis un composant client.
 
 export const BOARD_COLS = 5;
-export const BOARD_ROWS = 12;
+export const BOARD_ROWS = 4; // 20 cartes : la planche que l'API et ChatGPT réussissent le mieux (1536 × 1024)
 export const BOARD_SIZE = BOARD_COLS * BOARD_ROWS;
+
+// ---------------------------------------------------------------------
+// Génération automatique (API OpenAI) : taille, qualité par défaut, coûts indicatifs
+// ---------------------------------------------------------------------
+export const BOARD_IMAGE_SIZE = '1536x1024';
+// Qualité par défaut de la génération automatique (changeable sans toucher au code : variable OPENAI_IMAGE_QUALITY, voir imageGenServer.ts).
+// low / medium / high / xhigh / max : plus c'est haut, plus l'image est fidèle (grille régulière, texte net) et plus c'est cher.
+export const BOARD_IMAGE_QUALITY = 'high';
+export const AUTO_BOARD_CHOICES = [1, 2, 5, 10, 20, 50];
+
+// Coût INDICATIF d'une planche 1536 × 1024 (en dollars). Estimations à vérifier dans le tableau de bord OpenAI : la facturation réelle fait foi.
+const BOARD_COST_TABLE: Record<string, Record<string, number>> = {
+  'gpt-image-1-mini': { low: 0.006, medium: 0.016, high: 0.054 },
+  'gpt-image-1.5': { low: 0.013, medium: 0.05, high: 0.2 },
+  'gpt-image-2': { low: 0.005, medium: 0.041, high: 0.165, xhigh: 0.35, max: 0.6 },
+  'gpt-image-2.5-sunburst': { low: 0.005, medium: 0.041, high: 0.165, xhigh: 0.35, max: 0.6 },
+  'gpt-image-2.5-flare': { low: 0.005, medium: 0.03, high: 0.12, xhigh: 0.25, max: 0.45 },
+};
+export function estimateBoardCostUsd(model: string, quality: string): number {
+  return BOARD_COST_TABLE[model]?.[quality] ?? BOARD_COST_TABLE['gpt-image-2.5-sunburst'][quality] ?? 0.2;
+}
+export const BOARD_COST_USD = estimateBoardCostUsd('gpt-image-2.5-sunburst', BOARD_IMAGE_QUALITY);
 
 // ---------------------------------------------------------------------
 // Prompt
 // ---------------------------------------------------------------------
-export function buildBoardPrompt(words: string[]): string {
-  const clean = words.slice(0, BOARD_SIZE).map((w) => w.replace(/;/g, ',').trim());
-  const rows: string[] = [];
-  for (let r = 0; r < BOARD_ROWS; r++) {
+export function buildBoardPrompt(words: string[], rows: number = BOARD_ROWS): string {
+  const size = BOARD_COLS * rows;
+  const clean = words.slice(0, size).map((w) => w.replace(/;/g, ',').trim());
+  const lines: string[] = [];
+  for (let r = 0; r < rows; r++) {
     const cells = [];
     for (let c = 0; c < BOARD_COLS; c++) cells.push(clean[r * BOARD_COLS + c] ?? '(carte vide)');
-    rows.push(`Rangée ${r + 1} : ${cells.join(';')}`);
-    if ((r + 1) % 4 === 0 && r + 1 < BOARD_ROWS) rows.push(''); // ligne vide tous les 4 rangs : aide ChatGPT à ne pas perdre le fil
+    lines.push(`Rangée ${r + 1} : ${cells.join(';')}`);
+    if (rows > 4 && (r + 1) % 4 === 0 && r + 1 < rows) lines.push(''); // grandes planches : ligne vide tous les 4 rangs (aide à ne pas perdre le fil)
   }
   const empty =
-    clean.length < BOARD_SIZE
+    clean.length < size
       ? `\n* Les cartes marquées « (carte vide) » gardent le même cadre magenta et la même ligne de séparation, mais restent entièrement vides : aucune illustration, aucun texte.`
       : '';
+  // 20 cartes : format paysage 3:2 et dimensions d'une carte indiquées (marges de 3 %, espaces de 1 %) ; 60 cartes : format vertical haute résolution
+  const format = rows === 4 ? 'au format paysage 3:2 (1536 × 1024 px)' : 'au format paysage  (1536 × 3072 ou la plus haute résolution disponible dans ce même rapport)';
+  const cardShape = rows === 4 ? '\n* Chaque carte est un rectangle un peu plus large que haut (environ 277 × 233 px), jamais aplati ni étiré.' : '';
 
-  return `Crée une planche éducative de vocabulaire français de ${BOARD_SIZE} cartes illustrées, au format paysage  (1536 × 3072 ou la plus haute résolution disponible dans ce même rapport), sur un fond blanc pur (#FFFFFF).
+  return `Crée une planche éducative de vocabulaire français de ${size} cartes illustrées, ${format}, sur un fond blanc pur (#FFFFFF).
 
 MISE EN PAGE (précision géométrique impérative)
 
-* Grille de ${BOARD_COLS} colonnes × ${BOARD_ROWS} rangées = ${BOARD_SIZE} cartes, toutes exactement de la même taille, parfaitement alignées en colonnes et en rangées, y compris sur la dernière rangée (jamais de cartes plus petites, plus grandes ou décalées).
+* Grille de ${BOARD_COLS} colonnes × ${rows} rangées = ${size} cartes, toutes exactement de la même taille, parfaitement alignées en colonnes et en rangées, y compris sur la dernière rangée (jamais de cartes plus petites, plus grandes ou décalées).${cardShape}
 * Marge extérieure identique sur les 4 côtés (environ 3 %) et espace identique entre les cartes (environ 1 %).
 * Chaque carte est entourée d'un rectangle à angles droits (pas de coins arrondis), en trait plein magenta pur (#FF00FF) de 3 px d'épaisseur. Pas de pointillés, pas d'ombre, pas de dégradé.
-* Dans chaque carte, une ligne horizontale magenta pure (#FF00FF), de même épaisseur, sépare la zone d'illustration (environ 78 % de la hauteur) de la zone de texte (environ 22 %). Cette ligne est à la même hauteur relative dans les ${BOARD_SIZE} cartes.
+* Dans chaque carte, une ligne horizontale magenta pure (#FF00FF), de même épaisseur, sépare la zone d'illustration (environ 78 % de la hauteur) de la zone de texte (environ 22 %). Cette ligne est à la même hauteur relative dans les ${size} cartes.
 * Le magenta est réservé à ces traits : aucune autre couleur magenta, fuchsia ou rose vif dans les illustrations, vêtements ou décors.${empty}
 
 ILLUSTRATIONS
@@ -45,7 +71,7 @@ TEXTE
 * Respecter exactement l'orthographe, les accents, la ponctuation et les majuscules des mots donnés.
 * Aucun titre, aucune numérotation, aucune décoration, aucun autre texte.
 
-${rows.join('\n')}`;
+${lines.join('\n')}`;
 }
 
 // ---------------------------------------------------------------------
@@ -59,6 +85,7 @@ export type GridResult = {
   method: 'lines' | 'fit' | 'grid';
   cols: number; // colonnes réellement lues sur la planche
   rows: number; // rangées réellement lues sur la planche (cols × rows cartes)
+  suspect?: boolean[]; // par carte : vignette douteuse (un trait magenta traverse la zone, ou taille très différente des autres) → à vérifier
 };
 
 function isMagenta(r: number, g: number, b: number): boolean {
@@ -110,7 +137,7 @@ function pairLines(lines: Line[]): { a: Line; b: Line }[] {
  * traits horizontaux / 3 (haut, séparation, bas de chaque carte). La planche peut donc faire 20 cartes (5 × 4), 60 (5 × 12) ou autre chose :
  * ChatGPT ne respecte pas toujours le nombre demandé. `hint` ne sert que si les traits sont trop abîmés pour être comptés.
  */
-export function detectGrid(data: ArrayLike<number>, w: number, h: number, hint: { cols: number; rows: number } = { cols: BOARD_COLS, rows: BOARD_ROWS }): GridResult {
+function detectGridCore(data: ArrayLike<number>, w: number, h: number, hint: { cols: number; rows: number } = { cols: BOARD_COLS, rows: BOARD_ROWS }): GridResult {
   const colSum = new Array<number>(w).fill(0);
   const rowSum = new Array<number>(h).fill(0);
   for (let y = 0; y < h; y++) {
@@ -207,6 +234,37 @@ export function detectGrid(data: ArrayLike<number>, w: number, h: number, hint: 
   }
   const usedLines = hasLines && hl.length >= 2 && vl.length >= 2;
   return { rects, method: usedLines ? 'fit' : 'grid', cols: C, rows: R };
+}
+
+/** Vignettes douteuses : un trait magenta long traverse la zone découpée (cadre mal repéré), ou sa taille s'écarte beaucoup des autres. */
+function flagSuspects(data: ArrayLike<number>, w: number, h: number, rects: Rect[]): boolean[] {
+  const med = (arr: number[]) => arr.slice().sort((x, y) => x - y)[Math.floor(arr.length / 2)];
+  const mw = med(rects.map((r) => r.w));
+  const mh = med(rects.map((r) => r.h));
+  return rects.map((r) => {
+    if (r.w < 20 || r.h < 20 || Math.abs(r.w - mw) > 0.12 * mw || Math.abs(r.h - mh) > 0.15 * mh) return true;
+    const rowSum = new Array<number>(r.h).fill(0);
+    const colSum = new Array<number>(r.w).fill(0);
+    for (let y = 0; y < r.h; y++) {
+      const yy = r.y + y;
+      if (yy < 0 || yy >= h) continue;
+      for (let x = 0; x < r.w; x++) {
+        const xx = r.x + x;
+        if (xx < 0 || xx >= w) continue;
+        const i = (yy * w + xx) * 4;
+        if (isMagenta(data[i], data[i + 1], data[i + 2])) {
+          rowSum[y]++;
+          colSum[x]++;
+        }
+      }
+    }
+    return rowSum.some((v) => v > 0.35 * r.w) || colSum.some((v) => v > 0.35 * r.h);
+  });
+}
+
+export function detectGrid(data: ArrayLike<number>, w: number, h: number, hint: { cols: number; rows: number } = { cols: BOARD_COLS, rows: BOARD_ROWS }): GridResult {
+  const g = detectGridCore(data, w, h, hint);
+  return { ...g, suspect: flagSuspects(data, w, h, g.rects) };
 }
 
 // ---------------------------------------------------------------------

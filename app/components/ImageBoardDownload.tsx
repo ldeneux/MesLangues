@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getMissingImageWords, type BoardWord, type MissingImageSummary } from '../../lib/imageBoardServer';
-import { generateBoardImage } from '../../lib/imageGenServer';
+import { generateBoardImage, getBoardGenConfig, type BoardGenConfig } from '../../lib/imageGenServer';
 import { saveWordImages } from '../../lib/imageStorageServer';
 import { AUTO_BOARD_CHOICES, BOARD_COST_USD, BOARD_SIZE, buildBoardPrompt, cropToWebp, loadBoard, makeZip } from '../../lib/imageBoard';
 import { LANGS } from '../../lib/constants';
@@ -48,7 +48,7 @@ function readHidden(lang: string): Set<string> {
 
 /**
  * Images manquantes d'une langue (tous niveaux, A1 → B2), par planches de 20 mots.
- *  - Automatique : génère n planches avec gpt-image-1-mini (qualité medium), les découpe en .webp nommés d'après le mot français.
+ *  - Automatique : génère n planches avec le modèle et la qualité réglés côté serveur (voir imageGenServer.ts), les découpe en .webp nommés d'après le mot français.
  *  - Manuel : prépare le prompt d'une planche pour ChatGPT, puis découpe l'image reçue.
  * Les images sont envoyées sur Cloudflare R2 (table word_images), ou téléchargées en ZIP.
  */
@@ -65,6 +65,7 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
   const [method, setMethod] = useState<GridMethod | null>(null);
   const [autoCount, setAutoCount] = useState(10); // nombre de planches à générer au lancement
   const [auto, setAuto] = useState<AutoState | null>(null);
+  const [cfg, setCfg] = useState<BoardGenConfig | null>(null); // modèle, qualité et coût indicatif d'une planche (réglés côté serveur)
   const cancelRef = useRef(false);
   const [sending, setSending] = useState<SendState | null>(null);
   const cardsRef = useRef<Card[]>([]);
@@ -89,6 +90,10 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
   }, [languageCode]);
 
   useEffect(() => () => cardsRef.current.forEach((c) => URL.revokeObjectURL(c.url)), []);
+  useEffect(() => {
+    getBoardGenConfig().then(setCfg).catch(() => {});
+  }, []);
+  const unitUsd = cfg?.costUsd ?? BOARD_COST_USD;
 
   const remaining = useMemo(() => (summary ? summary.words.filter((w) => !hidden.has(w.name)) : []), [summary, hidden]);
   const batch = useMemo(() => remaining.slice(0, BOARD_SIZE), [remaining]);
@@ -149,11 +154,19 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
   // Une planche : génération (avec nouvelles tentatives) puis découpe en vignettes
   async function makeBoard(words: BoardWordLite[]): Promise<{ cards: Card[]; method: GridMethod }> {
     let lastError = '';
+    let regen = 0;
     for (let attempt = 1; attempt <= AUTO_RETRIES; attempt++) {
       if (cancelRef.current) throw new Error('Annulé');
       const res = await generateBoardImage(words.map((w) => w.fr));
       if (res.ok && res.b64) {
         const { canvas, grid } = await loadBoard(b64ToFile(res.b64));
+        // Grille pas parfaitement lue (trait manquant, cartes inégales, plusieurs vignettes douteuses) : une nouvelle planche est demandée une fois,
+        // plutôt que de livrer des découpes approximatives (coût : une planche de plus, uniquement dans ce cas)
+        const doubtful = (grid.suspect ?? []).filter(Boolean).length;
+        if ((grid.rects.length < words.length || grid.method !== 'lines' || doubtful > 2) && regen < 1) {
+          regen++;
+          continue;
+        }
         if (grid.rects.length < words.length) throw new Error('Grille non reconnue sur cette planche.');
         const out: Card[] = [];
         for (let i = 0; i < words.length; i++) {
@@ -178,10 +191,10 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
     if (words.length === 0) return;
     const chunks: BoardWordLite[][] = [];
     for (let i = 0; i < words.length; i += BOARD_SIZE) chunks.push(words.slice(i, i + BOARD_SIZE));
-    const usd = chunks.length * BOARD_COST_USD;
+    const usd = chunks.length * unitUsd;
     if (
       !window.confirm(
-        `Générer ${chunks.length} planche(s) de ${BOARD_SIZE} mots (${words.length} images) avec gpt-image-1-mini, qualité medium ?\n\nCoût estimé : ≈ ${usd.toFixed(2)} $ (≈ ${(usd * USD_TO_EUR).toFixed(2)} €).\nGarde cet onglet ouvert pendant la génération.`
+        `Générer ${chunks.length} planche(s) de ${BOARD_SIZE} mots (${words.length} images) avec ${cfg ? `${cfg.model}, qualité ${cfg.quality}` : 'le modèle réglé côté serveur'} ?\n\nCoût estimé : ≈ ${usd.toFixed(2)} $ (≈ ${(usd * USD_TO_EUR).toFixed(2)} €).\nGarde cet onglet ouvert pendant la génération.`
       )
     ) {
       return;
@@ -299,7 +312,7 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
   const autoRunning = auto?.running ?? false;
   const sendingNow = sending?.running ?? false;
   const autoBoards = Math.min(autoCount, Math.ceil(remaining.length / BOARD_SIZE));
-  const autoUsd = autoBoards * BOARD_COST_USD;
+  const autoUsd = autoBoards * unitUsd;
 
   return (
     <div className="pack-list" style={{ marginTop: '2rem' }}>
@@ -329,7 +342,7 @@ export default function ImageBoardDownload({ languageCode }: { languageCode: str
         <div>
           <div style={{ border: '1px solid rgba(128,128,128,.4)', borderRadius: 6, padding: '0.6rem 0.75rem', marginTop: '0.75rem' }}>
             <p className="eyebrow-free" style={{ marginTop: 0 }}>
-              <strong>Génération automatique</strong> — gpt-image-1-mini, qualité medium, {BOARD_SIZE} mots par planche (A1 → B2). Les planches sont
+              <strong>Génération automatique</strong> — {cfg ? `${cfg.model}, qualité ${cfg.quality}` : 'modèle réglé côté serveur'} (≈ {unitUsd.toFixed(2)} $ la planche, estimation), {BOARD_SIZE} mots par planche (A1 → B2). Les planches sont
               générées, découpées et rassemblées dans un seul ZIP.
             </p>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
