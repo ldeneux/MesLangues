@@ -28,6 +28,8 @@ export default function LanguageHub() {
   const [level, setLevel] = useState<LevelCode>('A1');
   const [tab, setTab] = useState<Tab>('today');
   const [examLocked, setExamLocked] = useState(false); // vrai pendant une épreuve d'examen : navigation masquée
+  // Mot à ouvrir dans le vocabulaire (double-clic dans la recherche) : survit au changement de langue / de niveau
+  const [focusWord, setFocusWord] = useState<{ id: string; theme: string } | null>(null);
 
   function handleLangChange(l: LangCode) {
     setLang(l);
@@ -38,12 +40,19 @@ export default function LanguageHub() {
     setLevel(lv);
   }
 
+  function openWordInVocabulary(t: { language: string; level: string; wordId: string; themeCode: string }) {
+    setLang(t.language as LangCode);
+    setLevel(t.level as LevelCode);
+    setFocusWord({ id: t.wordId, theme: t.themeCode });
+    setTab('vocabulary');
+  }
+
   if (loading) return <p className="eyebrow-free">Chargement…</p>;
   if (!profile) return <ProfileGate />;
 
   return (
     <>
-      {!examLocked && <TopBar lang={lang} level={level} onLangChange={handleLangChange} onLevelChange={handleLevelChange} />}
+      {!examLocked && <TopBar lang={lang} level={level} onLangChange={handleLangChange} onLevelChange={handleLevelChange} onOpenWord={openWordInVocabulary} />}
       <div className="hub-layout">
         {!examLocked && <Sidebar tab={tab} onTabChange={setTab} showKana={lang === 'ja'} showKanji={lang === 'ja'} showReading />}
 
@@ -55,7 +64,7 @@ export default function LanguageHub() {
           {tab === 'today' && <LearnPanel profileId={profile.id} lang={lang} level={level} />}
           {tab === 'revision' && <RevisionPanel languageCode={lang} levelCode={level} />}
           {tab === 'packs' && <PacksPanel languageCode={lang} levelCode={level} />}
-          {tab === 'vocabulary' && <VocabularyPanel profileId={profile.id} languageCode={lang} levelCode={level} />}
+          {tab === 'vocabulary' && <VocabularyPanel profileId={profile.id} languageCode={lang} levelCode={level} focusWord={focusWord} onFocusHandled={() => setFocusWord(null)} />}
           {tab === 'grammar' && <GrammarPanel profileId={profile.id} languageCode={lang} />}
           {tab === 'conjugation' && <ConjugationPanel languageCode={lang} levelCode={level} />}
           {tab === 'writing' && <WritingPanel profileId={profile.id} languageCode={lang} levelCode={level} />}

@@ -2295,3 +2295,12 @@ button.primary.danger { background: #a3402f; color: #fff; }
 .reading-pop-note { margin-top: 0.15rem; color: var(--ink-soft); font-size: 0.85rem; }
 .reading-pop-wait { margin-top: 0.25rem; color: var(--ink-soft); }
 .reading-pop-src { margin-top: 0.4rem; font-size: 0.7rem; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* ---- Mot sélectionné dans le vocabulaire (ouvert depuis la recherche) ---- */
+.lesson-word-card.selected-word { outline: 3px solid var(--ink); outline-offset: 2px; background: #fff8e1; animation: word-pop 0.6s ease-out 1; }
+@keyframes word-pop { 0% { transform: scale(0.96); } 60% { transform: scale(1.03); } 100% { transform: scale(1); } }
+.search-cell.openable { cursor: pointer; user-select: none; }
+.search-cell.openable:hover { border-color: var(--ink); }
+.delete-scope { display: flex; flex-direction: column; gap: 0.4rem; margin: 1rem 0 0.2rem; font-size: 0.95rem; }
+.delete-scope label { display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer; }
+.delete-list { margin: 0.4rem 0 0; font-size: 0.9rem; color: var(--ink-soft); }

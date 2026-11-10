@@ -95,7 +95,7 @@ export async function reopenVocabularyPack(packId: string): Promise<void> {
 
 /**
  * Supprime définitivement un mot de la base (progression, définition… partent avec lui, en cascade) et son fichier audio.
- * Le pack du mot reste « prêt » avec son nouveau nombre de mots : s'il passe sous l'objectif, il s'affiche « Clôturé »
+ * Le statut du pack ne change pas ; son compteur est mis à jour. Un pack « prêt » qui passe sous l'objectif s'affiche « Clôturé »
  * (et non « Incomplet »), donc ses mots restent visibles.
  */
 export async function deleteVocabularyWord(wordId: string): Promise<{ packId: string | null; remaining: number }> {
@@ -120,13 +120,54 @@ export async function deleteVocabularyWord(wordId: string): Promise<{ packId: st
       .select('id', { count: 'exact', head: true })
       .eq('pack_id', word.pack_id);
     remaining = count ?? 0;
-    // « ready » : le pack reste visible, quel que soit son état avant la suppression
-    await supabaseAdmin
-      .from('vocabulary_packs')
-      .update({ status: 'ready', generated_count: remaining, completed_at: new Date().toISOString() })
-      .eq('id', word.pack_id);
+    // Seul le compteur change : le statut du pack n'est jamais modifié (un pack « prêt » qui passe sous son objectif s'affiche « Clôturé »,
+    // une extension reste une extension, un pack en cours de génération n'est pas promu). Les mots supprimés étaient visibles, donc leur pack était prêt ou extension.
+    await supabaseAdmin.from('vocabulary_packs').update({ generated_count: remaining }).eq('id', word.pack_id);
   }
   return { packId: word.pack_id ?? null, remaining };
+}
+
+export type VocabularySibling = { id: string; language_code: string; level_code: string; target_text: string };
+
+/**
+ * Les mots qui disent la même chose dans les autres langues : même forme française (casse ignorée) ET même niveau, y compris le mot lui-même.
+ * Sert à « supprimer dans toutes les langues ».
+ */
+export async function findVocabularySiblings(wordId: string): Promise<VocabularySibling[]> {
+  const { data: w, error } = await supabaseAdmin
+    .from('vocabulary_words')
+    .select('id, language_code, level_code, target_text, translation_fr')
+    .eq('id', wordId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!w) throw new Error('Mot introuvable (déjà supprimé ?).');
+  const esc = (w.translation_fr as string).replace(/[\\%_]/g, (c) => `\\${c}`);
+  const { data, error: sibError } = await supabaseAdmin
+    .from('vocabulary_words')
+    .select('id, language_code, level_code, target_text')
+    .ilike('translation_fr', esc)
+    .eq('level_code', w.level_code)
+    .limit(100);
+  if (sibError) throw new Error(sibError.message);
+  const rows = (data ?? []) as VocabularySibling[];
+  if (!rows.some((r) => r.id === w.id)) rows.push({ id: w.id, language_code: w.language_code, level_code: w.level_code, target_text: w.target_text });
+  return rows.sort((a, b) => a.language_code.localeCompare(b.language_code) || a.target_text.localeCompare(b.target_text));
+}
+
+/** Supprime le mot dans TOUTES les langues (voir findVocabularySiblings) : base, progression, audio, compteurs des packs. */
+export async function deleteVocabularyWordEverywhere(wordId: string): Promise<{ deleted: VocabularySibling[]; failed: string[] }> {
+  const siblings = await findVocabularySiblings(wordId);
+  const deleted: VocabularySibling[] = [];
+  const failed: string[] = [];
+  for (const sib of siblings) {
+    try {
+      await deleteVocabularyWord(sib.id);
+      deleted.push(sib);
+    } catch (e: any) {
+      failed.push(`${sib.language_code} « ${sib.target_text} » : ${e?.message ?? e}`);
+    }
+  }
+  return { deleted, failed };
 }
 
 export type PackWord = {

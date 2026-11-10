@@ -12,7 +12,9 @@ import WordTranslations from './WordTranslations';
  *    (la partie proposée est sélectionnée : Retour arrière ou une autre touche la remplace) ;
  *  - en quittant la saisie (Tab, clic ailleurs, Entrée) : traduction + image du mot à gauche des traductions.
  */
-export default function SearchModal({ onClose, defaultLevel = 'A1' }: { onClose: () => void; defaultLevel?: string }) {
+export type OpenWordTarget = { language: string; level: string; wordId: string; themeCode: string };
+
+export default function SearchModal({ onClose, defaultLevel = 'A1', onOpenWord }: { onClose: () => void; defaultLevel?: string; onOpenWord?: (t: OpenWordTarget) => void }) {
   const [text, setText] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [result, setResult] = useState<DictionaryResult | null>(null);
@@ -193,7 +195,15 @@ export default function SearchModal({ onClose, defaultLevel = 'A1' }: { onClose:
 
         {error && <p className="conv-warning">{error}</p>}
 
-        <WordTranslations result={result} loading={loading} />
+        <WordTranslations
+          result={result}
+          loading={loading}
+          onOpenEntry={
+            onOpenWord
+              ? (code, entry) => entry.id && entry.level && onOpenWord({ language: code, level: entry.level, wordId: entry.id, themeCode: entry.theme ?? '' })
+              : undefined
+          }
+        />
 
         {result && !loading && Object.values(result.entries).some(Boolean) && (
           <div className="search-add">
@@ -247,7 +257,7 @@ export default function SearchModal({ onClose, defaultLevel = 'A1' }: { onClose:
         )}
 
         <p className="eyebrow-free" style={{ marginTop: '1rem', marginBottom: 0 }}>
-          Tape un mot, puis quitte la saisie (Tab ou Entrée) pour voir les traductions. Les mots déjà dans ton vocabulaire viennent de la base ; les autres sont
+          Tape un mot, puis quitte la saisie (Tab ou Entrée) pour voir les traductions. Double-clic sur un mot de ta base : il s'ouvre dans le vocabulaire. Les mots déjà dans ton vocabulaire viennent de la base ; les autres sont
           traduits à la demande (étiquette « IA ») ; ils ne sont enregistrés que si tu cliques sur « Ajouter au vocabulaire ».
         </p>
       </div>

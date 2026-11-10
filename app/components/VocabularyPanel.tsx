@@ -25,10 +25,14 @@ export default function VocabularyPanel({
   profileId,
   languageCode,
   levelCode,
+  focusWord,
+  onFocusHandled,
 }: {
   profileId: string;
   languageCode: string;
   levelCode: string;
+  focusWord?: { id: string; theme: string } | null; // mot à afficher et sélectionner (venant de la recherche)
+  onFocusHandled?: () => void;
 }) {
   const [subTab, setSubTab] = useState<SubTab>('list');
   const [words, setWords] = useState<VocabularyWordWithMastery[] | null>(null);
@@ -42,6 +46,7 @@ export default function VocabularyPanel({
   const includePrev = includePrevRaw && levelCode !== 'A1';
   const [error, setError] = useState('');
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null); // mot sélectionné (surligné)
 
   const isJa = languageCode === 'ja';
   const [furigana, setFurigana] = usePersistentFlag('ja-furigana', levelCode === 'A1' || levelCode === 'A2');
@@ -107,6 +112,38 @@ export default function VocabularyPanel({
   useEffect(() => {
     setVisible(PAGE);
   }, [themeFilter, typeFilter, masteredOnly, favoritesOnly, words]);
+
+  // 1) Arrivée depuis la recherche : on cale les filtres sur le mot (son thème, toutes natures) et on le sélectionne
+  useEffect(() => {
+    if (!focusWord || words === null) return;
+    const w = words.find((x) => x.id === focusWord.id);
+    if (w) {
+      setSubTab('list');
+      setThemeChoice(w.theme_code);
+      setTypeFilter('all');
+      setMasteredOnly(false);
+      setFavoritesOnly(false);
+      setSelectedId(w.id);
+    } else {
+      setError("Ce mot n'apparaît pas dans la liste : son pack est peut-être inactif ou pas encore clôturé (onglet Packs).");
+    }
+    onFocusHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusWord, words]);
+
+  // 2) Le mot sélectionné peut être plus bas que la page affichée : on agrandit la liste, puis on le fait défiler à l'écran
+  useEffect(() => {
+    if (!selectedId) return;
+    const idx = filtered.findIndex((x) => x.id === selectedId);
+    if (idx < 0) return;
+    if (idx >= visible) {
+      setVisible(idx + PAGE);
+      return;
+    }
+    const t = setTimeout(() => document.querySelector(`[data-word-id="${selectedId}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 80);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, filtered, visible]);
   const { readings, error: readingError, loading: readingLoading } = useJapaneseReadings(
     isJa ? shown.map((w) => w.target_text) : [],
     isJa && subTab === 'list' && (furigana || romaji)
@@ -217,8 +254,10 @@ export default function VocabularyPanel({
                 {shown.map((w) => (
                   <div
                     key={w.id}
-                    className="lesson-word-card"
+                    data-word-id={w.id}
+                    className={`lesson-word-card${selectedId === w.id ? ' selected-word' : ''}`}
                     title="Double-clic : supprimer ce mot"
+                    onClick={() => setSelectedId(w.id)}
                     onDoubleClick={(e) => {
                       if ((e.target as HTMLElement).closest('.play-btn')) return; // double-clic sur ▶ = pas une suppression
                       setToDelete(w);
@@ -282,8 +321,9 @@ export default function VocabularyPanel({
           languageCode={languageCode}
           levelCode={levelCode}
           onCancel={() => setToDelete(null)}
-          onDeleted={(id) => {
-            setWords((prev) => (prev ? prev.filter((x) => x.id !== id) : prev));
+          onChanged={(ids) => setWords((prev) => (prev ? prev.filter((x) => !ids.includes(x.id)) : prev))}
+          onDeleted={(ids) => {
+            setWords((prev) => (prev ? prev.filter((x) => !ids.includes(x.id)) : prev));
             setToDelete(null);
           }}
         />

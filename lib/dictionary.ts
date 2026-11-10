@@ -19,6 +19,8 @@ export type DictionaryEntry = {
   romaji?: string;
   source: 'base' | 'ia'; // « base » : mot déjà dans le vocabulaire ; « ia » : traduit à la demande (rien n'est enregistré)
   level?: string; // niveau du mot dans le vocabulaire (source « base » uniquement)
+  id?: string; // identifiant du mot dans la base (source « base » uniquement) : sert à l'ouvrir dans le vocabulaire
+  theme?: string; // thème du mot (source « base » uniquement)
 };
 
 export type DictionaryResult = {
@@ -68,6 +70,8 @@ export async function suggestFrenchWords(prefix: string): Promise<string[]> {
 }
 
 type BaseRow = {
+  id: string;
+  theme_code: string | null;
   language_code: string;
   level_code: string;
   target_text: string;
@@ -95,7 +99,7 @@ async function lookupInternal(input: string, withAi: boolean): Promise<Dictionar
   const esc = likeEscape(q);
 
   // 1) Correspondance exacte (casse ignorée), puis à l'article près (« fromage » trouve « du fromage »).
-  const SELECT = 'language_code, level_code, target_text, translation_fr, audio_url';
+  const SELECT = 'id, theme_code, language_code, level_code, target_text, translation_fr, audio_url';
   let rows: BaseRow[] = [];
   const exact = await supabaseAdmin.from('vocabulary_words').select(SELECT).ilike('translation_fr', esc).limit(80);
   if (exact.error) throw new Error(exact.error.message);
@@ -144,7 +148,7 @@ async function lookupInternal(input: string, withAi: boolean): Promise<Dictionar
         return LEVEL_ORDER.indexOf(a.level_code) - LEVEL_ORDER.indexOf(b.level_code);
       });
     entries[code] = cands[0]
-      ? { text: cands[0].target_text, audio_url: cands[0].audio_url || null, source: 'base', level: cands[0].level_code }
+      ? { text: cands[0].target_text, audio_url: cands[0].audio_url || null, source: 'base', level: cands[0].level_code, id: cands[0].id, theme: cands[0].theme_code ?? undefined }
       : null;
   }
 

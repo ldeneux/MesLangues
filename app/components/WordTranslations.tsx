@@ -18,15 +18,19 @@ export default function WordTranslations({
   loading = false,
   waitLabel = 'Traduction…',
   highlightCode,
+  highlightCodes,
   highlightBadge,
   fallbackImage,
+  onOpenEntry,
 }: {
   result: DictionaryResult | null;
   loading?: boolean;
   waitLabel?: string;
   highlightCode?: string;
+  highlightCodes?: string[]; // plusieurs langues en surbrillance (suppression dans toutes les langues)
   highlightBadge?: string;
   fallbackImage?: string | null;
+  onOpenEntry?: (code: string, entry: DictionaryEntry) => void; // double-clic sur une ligne qui vient de la base : ouvrir le mot dans le vocabulaire
 }) {
   const [playingKey, setPlayingKey] = useState<string | null>(null);
   const image = result?.image ?? fallbackImage ?? null;
@@ -53,13 +57,18 @@ export default function WordTranslations({
       <div className="search-rows">
         {LANGS.map((l) => {
           const entry = result?.entries[l.code] ?? null;
-          const highlighted = highlightCode === l.code;
+          const highlighted = highlightCode === l.code || !!highlightCodes?.includes(l.code);
+          const openable = !!onOpenEntry && entry?.source === 'base' && !!entry.id;
           return (
             <div key={l.code} className="search-row">
               <span className="search-flag" title={l.label}>
                 <FlagIcon code={l.code} />
               </span>
-              <div className={`search-cell${entry ? '' : ' empty'}${highlighted ? ' highlight' : ''}`}>
+              <div
+                className={`search-cell${entry ? '' : ' empty'}${highlighted ? ' highlight' : ''}${openable ? ' openable' : ''}`}
+                title={openable ? 'Double-clic : ouvrir ce mot dans le vocabulaire' : undefined}
+                onDoubleClick={openable ? () => onOpenEntry!(l.code, entry!) : undefined}
+              >
                 {loading ? (
                   <span className="search-wait">{waitLabel}</span>
                 ) : entry ? (

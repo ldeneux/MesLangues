@@ -6,18 +6,20 @@ import { LANGS, LEVELS, type LangCode, type LevelCode } from '../../lib/constant
 import FlagIcon from './FlagIcon';
 import MyScoresPanel from './MyScoresPanel';
 import SettingsPanel from './SettingsPanel';
-import SearchModal from './SearchModal';
+import SearchModal, { type OpenWordTarget } from './SearchModal';
 
 export default function TopBar({
   lang,
   level,
   onLangChange,
   onLevelChange,
+  onOpenWord,
 }: {
   lang: LangCode;
   level: LevelCode;
   onLangChange: (l: LangCode) => void;
   onLevelChange: (l: LevelCode) => void;
+  onOpenWord?: (t: OpenWordTarget) => void; // ouvre un mot trouvé par la recherche dans l'onglet Vocabulaire
 }) {
   const { profile, profiles, selectProfile, addProfile } = useProfile();
   const [switching, setSwitching] = useState(false);
@@ -151,7 +153,18 @@ export default function TopBar({
         </div>
       </div>
 
-      {searchOpen && <SearchModal onClose={() => setSearchOpen(false)} defaultLevel={level} />}
+      {searchOpen && <SearchModal
+          onClose={() => setSearchOpen(false)}
+          defaultLevel={level}
+          onOpenWord={
+            onOpenWord
+              ? (t) => {
+                  setSearchOpen(false);
+                  onOpenWord(t);
+                }
+              : undefined
+          }
+        />}
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
 
       {scoresOpen && profile && (
